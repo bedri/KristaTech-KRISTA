@@ -88,8 +88,11 @@ namespace GuiTransactionsUtils {
         if (!informMsg.isEmpty()) parent->emitMessage(parent->translate("Send Coins"), informMsg, informType, 0);
     }
 
-    bool OfferUtxoConsolidation(QWidget* parent, WalletModel* walletModel, CAmount targetAmount, QString& errorOut)
+    bool OfferUtxoConsolidation(QWidget* parent, WalletModel* walletModel, CAmount targetAmount, QString& errorOut, bool* awaitingConfirmationOut)
     {
+        if (awaitingConfirmationOut) {
+            *awaitingConfirmationOut = false;
+        }
         if (!walletModel) {
             errorOut = QObject::tr("Wallet is not available.");
             return false;
@@ -100,10 +103,13 @@ namespace GuiTransactionsUtils {
         }
         static constexpr int MAX_ZERO_CONF_CONSOLIDATION_BYTES = 90000;
         const bool needsConfirmation = !bSpendZeroConfChange || plan.totalBytes > MAX_ZERO_CONF_CONSOLIDATION_BYTES;
+        const int totalKb = (plan.totalBytes + 512) / 1024;
+        const int limitKb = MAX_ZERO_CONF_CONSOLIDATION_BYTES / 1024;
         const QString followUpNote = needsConfirmation
-            ? QObject::tr("\n\nNote: Because this consolidation exceeds the instant zero-conf mempool limit (%1 KB) or requires a block confirmation, you will wait 1 confirmation (~30s) before retrying.")
-                  .arg((plan.totalBytes + 512) / 1024)
-            : QObject::tr("\n\nOnce confirmed, your Masternode/Send transaction will automatically continue.");
+            ? QObject::tr("\n\nNote: This consolidation (%1 KB) exceeds the instant zero-conf mempool limit (%2 KB) or requires a block confirmation, so you will need to wait 1 confirmation (~30–60s) before retrying.")
+                  .arg(totalKb)
+                  .arg(limitKb)
+            : QObject::tr("\n\nOnce consolidated, your Masternode/Send transaction will automatically continue.");
         const int dispUnit = walletModel->getOptionsModel() ? walletModel->getOptionsModel()->getDisplayUnit() : BitcoinUnits::PIV;
         DefaultDialog* dlg = new DefaultDialog(parent);
         dlg->setText(
@@ -129,13 +135,21 @@ namespace GuiTransactionsUtils {
             return false;
         }
         if (!bSpendZeroConfChange) {
+            if (awaitingConfirmationOut) {
+                *awaitingConfirmationOut = true;
+            }
             errorOut = QObject::tr("UTXOs consolidated in %1 transaction(s). Because -spendzeroconfchange=0 is enabled, please wait 1 confirmation before retrying.")
                            .arg(plan.batchCount);
             return false;
         }
         if (plan.totalBytes > MAX_ZERO_CONF_CONSOLIDATION_BYTES) {
-            errorOut = QObject::tr("Small UTXOs were consolidated in %1 transaction(s) (%2 KB total). Please wait 1 confirmation (~30 seconds) and retry to complete the transaction.")
+            if (awaitingConfirmationOut) {
+                *awaitingConfirmationOut = true;
+            }
+            errorOut = QObject::tr("Successfully consolidated %1 UTXOs into %2 transaction(s) (%3 total, %4 KB). Please wait 1 confirmation (~30–60 seconds) and retry to complete the transaction.")
+                           .arg(plan.inputCount)
                            .arg(plan.batchCount)
+                           .arg(BitcoinUnits::formatWithUnit(dispUnit, plan.totalInputAmount, false, BitcoinUnits::separatorAlways))
                            .arg((plan.totalBytes + 512) / 1024);
             return false;
         }

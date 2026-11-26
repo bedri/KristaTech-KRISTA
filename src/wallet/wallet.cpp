@@ -2724,6 +2724,26 @@ bool CWallet::SelectCoinsMinConf(const CAmount& nTargetValue, int nConfMine, int
         LogPrintf("%s - total %s\n", s, FormatMoney(nBest));
     }
 
+    // When a fragmented wallet causes stochastic subset selection to pick too many inputs
+    // (approaching MAX_STANDARD_TX_SIZE), fall back to largest-first greedy selection to
+    // minimize input count and transaction size.
+    static const size_t MAX_PREFERRED_INPUTS = 600;
+    if (setCoinsRet.size() > MAX_PREFERRED_INPUTS) {
+        std::set<std::pair<const CWalletTx*, unsigned int> > setGreedy;
+        CAmount nGreedyValue = 0;
+        for (unsigned int i = 0; i < vValue.size(); i++) {
+            setGreedy.insert(vValue[i].second);
+            nGreedyValue += vValue[i].first;
+            if (nGreedyValue >= nTargetValue) {
+                break;
+            }
+        }
+        if (nGreedyValue >= nTargetValue && setGreedy.size() < setCoinsRet.size()) {
+            setCoinsRet.swap(setGreedy);
+            nValueRet = nGreedyValue;
+        }
+    }
+
     return true;
 }
 

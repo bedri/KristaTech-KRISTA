@@ -1178,6 +1178,16 @@ void MasterNodesWidget::onCreateMNClicked()
             } else {
                 inform(dialog->returnStr);
             }
+        } else if (dialog->consolidationPending) {
+            DefaultDialog* infoDlg = new DefaultDialog(window);
+            infoDlg->setText(
+                tr("UTXO Consolidation Broadcast"),
+                dialog->returnStr,
+                tr("OK"),
+                QString()
+            );
+            openDialogWithOpaqueBackgroundY(infoDlg, window, 5, 7);
+            infoDlg->deleteLater();
         } else {
             warn(tr("Error creating masternode"), dialog->returnStr);
         }

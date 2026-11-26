@@ -23,6 +23,7 @@ DefaultDialog::DefaultDialog(QWidget *parent) :
     ui(new Ui::DefaultDialog)
 {
     ui->setupUi(this);
+    setWindowTitle(tr("KristaTech"));
 
     // Stylesheet
     this->setStyleSheet(parent && !parent->styleSheet().isEmpty() ? parent->styleSheet() : GUIUtil::loadStyleSheet());
@@ -83,7 +84,10 @@ void DefaultDialog::setText(const QString& title, const QString& message, const 
     } else {
         ui->btnCancel->setVisible(false);
     }
-    if (!title.isNull()) ui->labelTitle->setText(title);
+    if (!title.isNull()) {
+        ui->labelTitle->setText(title);
+        setWindowTitle(title);
+    }
     if (!message.isNull()) {
         m_rawMessage = message;
         if (Qt::mightBeRichText(message)) {

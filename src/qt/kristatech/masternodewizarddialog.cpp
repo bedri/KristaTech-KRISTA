@@ -382,6 +382,7 @@ void MasterNodeWizardDialog::accept()
 
 bool MasterNodeWizardDialog::createMN()
 {
+    consolidationPending = false;
     if (!walletModel) {
         returnStr = tr("walletModel not set");
         return false;
@@ -433,7 +434,8 @@ bool MasterNodeWizardDialog::createMN()
     std::unique_ptr<WalletModel::UnlockContext> unlockCtx;
     CKeyID operatorKeyID;
     const QString customKeyStr = lineEditPrivKey ? lineEditPrivKey->text().trimmed() : QString();
-    if (!customKeyStr.isEmpty()) {
+    const bool generateLocalOperatorKey = customKeyStr.isEmpty();
+    if (!generateLocalOperatorKey) {
         const std::string rawInput = customKeyStr.toStdString();
         std::string pubPart = rawInput;
         std::string popPart;
@@ -471,25 +473,6 @@ bool MasterNodeWizardDialog::createMN()
             returnStr = tr("Wallet must be unlocked to store encrypted operator keys in wallet.dat.");
             return false;
         }
-        CKey mnKey;
-        mnKey.MakeNewKey(false);
-        if (!walletModel->storeMasternodeOperatorKeyPair(mnKey, operatorKeyID, blsPubHex)) {
-            mnKey = CKey();
-            returnStr = tr("Failed to store operator keypair in wallet.dat.");
-            return false;
-        }
-        CBLSSecretKey opSk = DeriveBLSFromCKey(mnKey);
-        mnKeyString = EncodeSecret(mnKey);
-        if (opSk.IsValid()) {
-            blsSecHex = HexStr(opSk.begin(), opSk.end());
-            CBLSSignature pop;
-            if (pop.SignPoP(opSk)) {
-                blsPopHex = HexStr(pop.begin(), pop.end());
-                externalPoP = pop;
-            }
-            opSk.Reset();
-        }
-        mnKey = CKey();
     }
 
     // Look for an existing unlocked collateral UTXO first
@@ -526,8 +509,13 @@ bool MasterNodeWizardDialog::createMN()
         if (prepareStatus.status == WalletModel::TransactionTooLarge ||
             prepareStatus.status == WalletModel::TransactionCreationFailed) {
             QString consolErr;
-            if (GuiTransactionsUtils::OfferUtxoConsolidation(this, walletModel, mnCollateral, consolErr)) {
+            bool awaitingConf = false;
+            if (GuiTransactionsUtils::OfferUtxoConsolidation(this, walletModel, mnCollateral, consolErr, &awaitingConf)) {
                 prepareStatus = walletModel->prepareTransaction(currentTransaction, nullptr);
+            } else if (awaitingConf) {
+                consolidationPending = true;
+                returnStr = consolErr;
+                return false;
             } else if (!consolErr.isEmpty()) {
                 returnStr = tr("Prepare Masternode collateral failed.\n\n%1\n").arg(consolErr);
                 return false;
@@ -604,6 +592,28 @@ bool MasterNodeWizardDialog::createMN()
             return false;
         }
         collateralOut = COutPoint(walletTx->GetHash(), indexOut);
+    }
+
+    if (generateLocalOperatorKey) {
+        CKey mnKey;
+        mnKey.MakeNewKey(false);
+        if (!walletModel->storeMasternodeOperatorKeyPair(mnKey, operatorKeyID, blsPubHex)) {
+            mnKey = CKey();
+            returnStr = tr("Failed to store operator keypair in wallet.dat.");
+            return false;
+        }
+        CBLSSecretKey opSk = DeriveBLSFromCKey(mnKey);
+        mnKeyString = EncodeSecret(mnKey);
+        if (opSk.IsValid()) {
+            blsSecHex = HexStr(opSk.begin(), opSk.end());
+            CBLSSignature pop;
+            if (pop.SignPoP(opSk)) {
+                blsPopHex = HexStr(pop.begin(), pop.end());
+                externalPoP = pop;
+            }
+            opSk.Reset();
+        }
+        mnKey = CKey();
     }
 
     std::string txID = collateralOut.hash.ToString();

@@ -36,6 +36,7 @@ public:
     QString createdActiveMnLine = "";
     QString createdProTxHash = "";
     bool isOk = false;
+    bool consolidationPending = false;
     bool hasRecord = false;
     CMasternodeWalletRecord mnRecord;
 

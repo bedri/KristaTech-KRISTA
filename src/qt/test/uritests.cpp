@@ -8,6 +8,7 @@
 #include "uritests.h"
 
 #include "chainparams.h"
+#include "coincontrol.h"
 #include "guiutil.h"
 #include "key.h"
 #include "key_io.h"
@@ -22,6 +23,7 @@
 #include "psbt.h"
 #include "script/mescal.h"
 #include "utilitydialog.h"
+#include "qt/kristatech/defaultdialog.h"
 #include "qt/kristatech/masternodewizarddialog.h"
 #include "qt/kristatech/mnrow.h"
 #include "qt/kristatech/qtutils.h"
@@ -649,6 +651,109 @@ void URITests::wizardAndConsolidationTests()
         row.updateView(QStringLiteral("157.90.130.224:27999"), QStringLiteral("qt_mn3"), QStringLiteral("MISSING"),
                        false, QStringLiteral("6ebd2a85f97a633d"), true, true, false, 0, 0, -1, -1, 15);
         QCOMPARE(statusLabel->text(), QStringLiteral("Collateral tx not found"));
+    }
+
+    // 5. Targeted consolidation skips UTXOs >= target and prioritizes largest sub-target inputs
+    {
+        CWallet targetedWallet;
+        CKey targetedKey;
+        targetedKey.MakeNewKey(true);
+        CPubKey targetedPubkey = targetedKey.GetPubKey();
+        uint256 targetedBlockHash = uint256S("0000000000000000000000000000000000000000000000000000000000000fed");
+        CBlockIndex targetedTip;
+        targetedTip.nHeight = 100;
+        targetedTip.pprev = nullptr;
+        targetedTip.phashBlock = &targetedBlockHash;
+
+        {
+            LOCK(targetedWallet.cs_wallet);
+            QVERIFY(targetedWallet.AddKeyPubKey(targetedKey, targetedPubkey));
+            CScript p2pkh = GetScriptForDestination(targetedPubkey.GetID());
+            chainActive.SetTip(&targetedTip);
+            mapBlockIndex[targetedBlockHash] = &targetedTip;
+
+            int txSeq = 1;
+            auto addUtxo = [&](CAmount amt) {
+                CMutableTransaction mtx;
+                mtx.vin.emplace_back(COutPoint(uint256S(strprintf("000000000000000000000000000000000000000000000000000000000001%04x", txSeq++)), 0));
+                mtx.vout.emplace_back(amt, p2pkh);
+                CWalletTx wtx(&targetedWallet, CTransaction(mtx));
+                wtx.hashBlock = targetedBlockHash;
+                wtx.nIndex = 0;
+                targetedWallet.AddToWallet(wtx);
+            };
+            for (int i = 0; i < 50; ++i) addUtxo(1 * COIN);
+            for (int i = 0; i < 3; ++i) addUtxo(100 * COIN);
+            addUtxo(300 * COIN);
+
+            OptionsModel optionsModel;
+            WalletModel targetedModel(&targetedWallet, &optionsModel);
+            WalletModel::ConsolidationPlan plan;
+            QString err;
+            const bool ok = targetedModel.previewConsolidation(250 * COIN, plan, err);
+            mapBlockIndex.erase(targetedBlockHash);
+            chainActive.SetTip(nullptr);
+            QVERIFY2(ok, err.toUtf8().constData());
+            QCOMPARE(plan.batchCount, 1);
+            QCOMPARE(plan.inputCount, 3);
+            QCOMPARE(plan.totalInputAmount, 300 * COIN);
+        }
+    }
+
+    // 6. Fragmented wallet with enough large UTXOs prepares 4,200 KRISTA via largest-first fallback
+    {
+        CWallet fragWallet;
+        CKey fragKey;
+        fragKey.MakeNewKey(true);
+        CPubKey fragPubkey = fragKey.GetPubKey();
+        uint256 fragBlockHash = uint256S("0000000000000000000000000000000000000000000000000000000000000bad");
+        CBlockIndex fragTip;
+        fragTip.nHeight = 100;
+        fragTip.pprev = nullptr;
+        fragTip.phashBlock = &fragBlockHash;
+
+        {
+            LOCK(fragWallet.cs_wallet);
+            QVERIFY(fragWallet.AddKeyPubKey(fragKey, fragPubkey));
+            CScript p2pkh = GetScriptForDestination(fragPubkey.GetID());
+            chainActive.SetTip(&fragTip);
+            mapBlockIndex[fragBlockHash] = &fragTip;
+
+            int txSeq = 1;
+            auto addUtxo = [&](CAmount amt) {
+                CMutableTransaction mtx;
+                mtx.vin.emplace_back(COutPoint(uint256S(strprintf("000000000000000000000000000000000000000000000000000000000002%04x", txSeq++)), 0));
+                mtx.vout.emplace_back(amt, p2pkh);
+                CWalletTx wtx(&fragWallet, CTransaction(mtx));
+                wtx.hashBlock = fragBlockHash;
+                wtx.nIndex = 0;
+                fragWallet.AddToWallet(wtx);
+            };
+            for (int i = 0; i < 50; ++i) addUtxo(100 * COIN);
+            for (int i = 0; i < 1200; ++i) addUtxo(1 * COIN);
+
+            OptionsModel optionsModel;
+            WalletModel fragModel(&fragWallet, &optionsModel);
+            SendCoinsRecipient rcp(QString::fromStdString(EncodeDestination(fragPubkey.GetID())), QString(), 4200 * COIN, QString());
+            QList<SendCoinsRecipient> rcps;
+            rcps.append(rcp);
+            WalletModelTransaction tx(rcps);
+            CCoinControl cc;
+            cc.destChange = fragPubkey.GetID();
+            WalletModel::SendCoinsReturn prepRes = fragModel.prepareTransaction(tx, &cc);
+            mapBlockIndex.erase(fragBlockHash);
+            chainActive.SetTip(nullptr);
+            QCOMPARE(prepRes.status, WalletModel::OK);
+            QVERIFY(tx.getTransaction() != nullptr);
+            QVERIFY(tx.getTransaction()->vin.size() <= 45);
+        }
+    }
+
+    // 7. DefaultDialog sets OS window title instead of leaving "Form"
+    if (qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        DefaultDialog dlg;
+        dlg.setText(QStringLiteral("Consolidate Fragmented UTXOs"), QStringLiteral("Test message"));
+        QCOMPARE(dlg.windowTitle(), QStringLiteral("Consolidate Fragmented UTXOs"));
     }
 
     ECC_Stop();

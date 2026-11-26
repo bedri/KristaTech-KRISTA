@@ -36,7 +36,8 @@ namespace GuiTransactionsUtils {
             QWidget* parent,
             WalletModel* walletModel,
             CAmount targetAmount,
-            QString& errorOut
+            QString& errorOut,
+            bool* awaitingConfirmationOut = nullptr
     );
 
 }

@@ -992,17 +992,27 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
     std::vector<COutput> spendable;
     spendable.reserve(vCoins.size());
     for (const COutput& out : vCoins) {
-        if (out.fSpendable && !isLockedCoin(out.tx->GetHash(), out.i)) {
-            spendable.push_back(out);
+        if (!out.fSpendable || isLockedCoin(out.tx->GetHash(), out.i)) {
+            continue;
         }
+        if (targetAmount > 0 && out.tx->vout[out.i].nValue >= targetAmount) {
+            continue;
+        }
+        spendable.push_back(out);
     }
 
-    std::sort(spendable.begin(), spendable.end(), [](const COutput& a, const COutput& b) {
-        return a.tx->vout[a.i].nValue < b.tx->vout[b.i].nValue;
-    });
+    if (targetAmount > 0) {
+        std::sort(spendable.begin(), spendable.end(), [](const COutput& a, const COutput& b) {
+            return a.tx->vout[a.i].nValue > b.tx->vout[b.i].nValue;
+        });
+    } else {
+        std::sort(spendable.begin(), spendable.end(), [](const COutput& a, const COutput& b) {
+            return a.tx->vout[a.i].nValue < b.tx->vout[b.i].nValue;
+        });
+    }
 
-    static const size_t MAX_BATCH_INPUTS = 180;
-    static const size_t MAX_BATCHES = 10;
+    static const size_t MAX_BATCH_INPUTS = 300;
+    static const size_t MAX_BATCHES = 20;
 
     std::vector<std::vector<COutput>> batches;
     CAmount accumulated = 0;
@@ -1014,6 +1024,9 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
             batch.push_back(spendable[idx]);
             batchSum += spendable[idx].tx->vout[spendable[idx].i].nValue;
             idx++;
+            if (targetAmount > 0 && batch.size() >= 2 && (accumulated + batchSum) >= targetAmount + COIN) {
+                break;
+            }
         }
         if (batch.size() < 2) {
             break;
