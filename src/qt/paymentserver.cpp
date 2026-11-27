@@ -577,8 +577,8 @@ bool PaymentServer::processPaymentRequest(PaymentRequestPlus& request, SendCoins
 
         recipient.amount += sendingTo.second;
     }
-    // Store addresses and format them to fit nicely into the GUI
-    recipient.address = addresses.join("<br />");
+    // Store addresses as plain text so Qt::PlainText labels and QLineEdit widgets display cleanly without HTML
+    recipient.address = addresses.join(", ");
 
     if (!recipient.authenticatedMerchant.isEmpty()) {
         qDebug() << "PaymentServer::processPaymentRequest : Secure payment request from " << recipient.authenticatedMerchant;

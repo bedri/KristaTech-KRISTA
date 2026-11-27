@@ -79,6 +79,9 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize = 0, 
 // DKG session simulation: create a new quorum at height
 CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 
+// Get BFT signature threshold for a quorum of nQuorumSize at block height nHeight (floor(2N/3)+1 under V4, floor(N/2)+1 pre-V4)
+size_t GetQuorumThreshold(size_t nQuorumSize, int nHeight);
+
 // Get the active quorum for a given block height
 CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 void ClearQuorumCache();
@@ -88,7 +91,7 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key);
 
 /** A quorum member signs at most one block per parent from competing coordinators within this window
  *  (one PoBLS fallback rotation slice), preventing two equal-height blocks from both reaching threshold. */
-static const int64_t QUORUM_EQUIVOCATION_GUARD_SECS = 30;
+static const int64_t QUORUM_EQUIVOCATION_GUARD_SECS = 45;
 
 /** Anti-equivocation guard for local quorum signing. Returns true (and records the decision) if this node may
  *  sign blockHash proposed by coordinator on top of prevHash; returns false if a different block from a

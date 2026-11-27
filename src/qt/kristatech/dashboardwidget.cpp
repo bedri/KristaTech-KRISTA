@@ -1200,11 +1200,12 @@ void DashboardWidget::refreshOverviewStats()
                         }
                     }
                     if (!mnSynced) continue;
-                    if (auto pmn = mnodeman.Find(txIn)) {
-                        if (pmn->activeState == CMasternode::MASTERNODE_PRE_ENABLED ||
-                            pmn->activeState == CMasternode::MASTERNODE_ENABLED) {
+                    CMasternode mn;
+                    if (mnodeman.Get(txIn, mn)) {
+                        if (mn.activeState == CMasternode::MASTERNODE_PRE_ENABLED ||
+                            mn.activeState == CMasternode::MASTERNODE_ENABLED) {
                             ++myActive;
-                        } else if (pmn->activeState == CMasternode::MASTERNODE_POSE_BAN) {
+                        } else if (mn.activeState == CMasternode::MASTERNODE_POSE_BAN) {
                             ++myBanned;
                         }
                     }

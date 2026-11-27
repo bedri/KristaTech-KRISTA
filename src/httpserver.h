@@ -38,6 +38,9 @@ void StopHTTPServer();
  * libevent doesn't support debug logging.*/
 bool UpdateHTTPServerLogging(bool enable);
 
+/** Validate HTTP Host header against DNS rebinding (allows localhost, numeric IPs, and -rpcbind hosts). */
+bool IsAllowedHTTPRequestHost(const std::string& rawHost);
+
 /** Handler for requests to a certain HTTP path */
 typedef std::function<void(HTTPRequest* req, const std::string &)> HTTPRequestHandler;
 /** Register handler for prefix.

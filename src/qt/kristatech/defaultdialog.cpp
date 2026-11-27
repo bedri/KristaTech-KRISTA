@@ -45,12 +45,13 @@ DefaultDialog::DefaultDialog(QWidget *parent) :
     }
 
     // Text
+    ui->labelTitle->setTextFormat(Qt::PlainText);
     ui->labelTitle->setProperty("cssClass", "text-title-dialog");
     ui->labelMessage->hide();
     msgBrowser = new QTextEdit(ui->scrollAreaMessageContents);
     msgBrowser->setObjectName(QStringLiteral("defaultDialogMessageBrowser"));
     msgBrowser->setReadOnly(true);
-    msgBrowser->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse);
+    msgBrowser->setTextInteractionFlags(Qt::TextSelectableByMouse);
     msgBrowser->setFrameShape(QFrame::NoFrame);
     msgBrowser->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     msgBrowser->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -73,7 +74,7 @@ DefaultDialog::DefaultDialog(QWidget *parent) :
     connect(ui->btnSave, &QPushButton::clicked, this, &DefaultDialog::accept);
 }
 
-void DefaultDialog::setText(const QString& title, const QString& message, const QString& okBtnText, const QString& cancelBtnText)
+void DefaultDialog::setText(const QString& title, const QString& message, const QString& okBtnText, const QString& cancelBtnText, bool allowRichText)
 {
     if (!okBtnText.trimmed().isEmpty()) {
         ui->btnSave->setText(okBtnText);
@@ -90,7 +91,8 @@ void DefaultDialog::setText(const QString& title, const QString& message, const 
     }
     if (!message.isNull()) {
         m_rawMessage = message;
-        if (Qt::mightBeRichText(message)) {
+        m_allowRichText = allowRichText;
+        if (m_allowRichText) {
             msgBrowser->setHtml(message);
         } else {
             msgBrowser->setPlainText(message);
@@ -105,13 +107,13 @@ void DefaultDialog::setText(const QString& title, const QString& message, const 
 void DefaultDialog::updateDialogMetrics()
 {
     const QString rawMsg = m_rawMessage;
-    const bool isRich = Qt::mightBeRichText(rawMsg);
+    const bool isRich = m_allowRichText;
     const QString plainText = msgBrowser->toPlainText();
 
     const bool isStructured = plainText.length() > 130 ||
                               rawMsg.contains(QString::fromUtf8("•")) ||
-                              rawMsg.contains("<li", Qt::CaseInsensitive) ||
-                              rawMsg.contains("<br", Qt::CaseInsensitive) ||
+                              (isRich && (rawMsg.contains("<li", Qt::CaseInsensitive) ||
+                                          rawMsg.contains("<br", Qt::CaseInsensitive))) ||
                               plainText.count('\n') >= 3;
 
     const bool light = isLightTheme();

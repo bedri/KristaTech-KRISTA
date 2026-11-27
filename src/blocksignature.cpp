@@ -5,6 +5,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "blocksignature.h"
+#include "adam.h"
 #include "main.h"
 #include "chainparams.h"
 #include "crypto/bls.h"
@@ -132,5 +133,6 @@ bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH, int nHeigh
     const bool fHardeningV3 = IsHardeningV3Active(nHeight);
     return VerifyBLSWithECDSAFallback(block.GetHash(), pubkey, block.vchBlockSig,
                                       GetBLSDomainTag(BLSDomain::POS_BLOCK, fHardeningV3),
-                                      fHardeningV3);
+                                      fHardeningV3,
+                                      MakeActiveChainPinPredicate(block.hashPrevBlock));
 }

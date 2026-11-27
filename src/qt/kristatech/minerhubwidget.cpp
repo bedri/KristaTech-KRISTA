@@ -2600,14 +2600,14 @@ void MinerHubWidget::startPoWRegistration(const QString& targetAddress)
             DefaultDialog* dialog = new DefaultDialog(host);
             QString targetLine = targetAddress.isEmpty()
                 ? QString()
-                : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress);
+                : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress.toHtmlEscaped());
             QString summary = tr("<b>Register Open PoW Validator Seat</b>%1<br/><br/>"
                                  "• <b>Block Share:</b> Equal 1/15 validator share (4.00% Model D; 1/11 ~6.82% Pre-Model D) per solved puzzle (up to 5 Open PoW seats/block under Model D).<br/>"
                                  "• <b>Priority Mode (if 10+ mature KRISTA available):</b> Locks <b>10 KRISTA</b> inside your own wallet via refundable CLTV (~2,900 blocks / ~24h) + <b>10</b> proportional Coordinator VRF weight (priority seats over 0-KRISTA).<br/>"
                                  "• <b>Free Entry Mode (if &lt; 10 mature KRISTA):</b> Registers with <b>0 KRISTA</b> collateral (240-block lease, 0 Coordinator VRF weight, 2 permanent Open-Entry seats under Model D + fallback seats if Funded Pool &lt; 17).<br/>"
                                  "• <b>Network Fee:</b> Standard transaction fee (&lt; 0.01 KRISTA).<br/><br/>"
                                  "Solve registration puzzle and broadcast now?").arg(targetLine);
-            dialog->setText(tr("Confirm Open PoW Registration"), summary, tr("REGISTER"), tr("CANCEL"));
+            dialog->setText(tr("Confirm Open PoW Registration"), summary, tr("REGISTER"), tr("CANCEL"), true);
             bool okConfirm = openDialogWithOpaqueBackgroundY(dialog, window, 3, 5);
             dialog->deleteLater();
             if (!okConfirm) return;
@@ -2678,7 +2678,7 @@ void MinerHubWidget::onPoWRegistrationFinished(bool success, const QString& resu
         QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
         showHideOp(true);
         DefaultDialog* errDlg = new DefaultDialog(host);
-        errDlg->setText(tr("Registration Not Possible"), resultOrError.toHtmlEscaped(), tr("OK"), QString());
+        errDlg->setText(tr("Registration Not Possible"), resultOrError, tr("OK"), QString());
         openDialogWithOpaqueBackgroundY(errDlg, window, 3, 5);
         errDlg->deleteLater();
     }
@@ -2705,14 +2705,14 @@ void MinerHubWidget::startCoinLockRegistration(const QString& targetAddress)
         DefaultDialog* dialog = new DefaultDialog(host);
         QString targetLine = targetAddress.isEmpty()
             ? QString()
-            : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress);
+            : tr("<br/>• <b>Target Miner Address:</b> <code>%1</code>").arg(targetAddress.toHtmlEscaped());
         QString summary = tr("<b>Register Dedicated Coin-Lock Seat (250 KRISTA)</b>%1<br/><br/>"
                              "• <b>Refundable Self-Lock:</b> <b>250 KRISTA</b> (requires a 100+ conf UTXO) stays 100% inside your own wallet under a BIP-65 CLTV time-lock for ~2,900 blocks (~24 hours).<br/>"
                              "• <b>Validator Share:</b> Competes for one of <b>2 dedicated Coin-Lock slots</b> (under Model D) earning equal 1/15 validator share (4.00% Model D / ~6.82% Pre-Model D) per solved puzzle.<br/>"
                              "• <b>Coordinator Weight:</b> Grants <b>250</b> proportional Coordinator VRF weight (vs 4,200 Active MN / 10 PoW-Lock, with 55% Model D / 75% Pre-Model D MN floor).<br/>"
                              "• <b>Network Fee:</b> Standard transaction fee (&lt; 0.01 KRISTA).<br/><br/>"
                              "Lock 250 KRISTA in your wallet and register now?").arg(targetLine);
-        dialog->setText(tr("Confirm 250 KRISTA Coin-Lock"), summary, tr("LOCK && REGISTER"), tr("CANCEL"));
+        dialog->setText(tr("Confirm 250 KRISTA Coin-Lock"), summary, tr("LOCK && REGISTER"), tr("CANCEL"), true);
         bool okConfirm = openDialogWithOpaqueBackgroundY(dialog, window, 3, 5);
         dialog->deleteLater();
         if (!okConfirm) return;
@@ -2739,7 +2739,7 @@ void MinerHubWidget::startCoinLockRegistration(const QString& targetAddress)
         QWidget* host = window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this);
         showHideOp(true);
         DefaultDialog* errDlg = new DefaultDialog(host);
-        errDlg->setText(tr("Registration Not Possible"), resultOrError.toHtmlEscaped(), tr("OK"), QString());
+        errDlg->setText(tr("Registration Not Possible"), resultOrError, tr("OK"), QString());
         openDialogWithOpaqueBackgroundY(errDlg, window, 3, 5);
         errDlg->deleteLater();
     }

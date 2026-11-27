@@ -64,7 +64,7 @@ struct PSBTInput {
     bool IsNull() const;
     void FillSignatureData(SignatureData& sigdata) const;
     void FromSignatureData(const SignatureData& sigdata);
-    void Merge(const PSBTInput& input);
+    bool Merge(const PSBTInput& input);
     bool IsSane() const;
 
     template <typename Stream>
@@ -150,7 +150,9 @@ struct PSBTInput {
                 }
                 case PSBT_IN_PARTIAL_SIG: {
                     CPubKey pub(key.begin() + 1, key.end());
-                    if (!pub.IsValid()) throw std::ios_base::failure("Invalid pubkey in PSBT_IN_PARTIAL_SIG");
+                    if (!pub.IsValid() || val.empty() || val.size() > 73) {
+                        throw std::ios_base::failure("Invalid pubkey or signature in PSBT_IN_PARTIAL_SIG");
+                    }
                     partial_sigs[pub.GetID()] = std::make_pair(pub, val);
                     break;
                 }
@@ -163,7 +165,9 @@ struct PSBTInput {
                     break;
                 }
                 case PSBT_IN_REDEEMSCRIPT: {
-                    if (key.size() != 1) throw std::ios_base::failure("Invalid PSBT_IN_REDEEMSCRIPT key");
+                    if (key.size() != 1 || val.size() > MAX_SCRIPT_SIZE) {
+                        throw std::ios_base::failure("Invalid PSBT_IN_REDEEMSCRIPT");
+                    }
                     redeem_script.assign(val.begin(), val.end());
                     break;
                 }
@@ -184,12 +188,16 @@ struct PSBTInput {
                     break;
                 }
                 case PSBT_IN_SCRIPTSIG: {
-                    if (key.size() != 1) throw std::ios_base::failure("Invalid PSBT_IN_SCRIPTSIG key");
+                    if (key.size() != 1 || val.size() > MAX_SCRIPT_SIZE) {
+                        throw std::ios_base::failure("Invalid PSBT_IN_SCRIPTSIG");
+                    }
                     final_script_sig.assign(val.begin(), val.end());
                     break;
                 }
                 case PSBT_IN_TAP_KEY_SIG: {
-                    if (key.size() != 1) throw std::ios_base::failure("Invalid PSBT_IN_TAP_KEY_SIG key");
+                    if (key.size() != 1 || (val.size() != 64 && val.size() != 65)) {
+                        throw std::ios_base::failure("Invalid PSBT_IN_TAP_KEY_SIG");
+                    }
                     tap_key_sig = val;
                     break;
                 }
@@ -376,6 +384,9 @@ struct PartiallySignedTransaction {
         }
         if (!has_tx) {
             throw std::ios_base::failure("PSBT missing global unsigned transaction");
+        }
+        if (tx.vin.size() > 4096 || tx.vout.size() > 4096) {
+            throw std::ios_base::failure("PSBT input/output count exceeds maximum (4096)");
         }
 
         inputs.resize(tx.vin.size());

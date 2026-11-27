@@ -218,6 +218,10 @@ void CBlockIndex::SetNewStakeModifier(const uint256& prevoutId)
     uint256 prevMod = UINT256_ZERO;
     if (pprev) {
         if (IsHardeningV3Active(pprev->nHeight)) {
+            // Defer computing V2 modifier if the parent block data / modifier has not been linked yet.
+            if (!(pprev->nFlags & BLOCK_STAKE_MODIFIER) || pprev->GetStakeModifierV2().IsNull()) {
+                return;
+            }
             prevMod = pprev->GetStakeModifierV2();
         } else {
             CHashWriter ssSeed(SER_GETHASH, 0);

@@ -475,4 +475,51 @@ BOOST_AUTO_TEST_CASE(MempoolSizeLimitTest)
     SetMockTime(0);
 }
 
+BOOST_AUTO_TEST_CASE(MempoolFeeComparatorOrderingAndEmptyTrimTest)
+{
+    // M-2: CompareTxMemPoolEntryByFee must satisfy strict weak ordering on equal fees/timestamps,
+    // and TrimToSize(0) on empty or populated pools must terminate cleanly.
+    CTxMemPool emptyPool(CFeeRate(0));
+    emptyPool.TrimToSize(0);
+    BOOST_CHECK_EQUAL(emptyPool.size(), 0U);
+
+    TestMemPoolEntryHelper entry;
+    std::vector<CTxMemPoolEntry> entries;
+    for (int i = 0; i < 4; ++i) {
+        CMutableTransaction mtx;
+        mtx.vin.resize(1);
+        mtx.vin[0].prevout = COutPoint(uint256S("0x1111"), i);
+        mtx.vin[0].scriptSig = CScript() << OP_1;
+        mtx.vout.resize(1);
+        mtx.vout[0].nValue = 1 * COIN;
+        mtx.vout[0].scriptPubKey = CScript() << OP_TRUE;
+        entries.push_back(entry.Fee(1000LL).Time(1700000000LL + (i / 2)).FromTx(mtx));
+    }
+
+    CompareTxMemPoolEntryByFee cmp;
+    for (size_t i = 0; i < entries.size(); ++i) {
+        BOOST_CHECK(!cmp(entries[i], entries[i])); // Irreflexivity
+        for (size_t j = 0; j < entries.size(); ++j) {
+            if (i != j) {
+                BOOST_CHECK(cmp(entries[i], entries[j]) != cmp(entries[j], entries[i])); // Asymmetry + total order on distinct hashes
+            }
+            for (size_t k = 0; k < entries.size(); ++k) {
+                if (cmp(entries[i], entries[j]) && cmp(entries[j], entries[k])) {
+                    BOOST_CHECK(cmp(entries[i], entries[k])); // Transitivity
+                }
+            }
+        }
+    }
+
+    CTxMemPool pool(CFeeRate(0));
+    for (const auto& e : entries) {
+        pool.addUnchecked(e.GetTx().GetHash(), e);
+    }
+    BOOST_CHECK_EQUAL(pool.size(), 4U);
+    pool.TrimToSize(0);
+    BOOST_CHECK_EQUAL(pool.size(), 0U);
+    pool.TrimToSize(0);
+    BOOST_CHECK_EQUAL(pool.size(), 0U);
+}
+
 BOOST_AUTO_TEST_SUITE_END()

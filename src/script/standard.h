@@ -10,6 +10,7 @@
 #define BITCOIN_SCRIPT_STANDARD_H
 
 #include "script/interpreter.h"
+#include "crypto/bls.h"
 #include "pubkey.h"
 #include "uint256.h"
 
@@ -97,8 +98,8 @@ int ScriptSigArgsExpected(txnouttype t, const std::vector<std::vector<unsigned c
 bool ExtractDestination(const CScript& scriptPubKey, CTxDestination& addressRet);
 bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::vector<CTxDestination>& addressRet, int& nRequiredRet);
 
-bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
-bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
+bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsPoPOut = nullptr);
+bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsPoPOut = nullptr);
 bool MatchPoLTimelockScript(const CScript& script, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 
 CScript GetScriptForDestination(const CTxDestination& dest);

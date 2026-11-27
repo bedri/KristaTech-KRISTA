@@ -230,6 +230,9 @@ public:
     //! (memory only) Sequential id assigned to distinguish order in which blocks are received.
     uint32_t nSequenceId{0};
 
+    //! (memory only) V2 stake modifier input prevout/coinbase txid cached across out-of-order block arrival.
+    uint256 hashStakeModifierPrevout{};
+
     CBlockIndex() {}
     CBlockIndex(const CBlock& block);
 

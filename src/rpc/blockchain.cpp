@@ -258,7 +258,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
                     const llmq::CQuorum quorum = llmq::GetActiveQuorum(blockindex->nHeight, blockindex->pprev);
                     if (!quorum.members.empty()) {
                         nQuorumSize = static_cast<int>(quorum.members.size());
-                        nThreshold = nQuorumSize / 2 + 1;
+                        nThreshold = static_cast<int>(llmq::GetQuorumThreshold(quorum.members.size(), blockindex->nHeight));
                         fQuorumVerified = qsig.Verify(quorum, blockindex->pprev, BLSDomain::LLMQ_BLOCK, blockindex->nHeight);
                         for (const auto& sigPair : qsig.signatures) {
                             for (const auto& m : quorum.members) {

@@ -70,4 +70,7 @@ void ClearNetProcessingState() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 /** Reset the recent-rejects rolling bloom filter (called during InitBlockIndex). */
 void ResetRecentRejects();
 
+/** Parse and validate an inbound HEADERS payload (with low-work presync buffering). */
+bool ProcessHeadersMessage(CNode* pfrom, CDataStream& vRecv, CConnman& connman);
+
 #endif // KRISTATECH_NET_PROCESSING_H

@@ -164,7 +164,8 @@ void MNModel::updateMNList()
         const uint256& txHash = colOut.hash;
         CTxIn txIn(colOut);
         const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(colOut);
-        CMasternode* foundMn = mnodeman.Find(txIn);
+        CMasternode foundMn;
+        const bool hasFoundMn = mnodeman.Get(txIn, foundMn);
         CMasternode* pmn = nullptr;
         if (dip3Mn) {
             seenDip3Collaterals.insert(colOut);
@@ -176,8 +177,8 @@ void MNModel::updateMNList()
             pmn->activeState = dip3Mn->state.IsValid()
                 ? CMasternode::MASTERNODE_ENABLED
                 : (dip3Mn->state.IsBanned() ? CMasternode::MASTERNODE_POSE_BAN : CMasternode::MASTERNODE_EXPIRED);
-        } else if (foundMn) {
-            pmn = new CMasternode(*foundMn);
+        } else if (hasFoundMn) {
+            pmn = new CMasternode(foundMn);
         } else {
             const bool pendingInMempool = mempoolPendingOutpoints.count(colOut) > 0;
             pmn = new CMasternode();

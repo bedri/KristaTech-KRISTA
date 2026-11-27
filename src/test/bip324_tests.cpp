@@ -5,6 +5,8 @@
 #include "bip324.h"
 #include "chainparams.h"
 #include "crypto/chacha20poly1305.h"
+#include "net.h"
+#include "netbase.h"
 #include "test/test_kristatech.h"
 
 #include <cstring>
@@ -132,6 +134,95 @@ BOOST_AUTO_TEST_CASE(bip324_encrypt_uninitialized_and_oversize_returns_false)
     std::vector<uint8_t> hugeOut = {0x77};
     BOOST_CHECK(!initCipher.Encrypt(hugePayload, {}, false, hugeOut));
     BOOST_CHECK_EQUAL(hugeOut.size(), 1U);
+}
+
+BOOST_AUTO_TEST_CASE(bip324_application_decoy_flood_disconnects)
+{
+    // H-11: Consecutive decoy limit (> 64) and 60s decoy rate limit (> 256) in V2RecvState::APPLICATION
+    const auto& magic = Params().MessageStart();
+    CAddress addr(LookupNumeric("127.0.0.1", 27999), NODE_NETWORK);
+
+    auto completeInboundHandshake = [&](CNode& respNode, BIP324Cipher& initCipher) {
+        respNode.fV2AutoDetect = true;
+        BOOST_REQUIRE(initCipher.GenerateKey(&magic));
+        const auto& initPub = initCipher.GetOurPubKey();
+        bool complete = false;
+        BOOST_REQUIRE(respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(initPub.data()), static_cast<unsigned int>(initPub.size()), complete));
+        BOOST_REQUIRE(respNode.fV2Transport);
+        BOOST_REQUIRE(respNode.v2Cipher != nullptr);
+        BOOST_REQUIRE(initCipher.Initialize(respNode.v2Cipher->GetOurPubKey().data(), true, magic));
+
+        std::vector<uint8_t> verPkt;
+        BOOST_REQUIRE(initCipher.Encrypt({}, {}, false, verPkt));
+        const auto& term = initCipher.GetSendGarbageTerminator();
+        std::vector<uint8_t> handshakeBytes;
+        handshakeBytes.insert(handshakeBytes.end(), term.begin(), term.end());
+        handshakeBytes.insert(handshakeBytes.end(), verPkt.begin(), verPkt.end());
+        BOOST_REQUIRE(respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(handshakeBytes.data()), static_cast<unsigned int>(handshakeBytes.size()), complete));
+        BOOST_REQUIRE(!respNode.fDisconnect);
+        BOOST_REQUIRE(respNode.v2RecvState == CNode::V2RecvState::APPLICATION);
+    };
+
+    // 1. Consecutive decoy flood (> 64) disconnects cleanly even after reset by valid packet
+    {
+        CNode respNode(501, NODE_NETWORK, 0, INVALID_SOCKET, addr, 0, 0, "", true);
+        BIP324Cipher initCipher;
+        completeInboundHandshake(respNode, initCipher);
+
+        bool complete = false;
+        for (int i = 0; i < 64; ++i) {
+            std::vector<uint8_t> decoy;
+            BOOST_REQUIRE(initCipher.Encrypt({0x01, 0x02}, {}, true, decoy));
+            BOOST_CHECK(respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(decoy.data()), static_cast<unsigned int>(decoy.size()), complete));
+            BOOST_CHECK(!respNode.fDisconnect);
+        }
+        // Valid non-ignore packet resets consecutive counter
+        std::vector<uint8_t> appPing = {0x00, 'p', 'i', 'n', 'g', 0, 0, 0, 0, 0, 0, 0, 0};
+        std::vector<uint8_t> encApp;
+        BOOST_REQUIRE(initCipher.Encrypt(appPing, {}, false, encApp));
+        BOOST_CHECK(respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(encApp.data()), static_cast<unsigned int>(encApp.size()), complete));
+        BOOST_CHECK(!respNode.fDisconnect);
+        BOOST_CHECK_EQUAL(respNode.v2ConsecutiveDecoys, 0U);
+
+        for (int i = 0; i < 64; ++i) {
+            std::vector<uint8_t> decoy;
+            BOOST_REQUIRE(initCipher.Encrypt({0x03}, {}, true, decoy));
+            BOOST_CHECK(respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(decoy.data()), static_cast<unsigned int>(decoy.size()), complete));
+            BOOST_CHECK(!respNode.fDisconnect);
+        }
+        std::vector<uint8_t> decoy65;
+        BOOST_REQUIRE(initCipher.Encrypt({0x04}, {}, true, decoy65));
+        BOOST_CHECK(!respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(decoy65.data()), static_cast<unsigned int>(decoy65.size()), complete));
+        BOOST_CHECK(respNode.fDisconnect);
+    }
+
+    // 2. Sustained decoy flood (> 256 in 60s) disconnects even when interleaved with valid packets
+    {
+        CNode respNode(502, NODE_NETWORK, 0, INVALID_SOCKET, addr, 0, 0, "", true);
+        BIP324Cipher initCipher;
+        completeInboundHandshake(respNode, initCipher);
+
+        bool complete = false;
+        int decoysSent = 0;
+        while (decoysSent < 256) {
+            std::vector<uint8_t> decoy;
+            BOOST_REQUIRE(initCipher.Encrypt({0x05}, {}, true, decoy));
+            BOOST_REQUIRE(respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(decoy.data()), static_cast<unsigned int>(decoy.size()), complete));
+            BOOST_REQUIRE(!respNode.fDisconnect);
+            decoysSent++;
+            if (decoysSent % 8 == 0) {
+                std::vector<uint8_t> appPing = {0x00, 'p', 'i', 'n', 'g', 0, 0, 0, 0, 0, 0, 0, 0};
+                std::vector<uint8_t> encApp;
+                BOOST_REQUIRE(initCipher.Encrypt(appPing, {}, false, encApp));
+                BOOST_REQUIRE(respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(encApp.data()), static_cast<unsigned int>(encApp.size()), complete));
+                BOOST_REQUIRE(!respNode.fDisconnect);
+            }
+        }
+        std::vector<uint8_t> decoy257;
+        BOOST_REQUIRE(initCipher.Encrypt({0x06}, {}, true, decoy257));
+        BOOST_CHECK(!respNode.ReceiveMsgBytes(reinterpret_cast<const char*>(decoy257.data()), static_cast<unsigned int>(decoy257.size()), complete));
+        BOOST_CHECK(respNode.fDisconnect);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

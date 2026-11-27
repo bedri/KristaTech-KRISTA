@@ -14,6 +14,8 @@
 #include "netbase.h"
 #include "sync.h"
 #include "script/script.h"
+#include "script/standard.h"
+#include <atomic>
 #include <vector>
 #include <map>
 #include <set>
@@ -85,6 +87,7 @@ struct CCachedBlockRegEntry {
     CPubKey pubkey;
     int64_t lockTime{0};
     uint256 challenge;
+    CBLSPubKey blsPubKey;
 
     ADD_SERIALIZE_METHODS;
 
@@ -96,6 +99,7 @@ struct CCachedBlockRegEntry {
         READWRITE(pubkey);
         READWRITE(lockTime);
         READWRITE(challenge);
+        READWRITE(blsPubKey);
     }
 };
 
@@ -129,6 +133,7 @@ extern std::map<CPubKey, std::set<int>> mapMasternodeActiveHeights;
 extern std::map<CPubKey, COutPoint> mapMasternodeCollateralOutpoints;
 extern std::map<COutPoint, COnChainMasternodeDelegation> mapOnChainCollateralDelegations;
 extern bool g_fMasternodePingStateInitialized;
+extern std::atomic<uint64_t> g_nMasternodePingStateGen;
 void InitializeOnChainMasternodePings(bool fForceRescan = false);
 bool FlushMasternodePingStateToDisk(const uint256& hashBestBlock);
 void InitializeAdamMinerRegCache(bool fForceRescan = false);
@@ -139,12 +144,13 @@ bool IsValidMasternodeCollateralAndAuth(const CPubKey& pubKeyMasternode, const C
 bool IsMasternodeActiveAtHeight(const CPubKey& pubKeyMasternode, int nQueryHeight, int nWindow = 2880);
 bool RegisterOnChainMasternodePing(const CPubKey& pubKeyMasternode, const COutPoint& collateralOutpoint, int nHeight, const COnChainMasternodeDelegation* pInlineDelegation = nullptr, const CCoinsViewCache* pView = nullptr);
 void BumpMasternodePingStateGen();
+PinActivePredicate MakeActiveChainPinPredicate(const CBlockIndex* pindexRef = nullptr);
+PinActivePredicate MakeActiveChainPinPredicate(const uint256& prevBlockHash);
+bool CheckRegistrationBlsBinding(const CPubKey& minerPubKey, const CBLSPubKey& blsPk, const CBLSSignature& blsPoP, int nHeight, const CBlockIndex* pindexPrev, const CCoinsViewCache* pView, bool fCheckUniqueness, std::string& strRejectReasonOut);
 void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCoinsViewCache* pView = nullptr, bool fTrustedReplay = false);
 void RevertOnChainCollateralDelegation(const COutPoint& collateralOutpoint, const CPubKey& disconnectedPubKey, int nDisconnectedHeight, CPubKey* pRestoredOldKeyOut = nullptr);
 bool RestoreMasternodeActivityFromBlock(const CBlock& block, int nHeight, const CPubKey& targetPubKey, const COutPoint& targetCollateral, const CCoinsViewCache* pView = nullptr, CPubKey* pRestoredPubKeyOut = nullptr);
 uint256 ComputeNextAdamSeed(const uint256& prevSeed, const std::vector<unsigned char>& vAdamVRFProof);
-bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
-bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut);
 
 // Helper functions for ADAM (A Decentralized Approach Model) cooperative consensus
 
@@ -194,6 +200,7 @@ static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 = 16;
 static const size_t MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS = 240;
 static const int ADAM_ZEROCOIN_POW_REG_PERIOD_V2 = 240;
 static const int ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 = 10;
+static const int ADAM_VRF_KEY_MATURITY = 100;
 static const int MASTERNODE_PING_RELAY_COOLDOWN_BLOCKS = 360;
 
 /**
@@ -236,7 +243,7 @@ CPubKey GetAdamDeterministicPubKey(int index);
  * Active Masternode keys (4,200 KRISTA), Coin-Lock keys (250 KRISTA), the count of
  * explicitly registered validators, and the count of funded validators (Active MNs + Coin-Lock + Funded PoW-Lock).
  */
-std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr, size_t* pExplicitCountOut = nullptr, size_t* pFundedCountOut = nullptr, std::set<CPubKey>* pFundedPoWKeysOut = nullptr, std::set<CPubKey>* pBootstrapKeysOut = nullptr);
+std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* pView = nullptr, std::set<CPubKey>* pMasternodeKeysOut = nullptr, std::set<CPubKey>* pCoinLockKeysOut = nullptr, size_t* pExplicitCountOut = nullptr, size_t* pFundedCountOut = nullptr, std::set<CPubKey>* pFundedPoWKeysOut = nullptr, std::set<CPubKey>* pBootstrapKeysOut = nullptr, std::set<CPubKey>* pMaturedKeysOut = nullptr, std::map<CPubKey, CBLSPubKey>* pPoolBlsKeysOut = nullptr);
 
 /**
  * Return detailed read-only validator pool entries (pubkey, track, unlock_height) for RPC / UI.
@@ -401,8 +408,10 @@ struct CAdamSolutionMsg {
 
 extern RecursiveMutex cs_adam_solutions;
 extern std::map<uint256, std::map<CPubKey, std::vector<unsigned char>>> mapAdamSolutionsCache;
+extern std::map<uint256, std::map<CPubKey, int64_t>> mapAdamSolutionFirstSeen;
 extern std::map<uint256, std::vector<CAdamSolutionMsg>> mapOrphanAdamSolutions;
 
+void RecordAdamSolutionTimestampLocked(const uint256& hashPrevBlock, const CPubKey& minerKey, int64_t nNow = 0);
 void ProcessOrphanAdamSolutions(const uint256& hash);
 
 static constexpr size_t MAX_ADAMSOL_SYNC_PER_PEER = 32;
@@ -411,10 +420,10 @@ std::vector<CAdamSolutionMsg> CollectCachedAdamSolutionsForTip(const uint256& ha
 uint256 GetMinerPoWLimit(const std::string& networkId, bool fHardeningV2 = false);
 uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2 = false, bool fFairness = false);
 int GetZeroCoinRegPeriod(int nHeight);
-void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76]);
-uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2);
-void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76]);
-uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2);
+void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey* pBlsPubKey = nullptr);
+uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2, const CBLSPubKey* pBlsPubKey = nullptr);
+void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey* pBlsPubKey = nullptr);
+uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2, const CBLSPubKey* pBlsPubKey = nullptr);
 
 // Proof of BLS (PoBLS) Ticket & XOR Metric Distance Lottery functions
 uint256 ComputePoBLSTicket(const CBLSPubKey& blsPubKey, const CBLSSignature& blsSig, int nBlockHeight);

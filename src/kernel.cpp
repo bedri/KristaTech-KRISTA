@@ -329,6 +329,7 @@ bool g_fBurnCacheInitialized = false;
 
 namespace {
 struct CBurnTransferUndo {
+    int nHeight{0};
     COutPoint fromOutpoint;
     COutPoint toOutpoint;
     std::vector<CBurnCoins> vFromBurns;
@@ -808,6 +809,7 @@ void TransferOutpointBurnOnCoinstake(const COutPoint& fromOut, const COutPoint& 
     if (itFrom == mapOutpointBurns.end()) return;
 
     CBurnTransferUndo undo;
+    undo.nHeight = nHeight;
     undo.fromOutpoint = fromOut;
     undo.toOutpoint = toOut;
     undo.vFromBurns = itFrom->second;
@@ -829,8 +831,14 @@ void TransferOutpointBurnOnCoinstake(const COutPoint& fromOut, const COutPoint& 
         dstVec.insert(dstVec.end(), vMoved.begin(), vMoved.end());
     }
     if (!blockHash.IsNull()) {
-        if (mapBurnTransferUndo.size() >= 2048) {
-            mapBurnTransferUndo.erase(mapBurnTransferUndo.begin());
+        if (mapBurnTransferUndo.size() >= 2048 && !mapBurnTransferUndo.count(blockHash)) {
+            auto itOldest = std::min_element(mapBurnTransferUndo.begin(), mapBurnTransferUndo.end(),
+                [](const std::pair<const uint256, CBurnTransferUndo>& a, const std::pair<const uint256, CBurnTransferUndo>& b) {
+                    return a.second.nHeight < b.second.nHeight;
+                });
+            if (itOldest != mapBurnTransferUndo.end()) {
+                mapBurnTransferUndo.erase(itOldest);
+            }
         }
         mapBurnTransferUndo[blockHash] = std::move(undo);
     }
@@ -954,18 +962,25 @@ void InitializeBurnCache()
     } else if (pblocktree && pblocktree->ReadBurnCache(hashCachedBlock, mapSerialized)) {
         auto mi = mapBlockIndex.find(hashCachedBlock);
         if (mi != mapBlockIndex.end() && chainActive.Contains(mi->second)) {
-            for (const auto& pair : mapSerialized) {
-                CTxDestination dest = DecodeDestination(pair.first);
-                if (!IsValidDestination(dest)) continue;
-                for (const auto& b : pair.second) {
-                    if (b.nHeight >= nMinBurnHeight && b.nHeight <= mi->second->nHeight) {
-                        mapAddressBurns[dest].push_back(b);
+            if (IsHardeningV3Active(mi->second->nHeight)) {
+                // V2 cache does not track per-outpoint burns or transfers; force full V3 rescan.
+                hashCachedBlock.SetNull();
+            } else {
+                for (const auto& pair : mapSerialized) {
+                    CTxDestination dest = DecodeDestination(pair.first);
+                    if (!IsValidDestination(dest)) continue;
+                    for (const auto& b : pair.second) {
+                        if (b.nHeight >= nMinBurnHeight && b.nHeight <= mi->second->nHeight) {
+                            mapAddressBurns[dest].push_back(b);
+                        }
                     }
                 }
+                pindex = chainActive.Next(mi->second);
+                LogPrintf("InitializeBurnCache: Migrating LevelDB burncache_v2 at height %d (%d addresses), scanning %d delta blocks...\n",
+                    mi->second->nHeight, (int)mapAddressBurns.size(), pindexTip->nHeight - mi->second->nHeight);
             }
-            pindex = chainActive.Next(mi->second);
-            LogPrintf("InitializeBurnCache: Migrating LevelDB burncache_v2 at height %d (%d addresses), scanning %d delta blocks...\n",
-                mi->second->nHeight, (int)mapAddressBurns.size(), pindexTip->nHeight - mi->second->nHeight);
+        } else {
+            hashCachedBlock.SetNull();
         }
     }
 
@@ -978,6 +993,17 @@ void InitializeBurnCache()
             pindex ? pindex->nHeight : 0, pindexTip->nHeight);
     }
 
+    struct PendingExternalBurn {
+        CScript spenderScript;
+        CAmount nBurnAmount;
+        int nHeight;
+        size_t txIdx;
+        PendingExternalBurn() : nBurnAmount(0), nHeight(0), txIdx(0) {}
+        PendingExternalBurn(const CScript& spenderScriptIn, CAmount nBurnAmountIn, int nHeightIn, size_t txIdxIn)
+            : spenderScript(spenderScriptIn), nBurnAmount(nBurnAmountIn), nHeight(nHeightIn), txIdx(txIdxIn) {}
+    };
+    std::map<COutPoint, std::vector<PendingExternalBurn>> mapPendingExternalBurns;
+
     bool fScannedNewBlocks = (pindex != nullptr);
     while (pindex) {
         int nHeight = pindex->nHeight;
@@ -988,32 +1014,82 @@ void InitializeBurnCache()
             bool fLoadedUndo = false;
             const bool fHardeningV3 = IsHardeningV3Active(nHeight);
 
-            auto getPrevOutForTxInput0 = [&](size_t txIdx, const COutPoint& prevout, CTxOut& txOutPrev) -> bool {
+            auto ensureUndoLoaded = [&]() -> bool {
+                if (!fTriedUndo) {
+                    fTriedUndo = true;
+                    if (!pindex->GetUndoPos().IsNull() && pindex->pprev && pindex->pprev->phashBlock) {
+                        fLoadedUndo = UndoReadFromDisk(blockUndo, pindex->GetUndoPos(), pindex->pprev->GetBlockHash());
+                    }
+                }
+                return fLoadedUndo;
+            };
+
+            auto getPrevOutForTxInput = [&](size_t txIdx, size_t inIdx, const COutPoint& prevout, CTxOut& txOutPrev, int* pnCoinHeightOut = nullptr) -> bool {
+                if (txIdx > 0 && ensureUndoLoaded() &&
+                    (txIdx - 1) < blockUndo.vtxundo.size() &&
+                    inIdx < blockUndo.vtxundo[txIdx - 1].vprevout.size()) {
+                    const Coin& undoCoin = blockUndo.vtxundo[txIdx - 1].vprevout[inIdx];
+                    txOutPrev = undoCoin.out;
+                    if (pnCoinHeightOut) *pnCoinHeightOut = (int)undoCoin.nHeight;
+                    return true;
+                }
                 CTransaction txPrev;
                 uint256 hashBlock;
                 if (GetTransaction(prevout.hash, txPrev, hashBlock, true) && prevout.n < txPrev.vout.size()) {
                     txOutPrev = txPrev.vout[prevout.n];
+                    if (pnCoinHeightOut) {
+                        auto mi = mapBlockIndex.find(hashBlock);
+                        *pnCoinHeightOut = (mi != mapBlockIndex.end() && mi->second) ? mi->second->nHeight : 0;
+                    }
                     return true;
-                }
-                if (txIdx > 0 && !pindex->GetUndoPos().IsNull() && pindex->pprev && pindex->pprev->phashBlock) {
-                    if (!fTriedUndo) {
-                        fTriedUndo = true;
-                        fLoadedUndo = UndoReadFromDisk(blockUndo, pindex->GetUndoPos(), pindex->pprev->GetBlockHash());
-                    }
-                    if (fLoadedUndo && (txIdx - 1) < blockUndo.vtxundo.size() && !blockUndo.vtxundo[txIdx - 1].vprevout.empty()) {
-                        txOutPrev = blockUndo.vtxundo[txIdx - 1].vprevout[0].out;
-                        return true;
-                    }
                 }
                 return false;
             };
+
+            std::map<uint256, size_t> mapSameBlockTxOrder;
+            std::set<COutPoint> setSpentEarlierInBlock;
+            if (fHardeningV3) {
+                for (size_t txIdx = 0; txIdx < block.vtx.size(); ++txIdx) {
+                    mapSameBlockTxOrder[block.vtx[txIdx].GetHash()] = txIdx;
+                }
+            }
+
+            // Resolve any pending external KTPOB target outpoints spent inside this block (e.g., before coinstake transfer)
+            if (fHardeningV3 && !mapPendingExternalBurns.empty()) {
+                for (size_t txIdx = 1; txIdx < block.vtx.size(); ++txIdx) {
+                    const CTransaction& txSpend = block.vtx[txIdx];
+                    if (txSpend.IsCoinBase()) continue;
+                    for (size_t inIdx = 0; inIdx < txSpend.vin.size(); ++inIdx) {
+                        const COutPoint& spentOut = txSpend.vin[inIdx].prevout;
+                        auto itPend = mapPendingExternalBurns.find(spentOut);
+                        if (itPend == mapPendingExternalBurns.end()) continue;
+                        CTxOut spentTxOut;
+                        int nCoinHeight = 0;
+                        if (getPrevOutForTxInput(txIdx, inIdx, spentOut, spentTxOut, &nCoinHeight) &&
+                            !spentTxOut.scriptPubKey.IsUnspendable()) {
+                            for (const auto& pend : itPend->second) {
+                                const bool fExistedBeforeBurn =
+                                    (nCoinHeight > 0 && nCoinHeight < pend.nHeight) ||
+                                    (nCoinHeight == pend.nHeight && mapSameBlockTxOrder.count(spentOut.hash) && mapSameBlockTxOrder[spentOut.hash] < pend.txIdx);
+                                const bool fSpentAfterBurn =
+                                    (nHeight > pend.nHeight) ||
+                                    (nHeight == pend.nHeight && txIdx > pend.txIdx);
+                                if (fExistedBeforeBurn && fSpentAfterBurn && spentTxOut.scriptPubKey == pend.spenderScript) {
+                                    mapOutpointBurns[spentOut].push_back({pend.nBurnAmount, pend.nHeight});
+                                }
+                            }
+                        }
+                        mapPendingExternalBurns.erase(itPend);
+                    }
+                }
+            }
 
             if (fHardeningV3 && block.IsProofOfStake() && block.vtx.size() >= 2 && !block.vtx[1].vin.empty()) {
                 const CTransaction& csTx = block.vtx[1];
                 const COutPoint& fromOut = csTx.vin[0].prevout;
                 CTxOut prevStakeOut;
                 if (mapOutpointBurns.count(fromOut) > 0 && csTx.vout.size() >= 2 &&
-                    getPrevOutForTxInput0(1, fromOut, prevStakeOut) &&
+                    getPrevOutForTxInput(1, 0, fromOut, prevStakeOut) &&
                     csTx.vout[1].scriptPubKey == prevStakeOut.scriptPubKey &&
                     csTx.vout[1].nValue >= prevStakeOut.nValue) {
                     TransferOutpointBurnOnCoinstake(fromOut, COutPoint(csTx.GetHash(), 1), nHeight, uint256());
@@ -1027,11 +1103,51 @@ void InitializeBurnCache()
                 // Only voluntary user Proof-of-Burn transactions (!IsCoinBase && !IsCoinStake) grant PoB staking weight.
                 if (hasBurn && !tx.IsCoinBase() && !tx.IsCoinStake() && !tx.vin.empty()) {
                     CTxOut prevTxOut;
-                    if (getPrevOutForTxInput0(txIdx, tx.vin[0].prevout, prevTxOut) && !prevTxOut.scriptPubKey.empty()) {
+                    if (getPrevOutForTxInput(txIdx, 0, tx.vin[0].prevout, prevTxOut) && !prevTxOut.scriptPubKey.empty()) {
                         if (fHardeningV3) {
-                            COutPoint targetOut;
-                            if (ResolveVoluntaryBurnTargetOutpoint(tx, nHeight, prevTxOut.scriptPubKey, nullptr, targetOut)) {
-                                mapOutpointBurns[targetOut].push_back({nBurnAmount, nHeight});
+                            COutPoint extTagOut;
+                            bool fHasExtTarget = false;
+                            for (const auto& txout : tx.vout) {
+                                if (txout.scriptPubKey.empty() || txout.scriptPubKey[0] != OP_RETURN) continue;
+                                CScript::const_iterator pc = txout.scriptPubKey.begin() + 1;
+                                opcodetype opcode;
+                                std::vector<unsigned char> vchData;
+                                if (!txout.scriptPubKey.GetOp(pc, opcode, vchData)) continue;
+                                if (vchData.size() == 41 && std::memcmp(vchData.data(), "KTPOB", 5) == 0) {
+                                    try {
+                                        CDataStream ss(std::vector<unsigned char>(vchData.begin() + 5, vchData.end()), SER_NETWORK, PROTOCOL_VERSION);
+                                        ss >> extTagOut;
+                                        if (ss.empty() && !extTagOut.hash.IsNull()) {
+                                            fHasExtTarget = true;
+                                        }
+                                    } catch (...) {}
+                                    break;
+                                }
+                            }
+                            if (fHasExtTarget) {
+                                if (!setSpentEarlierInBlock.count(extTagOut)) {
+                                    Coin tipCoin;
+                                    if (pcoinsTip && pcoinsTip->GetCoin(extTagOut, tipCoin) && !tipCoin.IsSpent() &&
+                                        !tipCoin.out.scriptPubKey.IsUnspendable() &&
+                                        tipCoin.out.scriptPubKey == prevTxOut.scriptPubKey) {
+                                        const int coinH = (int)tipCoin.nHeight;
+                                        const bool fExistedBeforeBurn =
+                                            (coinH > 0 && coinH < nHeight) ||
+                                            (coinH == nHeight && mapSameBlockTxOrder.count(extTagOut.hash) && mapSameBlockTxOrder[extTagOut.hash] < txIdx);
+                                        if (fExistedBeforeBurn) {
+                                            mapOutpointBurns[extTagOut].push_back({nBurnAmount, nHeight});
+                                        }
+                                    } else {
+                                        // Target outpoint is either spent later (in this/subsequent block), spent earlier, or non-existent;
+                                        // defer to block/undo verification when its spend is encountered.
+                                        mapPendingExternalBurns[extTagOut].push_back({prevTxOut.scriptPubKey, nBurnAmount, nHeight, txIdx});
+                                    }
+                                }
+                            } else {
+                                COutPoint targetOut;
+                                if (ResolveVoluntaryBurnTargetOutpoint(tx, nHeight, prevTxOut.scriptPubKey, nullptr, targetOut)) {
+                                    mapOutpointBurns[targetOut].push_back({nBurnAmount, nHeight});
+                                }
                             }
                         } else {
                             txnouttype type;
@@ -1041,6 +1157,11 @@ void InitializeBurnCache()
                                 mapAddressBurns[addresses[0]].push_back({nBurnAmount, nHeight});
                             }
                         }
+                    }
+                }
+                if (fHardeningV3 && !tx.IsCoinBase()) {
+                    for (const CTxIn& txin : tx.vin) {
+                        setSpentEarlierInBlock.insert(txin.prevout);
                     }
                 }
             }
@@ -1092,21 +1213,22 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
     }
 
     auto getCoinHeightIfUnspent = [&](int& nHeightOut) -> bool {
-        const CCoinsViewCache* activeView = pView ? pView : pcoinsTip;
-        if (activeView) {
+        if (pView) {
             Coin coin;
-            if (activeView->GetCoin(prevout, coin) && !coin.IsSpent() && (int)coin.nHeight > 0) {
+            if (pView->GetCoin(prevout, coin) && !coin.IsSpent() && (int)coin.nHeight > 0) {
                 nHeightOut = (int)coin.nHeight;
                 return true;
             }
         }
-        return false;
+        CTxOut dummyOut;
+        return ResolveCoinOnBranch(prevout, dummyOut, nHeightOut, nullptr, pindexPrev, pView) && nHeightOut > 0;
     };
 
     // 1. Proof of Masternode (PoM) - deterministic on-chain Masternode state
     // Under UPGRADE_FAIRNESS, PoM applies a reduced uptime bonus (alpha = 0.25, max 1.25x)
     // vs legacy pre-Fairness alpha = 1.0 (max 2.0x), preserving PoM (1.25x) << PoL (3x) < PoB (6x).
     const bool fFairness = Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS);
+    const bool fHardeningV4 = IsHardeningV4Active(nHeight);
     auto computePoMWeight = [&](int64_t t_active) -> CAmount {
         int64_t limit = Params().GetConsensus().nMasternodeUptimeLimit;
         if (limit <= 0 || t_active <= 0) return nAmount;
@@ -1124,9 +1246,15 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
             const dip3::CDeterministicMN* dmn = mnList.GetMNByCollateral(prevout);
             if (dmn && dmn->state.IsValid()) {
                 int nFirstHeight = (dmn->state.nRegisteredHeight > 0) ? dmn->state.nRegisteredHeight : nHeight;
-                int nCoinHeight = 0;
-                if (getCoinHeightIfUnspent(nCoinHeight)) {
-                    nFirstHeight = std::min(nFirstHeight, nCoinHeight);
+                if (fHardeningV4) {
+                    if (dmn->state.nPoSeRevivedHeight > nFirstHeight) {
+                        nFirstHeight = dmn->state.nPoSeRevivedHeight;
+                    }
+                } else {
+                    int nCoinHeight = 0;
+                    if (getCoinHeightIfUnspent(nCoinHeight)) {
+                        nFirstHeight = std::min(nFirstHeight, nCoinHeight);
+                    }
                 }
                 nWeightType = MPA_WEIGHT_POM;
                 int64_t t_active = std::max<int64_t>(0, (int64_t)nHeight - (int64_t)nFirstHeight);
@@ -1158,8 +1286,8 @@ CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeT
         }
         // Unit test fallback only when no chain blocks are connected
         if (mapMasternodeCollateralOutpoints.empty() && chainActive.Height() <= 0) {
-            CMasternode* pmn = mnodeman.Find(CTxIn(prevout));
-            if (pmn != nullptr) {
+            CMasternode mn;
+            if (mnodeman.Get(CTxIn(prevout), mn)) {
                 nWeightType = MPA_WEIGHT_POM;
                 int64_t t_active = mnodeman.GetMasternodeActiveLifetime(prevout, nHeight);
                 return computePoMWeight(t_active);

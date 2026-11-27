@@ -130,17 +130,16 @@ UniValue listmasternodes(const JSONRPCRequest& request)
         std::string strTxHash = s.second.vin.prevout.hash.ToString();
         uint32_t oIdx = s.second.vin.prevout.n;
 
-        CMasternode* mn = mnodeman.Find(s.second.vin);
-
-        if (mn != NULL) {
+        CMasternode mn;
+        if (mnodeman.Get(s.second.vin, mn)) {
             if (strFilter != "" && strTxHash.find(strFilter) == std::string::npos &&
-                mn->Status().find(strFilter) == std::string::npos &&
-                EncodeDestination(mn->pubKeyCollateralAddress.GetID()).find(strFilter) == std::string::npos) continue;
+                mn.Status().find(strFilter) == std::string::npos &&
+                EncodeDestination(mn.pubKeyCollateralAddress.GetID()).find(strFilter) == std::string::npos) continue;
 
-            std::string strStatus = mn->Status();
+            std::string strStatus = mn.Status();
             std::string strHost;
             int port;
-            SplitHostPort(mn->addr.ToString(), port, strHost);
+            SplitHostPort(mn.addr.ToString(), port, strHost);
             CNetAddr node;
             LookupHost(strHost.c_str(), node, false);
             std::string strNetwork = GetNetworkName(node.GetNetwork());
@@ -149,14 +148,14 @@ UniValue listmasternodes(const JSONRPCRequest& request)
             obj.push_back(Pair("network", strNetwork));
             obj.push_back(Pair("txhash", strTxHash));
             obj.push_back(Pair("outidx", (uint64_t)oIdx));
-            obj.push_back(Pair("pubkey", HexStr(mn->pubKeyMasternode)));
+            obj.push_back(Pair("pubkey", HexStr(mn.pubKeyMasternode)));
             obj.push_back(Pair("status", strStatus));
-            obj.push_back(Pair("addr", EncodeDestination(mn->pubKeyCollateralAddress.GetID())));
-            obj.push_back(Pair("ip", mn->addr.ToString()));
-            obj.push_back(Pair("version", mn->protocolVersion));
-            obj.push_back(Pair("lastseen", (int64_t)mn->lastPing.sigTime));
-            obj.push_back(Pair("activetime", (int64_t)(mn->lastPing.sigTime - mn->sigTime)));
-            obj.push_back(Pair("lastpaid", (int64_t)mn->GetLastPaid()));
+            obj.push_back(Pair("addr", EncodeDestination(mn.pubKeyCollateralAddress.GetID())));
+            obj.push_back(Pair("ip", mn.addr.ToString()));
+            obj.push_back(Pair("version", mn.protocolVersion));
+            obj.push_back(Pair("lastseen", (int64_t)mn.lastPing.sigTime));
+            obj.push_back(Pair("activetime", (int64_t)(mn.lastPing.sigTime - mn.sigTime)));
+            obj.push_back(Pair("lastpaid", (int64_t)mn.GetLastPaid()));
 
             ret.push_back(obj);
         }
@@ -249,14 +248,14 @@ UniValue masternodecurrent (const JSONRPCRequest& request)
 
     const int nHeight = WITH_LOCK(cs_main, return chainActive.Height() + 1);
     int nCount = 0;
-    CMasternode* winner = mnodeman.GetNextMasternodeInQueueForPayment(nHeight, true, nCount);
-    if (winner) {
+    CMasternode winner;
+    if (mnodeman.GetNextMasternodeInQueueForPayment(nHeight, true, nCount, &winner)) {
         UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("protocol", (int64_t)winner->protocolVersion));
-        obj.push_back(Pair("txhash", winner->vin.prevout.hash.ToString()));
-        obj.push_back(Pair("pubkey", EncodeDestination(winner->pubKeyCollateralAddress.GetID())));
-        obj.push_back(Pair("lastseen", winner->lastPing.IsNull() ? winner->sigTime : (int64_t)winner->lastPing.sigTime));
-        obj.push_back(Pair("activeseconds", winner->lastPing.IsNull() ? 0 : (int64_t)(winner->lastPing.sigTime - winner->sigTime)));
+        obj.push_back(Pair("protocol", (int64_t)winner.protocolVersion));
+        obj.push_back(Pair("txhash", winner.vin.prevout.hash.ToString()));
+        obj.push_back(Pair("pubkey", EncodeDestination(winner.pubKeyCollateralAddress.GetID())));
+        obj.push_back(Pair("lastseen", winner.lastPing.IsNull() ? winner.sigTime : (int64_t)winner.lastPing.sigTime));
+        obj.push_back(Pair("activeseconds", winner.lastPing.IsNull() ? 0 : (int64_t)(winner.lastPing.sigTime - winner.sigTime)));
         return obj;
     }
 
@@ -417,15 +416,14 @@ UniValue getmasternodestatus(const JSONRPCRequest& request)
             continue;
         }
 
-        CMasternode* pmn = mnodeman.Find(*(activeMasternode.vin));
-
-        if (pmn) {
+        CMasternode mn;
+        if (mnodeman.Get(*(activeMasternode.vin), mn)) {
             UniValue mnObj(UniValue::VOBJ);
             mnObj.push_back(Pair("alias", activeMasternode.strAlias));
             mnObj.push_back(Pair("txhash", activeMasternode.vin->prevout.hash.ToString()));
             mnObj.push_back(Pair("outputidx", (uint64_t)activeMasternode.vin->prevout.n));
             mnObj.push_back(Pair("netaddr", activeMasternode.service.ToString()));
-            mnObj.push_back(Pair("addr", EncodeDestination(pmn->pubKeyCollateralAddress.GetID())));
+            mnObj.push_back(Pair("addr", EncodeDestination(mn.pubKeyCollateralAddress.GetID())));
             mnObj.push_back(Pair("status", activeMasternode.GetStatus()));
             mnObj.push_back(Pair("message", activeMasternode.GetStatusMessage()));
             resultsObj.push_back(mnObj);
@@ -746,11 +744,7 @@ UniValue getactivequorum(const JSONRPCRequest& request)
         seed = GetAdamSeed(chainActive[seedHeight]);
     }
 
-    size_t threshold = (quorum.members.size() / 2 + 1);
-    if (threshold < 2) threshold = 2;
-    if (!quorum.members.empty() && quorum.members.size() < threshold) {
-        threshold = quorum.members.size();
-    }
+    const size_t threshold = llmq::GetQuorumThreshold(quorum.members.size(), quorum.nHeight);
 
     UniValue membersArr(UniValue::VARR);
     for (size_t i = 0; i < quorum.members.size(); ++i) {
@@ -771,16 +765,17 @@ UniValue getactivequorum(const JSONRPCRequest& request)
                 }
             }
         }
-        CMasternode* pmn = mnodeman.Find(CTxIn(m.collateralOutpoint));
-        if (strAddr == EncodeDestination(m.pubKeyMasternode.GetID()) && pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-            strAddr = EncodeDestination(pmn->pubKeyCollateralAddress.GetID());
+        CMasternode mn;
+        const bool hasMn = mnodeman.Get(CTxIn(m.collateralOutpoint), mn);
+        if (strAddr == EncodeDestination(m.pubKeyMasternode.GetID()) && hasMn && mn.pubKeyCollateralAddress.IsValid()) {
+            strAddr = EncodeDestination(mn.pubKeyCollateralAddress.GetID());
         }
         mObj.push_back(Pair("addr", strAddr));
         mObj.push_back(Pair("status", "ENABLED"));
 
         std::string strIp = "On-Chain MN";
-        if (pmn && pmn->addr.IsValid()) {
-            strIp = pmn->addr.ToString();
+        if (hasMn && mn.addr.IsValid()) {
+            strIp = mn.addr.ToString();
         }
         mObj.push_back(Pair("ip", strIp));
         membersArr.push_back(mObj);
@@ -939,19 +934,22 @@ static bool TryResolveLocalOperatorPoP(const COutPoint* pColOut, const CBLSPubKe
             }
             opSk.Reset();
         }
-        for (const auto& rec : pwalletMain->GetAllMasternodeMeta()) {
-            if (rec.operatorKeyID.IsNull()) {
-                continue;
-            }
-            CBLSSecretKey opSk;
-            if (pwalletMain->GetBLSKey(rec.operatorKeyID, opSk) && opSk.IsValid() && CBLSPubKey(opSk) == opPubKey) {
-                const bool ok = popOut.SignPoP(opSk) && popOut.VerifyPoP(opPubKey);
-                opSk.Reset();
-                if (ok) {
-                    return true;
+        {
+            LOCK(pwalletMain->cs_wallet);
+            for (const auto& rec : pwalletMain->GetAllMasternodeMeta()) {
+                if (rec.operatorKeyID.IsNull()) {
+                    continue;
                 }
+                CBLSSecretKey opSk;
+                if (pwalletMain->GetBLSKey(rec.operatorKeyID, opSk) && opSk.IsValid() && CBLSPubKey(opSk) == opPubKey) {
+                    const bool ok = popOut.SignPoP(opSk) && popOut.VerifyPoP(opPubKey);
+                    opSk.Reset();
+                    if (ok) {
+                        return true;
+                    }
+                }
+                opSk.Reset();
             }
-            opSk.Reset();
         }
     }
     return false;
@@ -1724,9 +1722,29 @@ UniValue protx(const JSONRPCRequest& request)
         if (!ResolveTargetOutpoint(target, colOut, proTxHash)) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Masternode metadata entry not found");
         }
+        bool fPendingInMempool = false;
+        {
+            LOCK(mempool.cs);
+            for (const auto& entry : mempool.mapTx) {
+                std::vector<unsigned char> vchPayload;
+                bool fMalformed = false;
+                if (dip3::ExtractProTxPayload(entry.GetTx(), vchPayload, fMalformed) == dip3::PROTX_REG && !fMalformed) {
+                    try {
+                        CDataStream ds(vchPayload, SER_NETWORK, PROTOCOL_VERSION);
+                        dip3::CProRegTx pendingPtx;
+                        ds >> pendingPtx;
+                        if (pendingPtx.collateralOutpoint == colOut) {
+                            fPendingInMempool = true;
+                            break;
+                        }
+                    } catch (...) {
+                    }
+                }
+            }
+        }
         const bool removed = pwalletMain->RemoveMasternodeMeta(colOut);
         bool unlocked = false;
-        if (fUnlock && mnList.GetMNByCollateral(colOut) == nullptr) {
+        if (fUnlock && mnList.GetMNByCollateral(colOut) == nullptr && !fPendingInMempool) {
             LOCK(pwalletMain->cs_wallet);
             if (pwalletMain->IsLockedCoin(colOut.hash, colOut.n)) {
                 pwalletMain->UnlockCoin(colOut);
@@ -1737,6 +1755,7 @@ UniValue protx(const JSONRPCRequest& request)
         ret.push_back(Pair("removed", removed));
         ret.push_back(Pair("collateralOutpoint", strprintf("%s:%u", colOut.hash.ToString(), colOut.n)));
         ret.push_back(Pair("unlocked", unlocked));
+        ret.push_back(Pair("pendingInMempool", fPendingInMempool));
         return ret;
     }
 #endif // ENABLE_WALLET

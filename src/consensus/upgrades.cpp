@@ -77,6 +77,10 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
                 /*.strInfo =*/ "Faz 2 security hardening: pre-seed LLMQ snapshot, KTDIP3 v2 BLS PoP, 10-domain BLS DST, strict DER, deterministic fallback coordinator, COutPoint PoB, BIP341 Taproot sighash, StakeModifier V2",
         },
         {
+                /*.strName =*/ "Hardening_v4",
+                /*.strInfo =*/ "V4 security hardening: VRF key maturity & ProUpReg cooldown, BLS-pinned miner registrations, Model D threshold 8, LLMQ 2/3 BFT, PoW coinstake ban, BIP341 TapBranch memcmp, PoM uptime, PoSe fairness",
+        },
+        {
                 /*.strName =*/ "Test_dummy",
                 /*.strInfo =*/ "Test dummy info",
         },

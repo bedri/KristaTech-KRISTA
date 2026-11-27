@@ -16,6 +16,7 @@
 #include "bip38.h"
 #include "chainparams.h"
 #include "init.h"
+#include "support/cleanse.h"
 #include "wallet/wallet.h"
 #include "askpassphrasedialog.h"
 
@@ -369,10 +370,8 @@ SettingsBitToolWidget::SettingsBitToolWidget(KRISTATECHGUI* _window, QWidget *pa
             inform(tr("No encrypted key to copy."));
             return;
         }
-        if (QApplication::clipboard()) {
-            QApplication::clipboard()->setText(val);
-            inform(tr("Encrypted key copied to clipboard."));
-        }
+        GUIUtil::setSensitiveClipboard(val);
+        inform(tr("Encrypted key copied to clipboard (auto-clears in 60s)."));
     });
     connect(btnCopyDec, &QPushButton::clicked, this, [this]() {
         const QString val = ui->lineEditDecryptResult->text().trimmed();
@@ -380,10 +379,8 @@ SettingsBitToolWidget::SettingsBitToolWidget(KRISTATECHGUI* _window, QWidget *pa
             inform(tr("No decrypted address to copy."));
             return;
         }
-        if (QApplication::clipboard()) {
-            QApplication::clipboard()->setText(val);
-            inform(tr("Decrypted address copied to clipboard."));
-        }
+        GUIUtil::setClipboard(val);
+        inform(tr("Decrypted address copied to clipboard."));
     });
 }
 
@@ -460,7 +457,7 @@ void SettingsBitToolWidget::onEncryptSelected(bool isEncr)
 QString specialChar = "\"@!#$%&'()*+,-./:;<=>?`{|}~^_[]\\";
 QString validChar = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz" + specialChar;
 
-bool isValidPassphrase(QString strPassphrase, QString& strInvalid)
+bool isValidPassphrase(const QString& strPassphrase, QString& strInvalid)
 {
     for (int i = 0; i < strPassphrase.size(); i++) {
         if (!validChar.contains(strPassphrase[i], Qt::CaseSensitive)) {
@@ -483,18 +480,21 @@ void SettingsBitToolWidget::onEncryptKeyButtonENCClicked()
     QString qstrPassphrase = ui->passphraseIn_ENC->text();
     QString strInvalid;
     if (!isValidPassphrase(qstrPassphrase, strInvalid)) {
+        qstrPassphrase.fill(QChar('0'));
         setEncStatus(tr("The entered passphrase is invalid. ") + strInvalid + QString(" is not valid") + QString(" ") + tr("Allowed: 0-9,a-z,A-Z,") + specialChar, ToneError);
         return;
     }
 
     CTxDestination dest = DecodeDestination(ui->addressIn_ENC->text().trimmed().toStdString());
     if (!IsValidDestination(dest)) {
+        qstrPassphrase.fill(QChar('0'));
         setEncStatus(tr("The entered address is invalid.") + QString(" ") + tr("Please check the address and try again."), ToneError);
         return;
     }
 
     const CKeyID* keyID = boost::get<CKeyID>(&dest);
     if (!keyID) {
+        qstrPassphrase.fill(QChar('0'));
         const QString p2pkhPrefix = (Params().NetworkID() == CBaseChainParams::MAIN) ? QStringLiteral("KT...") : QStringLiteral("kt...");
         const QString taprootPrefix = QString::fromStdString(Params().Bech32HRP()) + QStringLiteral("1p...");
         setEncStatus(tr("BIP38 encryption supports legacy P2PKH (%1) single-key addresses only. Taproot (%2) and script addresses are not supported.").arg(p2pkhPrefix, taprootPrefix), ToneError);
@@ -502,12 +502,14 @@ void SettingsBitToolWidget::onEncryptKeyButtonENCClicked()
     }
 
     if (!pwalletMain) {
+        qstrPassphrase.fill(QChar('0'));
         setEncStatus(tr("Wallet is not available."), ToneError);
         return;
     }
 
     WalletModel::UnlockContext ctx(walletModel->requestUnlock());
     if (!ctx.isValid()) {
+        qstrPassphrase.fill(QChar('0'));
         setEncStatus(tr("Wallet unlock was cancelled."), ToneError);
         return;
     }
@@ -516,13 +518,22 @@ void SettingsBitToolWidget::onEncryptKeyButtonENCClicked()
     {
         LOCK(pwalletMain->cs_wallet);
         if (!pwalletMain->GetKey(*keyID, encKey)) {
+            qstrPassphrase.fill(QChar('0'));
             setEncStatus(tr("Private key for the entered address is not available."), ToneError);
             return;
         }
     }
 
-    std::string encryptedKey = BIP38_Encrypt(EncodeDestination(dest), qstrPassphrase.toStdString(), encKey.GetPrivKey_256(), encKey.IsCompressed());
+    std::string strPass = qstrPassphrase.toStdString();
+    qstrPassphrase.fill(QChar('0'));
+    uint256 priv256 = encKey.GetPrivKey_256();
+    const bool fComp = encKey.IsCompressed();
+    encKey = CKey();
+    std::string encryptedKey = BIP38_Encrypt(EncodeDestination(dest), strPass, priv256, fComp);
+    memory_cleanse(priv256.begin(), 32);
+    if (!strPass.empty()) memory_cleanse(&strPass[0], strPass.size());
     ui->encryptedKeyOut_ENC->setText(QString::fromStdString(encryptedKey));
+    if (!encryptedKey.empty()) memory_cleanse(&encryptedKey[0], encryptedKey.size());
     setEncStatus(tr("Address encrypted successfully."), ToneSuccess);
 }
 
@@ -600,13 +611,18 @@ void SettingsBitToolWidget::onDecryptClicked()
     std::string strKey = ui->lineEditKey->text().trimmed().toStdString();
 
     uint256 privKey;
-    bool fCompressed;
-    if (!BIP38_Decrypt(strPassphrase, strKey, privKey, fCompressed)) {
+    bool fCompressed = true;
+    const bool decrypted = BIP38_Decrypt(strPassphrase, strKey, privKey, fCompressed);
+    if (!strPassphrase.empty()) memory_cleanse(&strPassphrase[0], strPassphrase.size());
+    if (!strKey.empty()) memory_cleanse(&strKey[0], strKey.size());
+    if (!decrypted) {
+        memory_cleanse(privKey.begin(), 32);
         setDecStatus(tr("Failed to decrypt.") + QString(" ") + tr("Please check the key and passphrase and try again."), ToneError);
         return;
     }
 
     key.Set(privKey.begin(), privKey.end(), fCompressed);
+    memory_cleanse(privKey.begin(), 32);
     CPubKey pubKey = key.GetPubKey();
     ui->lineEditDecryptResult->setText(QString::fromStdString(EncodeDestination(pubKey.GetID())));
     ui->pushButtonImport->setVisible(true);
@@ -626,9 +642,12 @@ void SettingsBitToolWidget::importAddressFromDecKey()
     }
 
     CTxDestination dest = DecodeDestination(ui->lineEditDecryptResult->text().toStdString());
+    if (!IsValidDestination(dest) || !key.IsValid()) {
+        setDecStatus(tr("Data Not Valid.") + QString(" ") + tr("Please try again."), ToneError);
+        return;
+    }
     CPubKey pubkey = key.GetPubKey();
-
-    if (!IsValidDestination(dest) || !key.IsValid() || EncodeDestination(pubkey.GetID()) != EncodeDestination(dest)) {
+    if (EncodeDestination(pubkey.GetID()) != EncodeDestination(dest)) {
         setDecStatus(tr("Data Not Valid.") + QString(" ") + tr("Please try again."), ToneError);
         return;
     }
@@ -660,6 +679,10 @@ void SettingsBitToolWidget::importAddressFromDecKey()
         pwalletMain->ScanForWalletTransactions(chainActive.Genesis(), true);
     }
 
+    key = CKey();
+    ui->lineEditPassphrase->clear();
+    ui->lineEditKey->clear();
+    ui->pushButtonImport->setVisible(false);
     setDecStatus(tr("Successfully added private key to the wallet"), ToneSuccess);
 }
 
@@ -671,5 +694,12 @@ void SettingsBitToolWidget::resizeEvent(QResizeEvent *event)
 
 SettingsBitToolWidget::~SettingsBitToolWidget()
 {
+    key = CKey();
+    if (ui) {
+        if (ui->passphraseIn_ENC) ui->passphraseIn_ENC->clear();
+        if (ui->encryptedKeyOut_ENC) ui->encryptedKeyOut_ENC->clear();
+        if (ui->lineEditPassphrase) ui->lineEditPassphrase->clear();
+        if (ui->lineEditKey) ui->lineEditKey->clear();
+    }
     delete ui;
 }

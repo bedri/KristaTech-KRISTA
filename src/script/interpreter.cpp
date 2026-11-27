@@ -17,6 +17,8 @@
 #include "streams.h"
 #include "uint256.h"
 
+#include <cstring>
+
 
 typedef std::vector<unsigned char> valtype;
 
@@ -912,7 +914,7 @@ bool EvalScript(std::vector<std::vector<unsigned char> >& stack, const CScript& 
                         }
                     }
                     bool fSuccess = checker.CheckSig(vchSig, vchPubKey, scriptCode, sigversion, flags);
-                    if (sigversion == SIGVERSION_TAPSCRIPT && !vchSig.empty() && !fSuccess) {
+                    if (!fSuccess && ((sigversion == SIGVERSION_TAPSCRIPT) || (flags & SCRIPT_VERIFY_NULLFAIL)) && !vchSig.empty()) {
                         return set_error(serror, SCRIPT_ERR_SIG_NULLFAIL);
                     }
 
@@ -1345,7 +1347,7 @@ static uint256 ComputeTapBranchHash(const uint256& left, const uint256& right)
     CSHA256 sha;
     sha.Write(tag_hash, 32);
     sha.Write(tag_hash, 32);
-    if (left < right) {
+    if (std::memcmp(left.begin(), right.begin(), 32) < 0) {
         sha.Write(left.begin(), 32);
         sha.Write(right.begin(), 32);
     } else {
@@ -1605,9 +1607,35 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
     return ss.GetHash();
 }
 
+bool ComputeTaprootSighash(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData& cache, uint256& hashOut, bool fStrictBip341, const uint256* tapleaf_hash, uint32_t codesep_pos)
+{
+    return SignatureHashTaproot(txTo, nIn, nHashType, sigversion, &cache, fStrictBip341, hashOut, tapleaf_hash, codesep_pos);
+}
+
 bool TransactionSignatureChecker::VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const
 {
     return pubkey.Verify(sighash, vchSig);
+}
+
+bool TransactionSignatureChecker::VerifySchnorrSignature(const std::vector<unsigned char>& vchSig, const CXOnlyPubKey& pubkey, const uint256& sighash) const
+{
+    return pubkey.VerifySchnorr(sighash, vchSig);
+}
+
+bool TapscriptSignatureChecker::VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const
+{
+    if (parentChecker != nullptr) {
+        return parentChecker->VerifySignature(vchSig, pubkey, sighash);
+    }
+    return TransactionSignatureChecker::VerifySignature(vchSig, pubkey, sighash);
+}
+
+bool TapscriptSignatureChecker::VerifySchnorrSignature(const std::vector<unsigned char>& vchSig, const CXOnlyPubKey& pubkey, const uint256& sighash) const
+{
+    if (parentChecker != nullptr) {
+        return parentChecker->VerifySchnorrSignature(vchSig, pubkey, sighash);
+    }
+    return TransactionSignatureChecker::VerifySchnorrSignature(vchSig, pubkey, sighash);
 }
 
 bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion) const
@@ -1618,7 +1646,24 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
 bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, unsigned int flags) const
 {
     if (sigversion == SIGVERSION_TAPSCRIPT && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
-        return CheckSig(vchSigIn, vchPubKey, scriptCode, SIGVERSION_BASE, flags);
+        if (!(flags & SCRIPT_VERIFY_TAPROOT_BIP341)) {
+            return CheckSig(vchSigIn, vchPubKey, scriptCode, SIGVERSION_BASE, flags);
+        }
+        CPubKey pubkey(vchPubKey);
+        if (!pubkey.IsValid() || vchSigIn.empty()) {
+            return false;
+        }
+        if (!precomTxData || !precomTxData->m_spent_outputs_ready) {
+            return false;
+        }
+        std::vector<unsigned char> vchSig(vchSigIn);
+        const int nHashType = vchSig.back();
+        vchSig.pop_back();
+        uint256 sighash;
+        if (!SignatureHashTaproot(*txTo, nIn, nHashType, SIGVERSION_TAPSCRIPT, precomTxData, true, sighash, GetTapleafHash(), GetCodesepPos())) {
+            return false;
+        }
+        return VerifySignature(vchSig, pubkey, sighash);
     }
 
     if (sigversion == SIGVERSION_TAPROOT || sigversion == SIGVERSION_TAPSCRIPT) {
@@ -1655,7 +1700,7 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
         }
 
         CXOnlyPubKey pubkey(vchPubKey.data(), 32);
-        return pubkey.VerifySchnorr(sighash, vchSig);
+        return VerifySchnorrSignature(vchSig, pubkey, sighash);
     }
 
     CPubKey pubkey(vchPubKey);
@@ -1824,7 +1869,7 @@ bool VerifyScript(const CScript& scriptSig, const CScript& scriptPubKey, unsigne
                 return set_error(serror, SCRIPT_ERR_UNKNOWN_ERROR);
             }
 
-            TapscriptSignatureChecker tapscript_checker(tx, nIn, amount, *precom, leaf_hash, 0xffffffff);
+            TapscriptSignatureChecker tapscript_checker(tx, nIn, amount, *precom, leaf_hash, 0xffffffff, dynamic_cast<const TransactionSignatureChecker*>(&checker));
             const int64_t nValidationWeightBudget = 50 + (int64_t)scriptSig.size();
             if (!EvalScript(stack, leaf_script, flags, tapscript_checker, SIGVERSION_TAPSCRIPT, serror, nValidationWeightBudget)) {
                 return false;

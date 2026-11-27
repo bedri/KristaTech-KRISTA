@@ -32,6 +32,7 @@
 #include <univalue.h>
 
 #include <QApplication>
+#include <QClipboard>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QFontDatabase>
@@ -41,6 +42,8 @@
 #include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTableWidget>
+#include <QTest>
+#include <QTextEdit>
 #include <QUrl>
 
 void URITests::uriTests()
@@ -966,5 +969,39 @@ void URITests::visualDesignerLifecycleTests()
             }
         }
         QVERIFY(sawErrorStatus);
+    }
+}
+
+void URITests::securityUiHardeningTests()
+{
+    if (qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        DefaultDialog dlgPlain(nullptr);
+        dlgPlain.setText(QStringLiteral("<b>Title</b>"), QStringLiteral("<b>alert</b><script>x</script>"));
+        QLabel* titleLabel = dlgPlain.findChild<QLabel*>(QStringLiteral("labelTitle"));
+        QVERIFY(titleLabel != nullptr);
+        QCOMPARE(titleLabel->textFormat(), Qt::PlainText);
+        QTextEdit* plainBrowser = dlgPlain.findChild<QTextEdit*>(QStringLiteral("defaultDialogMessageBrowser"));
+        QVERIFY(plainBrowser != nullptr);
+        QCOMPARE(plainBrowser->toPlainText(), QStringLiteral("<b>alert</b><script>x</script>"));
+        QVERIFY(!plainBrowser->toHtml().contains(QStringLiteral("<b>alert</b>")));
+
+        DefaultDialog dlgRich(nullptr);
+        dlgRich.setText(QStringLiteral("Title"), QStringLiteral("<b>alert</b>"), QStringLiteral("OK"), QStringLiteral("Cancel"), true);
+        QTextEdit* richBrowser = dlgRich.findChild<QTextEdit*>(QStringLiteral("defaultDialogMessageBrowser"));
+        QVERIFY(richBrowser != nullptr);
+        QCOMPARE(richBrowser->toPlainText(), QStringLiteral("alert"));
+
+        if (QClipboard* clipboard = QApplication::clipboard()) {
+            GUIUtil::setSensitiveClipboard(QStringLiteral("sensitive_secret_1"), 40);
+            QCOMPARE(clipboard->text(QClipboard::Clipboard), QStringLiteral("sensitive_secret_1"));
+            QTest::qWait(120);
+            QVERIFY(clipboard->text(QClipboard::Clipboard).isEmpty());
+
+            GUIUtil::setSensitiveClipboard(QStringLiteral("sensitive_secret_2"), 40);
+            clipboard->setText(QStringLiteral("other_public_text"), QClipboard::Clipboard);
+            QTest::qWait(120);
+            QCOMPARE(clipboard->text(QClipboard::Clipboard), QStringLiteral("other_public_text"));
+            clipboard->clear(QClipboard::Clipboard);
+        }
     }
 }

@@ -244,6 +244,21 @@ BOOST_AUTO_TEST_CASE(dip3_upserv_upreg_uprev_and_reorg_undo)
     uint256 b3Hash = GetRandHash();
     idx3.phashBlock = &b3Hash;
 
+    {
+        CValidationState stCooldown;
+        BOOST_CHECK(!mgr.ProcessBlock(block3, &idx3, stCooldown, view, false));
+        BOOST_CHECK_EQUAL(stCooldown.GetRejectReason(), "bad-proupreg-cooldown");
+    }
+    CBlock emptyGap;
+    CBlockIndex idxGap;
+    idxGap.nHeight = 119;
+    idxGap.pprev = &idx2;
+    uint256 bGapHash = GetRandHash();
+    idxGap.phashBlock = &bGapHash;
+    BOOST_REQUIRE(mgr.ProcessBlock(emptyGap, &idxGap, state, view, false));
+
+    idx3.nHeight = 120;
+    idx3.pprev = &idxGap;
     BOOST_REQUIRE(mgr.ProcessBlock(block3, &idx3, state, view, false));
     dip3::CDeterministicMNList list3 = mgr.GetListForBlock(&idx3);
     BOOST_CHECK_EQUAL(list3.GetValidMNsCount(), 1U);
@@ -256,7 +271,7 @@ BOOST_AUTO_TEST_CASE(dip3_upserv_upreg_uprev_and_reorg_undo)
     CBlock block4;
     block4.vtx.push_back(CTransaction(mtxSpend));
     CBlockIndex idx4;
-    idx4.nHeight = 23;
+    idx4.nHeight = 121;
     idx4.pprev = &idx3;
     uint256 b4Hash = GetRandHash();
     idx4.phashBlock = &b4Hash;
@@ -1480,6 +1495,22 @@ BOOST_AUTO_TEST_CASE(dip3_phase2_hardening_regression_test)
         idx3.pprev = &idx2;
         uint256 h3 = GetRandHash();
         idx3.phashBlock = &h3;
+        {
+            CValidationState stCooldown;
+            BOOST_CHECK(!deterministicMNManager->ProcessBlock(blkUp, &idx3, stCooldown, view, false));
+            BOOST_CHECK_EQUAL(stCooldown.GetRejectReason(), "bad-proupreg-cooldown");
+        }
+        CBlock emptyGap;
+        CBlockIndex idxGap;
+        idxGap.nHeight = 119;
+        idxGap.pprev = &idx2;
+        uint256 hGap = GetRandHash();
+        idxGap.phashBlock = &hGap;
+        CValidationState stGap;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(emptyGap, &idxGap, stGap, view, false));
+
+        idx3.nHeight = 120;
+        idx3.pprev = &idxGap;
         CValidationState st3;
         BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blkUp, &idx3, st3, view, false));
         BOOST_CHECK(deterministicMNManager->GetListForBlock(&idx3).GetMN(txReg1.GetHash())->state.scriptOperatorPayout.empty());
@@ -1498,7 +1529,7 @@ BOOST_AUTO_TEST_CASE(dip3_phase2_hardening_regression_test)
         CBlock blkServ2;
         blkServ2.vtx.push_back(CTransaction(mtxServ2));
         CBlockIndex idx4;
-        idx4.nHeight = 23;
+        idx4.nHeight = 121;
         idx4.pprev = &idx3;
         uint256 h4 = GetRandHash();
         idx4.phashBlock = &h4;
@@ -1517,7 +1548,7 @@ BOOST_AUTO_TEST_CASE(dip3_phase2_hardening_regression_test)
         CBlock blkRev;
         blkRev.vtx.push_back(CTransaction(mtxRev));
         CBlockIndex idx5;
-        idx5.nHeight = 24;
+        idx5.nHeight = 122;
         idx5.pprev = &idx4;
         uint256 h5 = GetRandHash();
         idx5.phashBlock = &h5;
@@ -1529,7 +1560,7 @@ BOOST_AUTO_TEST_CASE(dip3_phase2_hardening_regression_test)
         // M-4: Even with a valid owner/ephemeral fallback signature, a revoked DIP3 MN MUST fail VerifyAdamOrDip3Signature under V3
         std::vector<unsigned char> revokedFallbackSig;
         BOOST_REQUIRE(SignBLSWithECDSAFallback(mHash, ownerComp, opSk3, revokedFallbackSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, true)));
-        BOOST_CHECK(!VerifyAdamOrDip3Signature(mHash, ownerComp.GetPubKey(), revokedFallbackSig, 25, &idx5, nullptr, nullptr, BLSDomain::ADAM_COORD));
+        BOOST_CHECK(!VerifyAdamOrDip3Signature(mHash, ownerComp.GetPubKey(), revokedFallbackSig, 123, &idx5, nullptr, nullptr, BLSDomain::ADAM_COORD));
     }
 }
 

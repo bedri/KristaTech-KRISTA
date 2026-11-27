@@ -59,12 +59,11 @@ void CActiveMasternode::ManageStatus()
     }
 
     if (status == ACTIVE_MASTERNODE_INITIAL || status == ACTIVE_MASTERNODE_NOT_CAPABLE) {
-        CMasternode* pmn;
-        pmn = mnodeman.Find(pubKeyMasternode);
-        if (pmn != nullptr) {
-            pmn->Check();
-            if (pmn->IsEnabled() && pmn->protocolVersion == PROTOCOL_VERSION)
-                EnableHotColdMasterNode(pmn->vin, pmn->addr);
+        CMasternode mn;
+        if (mnodeman.Get(pubKeyMasternode, mn)) {
+            mn.Check();
+            if (mn.IsEnabled() && mn.protocolVersion == PROTOCOL_VERSION)
+                EnableHotColdMasterNode(mn.vin, mn.addr);
         }
     }
 
@@ -255,10 +254,9 @@ bool CActiveMasternode::SendMasternodePing(std::string& errorMessage)
         return false;
     }
 
-    CMasternode* pmn = mnodeman.Find(*vin);
-    if (!pmn) pmn = mnodeman.Find(pubKeyMasternode);
-    if (pmn != NULL) {
-        if (pmn->IsPingedWithin(MASTERNODE_PING_SECONDS, mnp.sigTime)) {
+    CMasternode mn;
+    if (mnodeman.Get(*vin, mn) || mnodeman.Get(pubKeyMasternode, mn)) {
+        if (mn.IsPingedWithin(MASTERNODE_PING_SECONDS, mnp.sigTime)) {
             errorMessage = "Too early to send Masternode Ping (Ignoring)";
             return true;
         }
@@ -270,13 +268,7 @@ bool CActiveMasternode::SendMasternodePing(std::string& errorMessage)
     LogPrintf("CActiveMasternode::SendMasternodePing() - Relay Masternode Ping vin = %s\n", vin->ToString());
 
     // Update lastPing for our masternode in Masternode list
-    pmn->lastPing = mnp;
-    mnodeman.mapSeenMasternodePing.insert(std::make_pair(mnp.GetHash(), mnp));
-
-    //mnodeman.mapSeenMasternodeBroadcast.lastPing is probably outdated, so we'll update it
-    CMasternodeBroadcast mnb(*pmn);
-    uint256 hash = mnb.GetHash();
-    if (mnodeman.mapSeenMasternodeBroadcast.count(hash)) mnodeman.mapSeenMasternodeBroadcast[hash].lastPing = mnp;
+    mnodeman.ApplyLocalPing(mn.vin, mnp);
 
     mnp.Relay();
     return true;
@@ -434,19 +426,19 @@ bool CActiveMasternode::SendOnChainPing(std::string& errorMessage)
     }
     ss << vchPingSig;
 
-    CMasternode* pmn = mnodeman.Find(*vin);
-    if (!pmn) pmn = mnodeman.Find(pubKeyMasternode);
-    bool hasDelegation = (pmn != nullptr && pmn->pubKeyCollateralAddress.IsValid() && !pmn->GetVchSig().empty());
+    CMasternode mn;
+    const bool hasMn = mnodeman.Get(*vin, mn) || mnodeman.Get(pubKeyMasternode, mn);
+    bool hasDelegation = (hasMn && mn.pubKeyCollateralAddress.IsValid() && !mn.GetVchSig().empty());
     ss << hasDelegation;
     if (hasDelegation) {
         COnChainMasternodeDelegation del;
-        del.pubKeyCollateralAddress = pmn->pubKeyCollateralAddress;
-        del.pubKeyMasternode = pmn->pubKeyMasternode;
-        del.addr = pmn->addr;
-        del.sigTime = pmn->sigTime;
-        del.protocolVersion = pmn->protocolVersion;
-        del.nMessVersion = pmn->nMessVersion;
-        del.vchCollateralSig = pmn->GetVchSig();
+        del.pubKeyCollateralAddress = mn.pubKeyCollateralAddress;
+        del.pubKeyMasternode = mn.pubKeyMasternode;
+        del.addr = mn.addr;
+        del.sigTime = mn.sigTime;
+        del.protocolVersion = mn.protocolVersion;
+        del.nMessVersion = mn.nMessVersion;
+        del.vchCollateralSig = mn.GetVchSig();
         ss << del;
     }
 

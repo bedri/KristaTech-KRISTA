@@ -14,8 +14,16 @@
 #include <mutex>
 
 namespace {
+struct PinnedBLSEntry {
+    CBLSPubKey blsPubKey;
+    int nHeight;
+    uint256 blockHash;
+    PinnedBLSEntry() : nHeight(-1) {}
+    PinnedBLSEntry(const CBLSPubKey& pkIn, int hIn, const uint256& hashIn)
+        : blsPubKey(pkIn), nHeight(hIn), blockHash(hashIn) {}
+};
 std::mutex g_pinned_bls_mutex;
-std::map<CPubKey, std::pair<CBLSPubKey, int>> g_mapPinnedBLSPubKeys;
+std::map<CPubKey, PinnedBLSEntry> g_mapPinnedBLSPubKeys;
 } // namespace
 
 const std::string BLS_DST = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
@@ -459,48 +467,134 @@ bool ExtractBLSPubKeyFromSignedData(const std::vector<unsigned char>& vchSig, CB
     return false;
 }
 
-bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut) {
+bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut, const PinActivePredicate& fnIsPinActive) {
     if (!ecdsaPubKey.IsValid()) return false;
-    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
-    auto it = g_mapPinnedBLSPubKeys.find(ecdsaPubKey);
-    if (it != g_mapPinnedBLSPubKeys.end() && it->second.first.IsValid()) {
-        blsPubKeyOut = it->second.first;
-        return true;
+    PinnedBLSEntry entry;
+    bool found = false;
+    {
+        std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+        auto it = g_mapPinnedBLSPubKeys.find(ecdsaPubKey);
+        if (it != g_mapPinnedBLSPubKeys.end() && it->second.blsPubKey.IsValid()) {
+            entry = it->second;
+            found = true;
+        }
     }
-    return false;
+    if (!found) {
+        return false;
+    }
+    // Evaluate fork/branch activity predicate outside g_pinned_bls_mutex to prevent lock-order inversion with cs_main.
+    if (fnIsPinActive && !fnIsPinActive(entry.nHeight, entry.blockHash)) {
+        return false;
+    }
+    blsPubKeyOut = entry.blsPubKey;
+    return true;
 }
 
-bool IsBLSPubKeyPinnedToOther(const CPubKey& ownerPubKey, const CBLSPubKey& blsPubKey) {
+bool IsBLSPubKeyPinnedToOther(const CPubKey& ownerPubKey, const CBLSPubKey& blsPubKey, const PinActivePredicate& fnIsPinActive) {
     if (!blsPubKey.IsValid()) return false;
-    std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
-    for (const auto& pair : g_mapPinnedBLSPubKeys) {
-        if (pair.second.first == blsPubKey && pair.first != ownerPubKey) {
+    std::vector<std::pair<int, uint256>> matches;
+    {
+        std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+        for (const auto& pair : g_mapPinnedBLSPubKeys) {
+            if (pair.second.blsPubKey == blsPubKey && pair.first != ownerPubKey) {
+                matches.emplace_back(pair.second.nHeight, pair.second.blockHash);
+            }
+        }
+    }
+    for (const auto& m : matches) {
+        if (!fnIsPinActive || fnIsPinActive(m.first, m.second)) {
             return true;
         }
     }
     return false;
 }
 
-bool PinBLSPubKey(const CPubKey& ecdsaPubKey, const CBLSPubKey& blsPubKey, int nHeight) {
+bool PinBLSPubKey(const CPubKey& ecdsaPubKey, const CBLSPubKey& blsPubKey, int nHeight, const uint256& blockHash, const PinActivePredicate& fnIsPinActive) {
     if (!ecdsaPubKey.IsValid() || !blsPubKey.IsValid()) return false;
+    struct ConflictCandidate {
+        CPubKey key;
+        int nHeight;
+        uint256 blockHash;
+    };
+    std::vector<ConflictCandidate> conflicts;
+    bool hasSelf = false;
+    PinnedBLSEntry selfEntry;
+    {
+        std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+        for (const auto& pair : g_mapPinnedBLSPubKeys) {
+            if (pair.second.blsPubKey == blsPubKey && pair.first != ecdsaPubKey) {
+                conflicts.push_back(ConflictCandidate{pair.first, pair.second.nHeight, pair.second.blockHash});
+            }
+        }
+        auto it = g_mapPinnedBLSPubKeys.find(ecdsaPubKey);
+        if (it != g_mapPinnedBLSPubKeys.end()) {
+            hasSelf = true;
+            selfEntry = it->second;
+        }
+    }
+    if (!fnIsPinActive) {
+        if (!conflicts.empty()) return false;
+        if (hasSelf) return selfEntry.blsPubKey == blsPubKey;
+        std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+        for (const auto& pair : g_mapPinnedBLSPubKeys) {
+            if (pair.second.blsPubKey == blsPubKey && pair.first != ecdsaPubKey) {
+                return false;
+            }
+        }
+        auto it = g_mapPinnedBLSPubKeys.find(ecdsaPubKey);
+        if (it != g_mapPinnedBLSPubKeys.end()) {
+            return it->second.blsPubKey == blsPubKey;
+        }
+        g_mapPinnedBLSPubKeys.emplace(ecdsaPubKey, PinnedBLSEntry(blsPubKey, nHeight, blockHash));
+        return true;
+    }
+
+    std::vector<ConflictCandidate> staleConflicts;
+    for (const auto& c : conflicts) {
+        if (fnIsPinActive(c.nHeight, c.blockHash)) {
+            return false;
+        }
+        staleConflicts.push_back(c);
+    }
+    bool replaceStaleSelf = false;
+    if (hasSelf) {
+        if (fnIsPinActive(selfEntry.nHeight, selfEntry.blockHash)) {
+            return selfEntry.blsPubKey == blsPubKey;
+        }
+        replaceStaleSelf = true;
+    }
+
     std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
+    for (const auto& c : staleConflicts) {
+        auto itC = g_mapPinnedBLSPubKeys.find(c.key);
+        if (itC != g_mapPinnedBLSPubKeys.end() && itC->second.blsPubKey == blsPubKey &&
+            itC->second.nHeight == c.nHeight && itC->second.blockHash == c.blockHash) {
+            g_mapPinnedBLSPubKeys.erase(itC);
+        }
+    }
     for (const auto& pair : g_mapPinnedBLSPubKeys) {
-        if (pair.second.first == blsPubKey && pair.first != ecdsaPubKey) {
+        if (pair.second.blsPubKey == blsPubKey && pair.first != ecdsaPubKey) {
             return false;
         }
     }
     auto it = g_mapPinnedBLSPubKeys.find(ecdsaPubKey);
     if (it != g_mapPinnedBLSPubKeys.end()) {
-        return it->second.first == blsPubKey;
+        if (replaceStaleSelf && it->second.nHeight == selfEntry.nHeight &&
+            it->second.blockHash == selfEntry.blockHash && it->second.blsPubKey == selfEntry.blsPubKey) {
+            it->second = PinnedBLSEntry(blsPubKey, nHeight, blockHash);
+            return true;
+        }
+        return it->second.blsPubKey == blsPubKey;
     }
-    g_mapPinnedBLSPubKeys.emplace(ecdsaPubKey, std::make_pair(blsPubKey, nHeight));
+    g_mapPinnedBLSPubKeys.emplace(ecdsaPubKey, PinnedBLSEntry(blsPubKey, nHeight, blockHash));
     return true;
 }
 
-void UnpinBLSPubKeysAtHeight(int nHeight) {
+void UnpinBLSPubKeysAtHeight(int nHeight, const uint256& blockHash) {
     std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
     for (auto it = g_mapPinnedBLSPubKeys.begin(); it != g_mapPinnedBLSPubKeys.end(); ) {
-        if (it->second.second == nHeight) {
+        if (it->second.nHeight == nHeight &&
+            (blockHash.IsNull() || it->second.blockHash.IsNull() || it->second.blockHash == blockHash)) {
             it = g_mapPinnedBLSPubKeys.erase(it);
         } else {
             ++it;
@@ -515,20 +609,32 @@ void ClearPinnedBLSPubKeys() {
 
 void ExportPinnedBLSPubKeys(std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapOut) {
     std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
-    mapOut = g_mapPinnedBLSPubKeys;
+    mapOut.clear();
+    for (const auto& pair : g_mapPinnedBLSPubKeys) {
+        mapOut.emplace(pair.first, std::make_pair(pair.second.blsPubKey, pair.second.nHeight));
+    }
 }
 
-void ImportPinnedBLSPubKeys(const std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapIn, int nMaxHeight) {
+void ImportPinnedBLSPubKeysWithHashes(const std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapIn, const std::map<CPubKey, uint256>& mapBlockHashes, int nMaxHeight) {
     std::lock_guard<std::mutex> lock(g_pinned_bls_mutex);
     g_mapPinnedBLSPubKeys.clear();
     for (const auto& pair : mapIn) {
         if (pair.first.IsValid() && pair.second.first.IsValid() && pair.second.second <= nMaxHeight) {
-            g_mapPinnedBLSPubKeys.emplace(pair.first, pair.second);
+            uint256 bh;
+            auto itHash = mapBlockHashes.find(pair.first);
+            if (itHash != mapBlockHashes.end()) {
+                bh = itHash->second;
+            }
+            g_mapPinnedBLSPubKeys.emplace(pair.first, PinnedBLSEntry(pair.second.first, pair.second.second, bh));
         }
     }
 }
 
-bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig, const std::string& dst, bool fStrictDER) {
+void ImportPinnedBLSPubKeys(const std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapIn, int nMaxHeight) {
+    ImportPinnedBLSPubKeysWithHashes(mapIn, std::map<CPubKey, uint256>(), nMaxHeight);
+}
+
+bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig, const std::string& dst, bool fStrictDER, const PinActivePredicate& fnIsPinActive) {
     if (vchSig.empty() || !ecdsaPubKey.IsValid()) {
         return false;
     }
@@ -551,7 +657,7 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
                 return false;
             }
             CBLSPubKey pinnedBlsPubKey;
-            if (GetPinnedBLSPubKey(ecdsaPubKey, pinnedBlsPubKey)) {
+            if (GetPinnedBLSPubKey(ecdsaPubKey, pinnedBlsPubKey, fnIsPinActive)) {
                 if (signedData.blsPubKey != pinnedBlsPubKey) {
                     LogPrintf("VerifyBLSWithECDSAFallback: Rejecting unpinned BLS pubkey for ECDSA key %s\n", ecdsaPubKey.GetID().ToString());
                     return false;

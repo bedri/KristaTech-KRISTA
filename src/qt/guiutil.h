@@ -98,6 +98,7 @@ void copyEntryData(QAbstractItemView* view, int column, int role = Qt::EditRole)
 QVariant getEntryData(QAbstractItemView *view, int column, int role);
 
 void setClipboard(const QString& str);
+void setSensitiveClipboard(const QString& str, int clearAfterMs = 60000);
 
 /** Get save filename, mimics QFileDialog::getSaveFileName, except that it appends a default suffix
         when no suffix is provided by the user.

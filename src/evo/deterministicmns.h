@@ -173,6 +173,7 @@ CScript BuildProTxScript(ProTxType type, const T& payload) {
 class CDeterministicMNState {
 public:
     int nRegisteredHeight{-1};
+    int nOperatorKeyHeight{-1};
     int nLastPaidHeight{0};
     int nPoSePenalty{0};
     int nPoSeRevivedHeight{-1};
@@ -247,7 +248,27 @@ public:
         READWRITE(nTotalRegisteredCount);
         READWRITE(mapMNs);
         if (ser_action.ForRead()) {
+            try {
+                std::map<uint256, int> mapOpKeyHeights;
+                READWRITE(mapOpKeyHeights);
+                for (const auto& kv : mapOpKeyHeights) {
+                    auto it = mapMNs.find(kv.first);
+                    if (it != mapMNs.end()) {
+                        it->second.state.nOperatorKeyHeight = kv.second;
+                    }
+                }
+            } catch (const std::exception&) {
+                // Backward compatibility with legacy evodb lists lacking mapOpKeyHeights
+            }
             RebuildIndices();
+        } else {
+            std::map<uint256, int> mapOpKeyHeights;
+            for (const auto& kv : mapMNs) {
+                if (kv.second.state.nOperatorKeyHeight >= 0) {
+                    mapOpKeyHeights.emplace(kv.first, kv.second.state.nOperatorKeyHeight);
+                }
+            }
+            READWRITE(mapOpKeyHeights);
         }
     }
 
@@ -291,6 +312,7 @@ public:
     bool ApplySpecialTxToList(const CTransaction& tx, int nHeight, CDeterministicMNList& mnList, std::set<COutPoint>* pNewCollateralsOut = nullptr) const;
     bool ProcessBlock(const CBlock& block, const CBlockIndex* pindex, CValidationState& state, const CCoinsViewCache& view, bool fJustCheck, CDeterministicMNList* pPreparedListOut = nullptr, uint256* pPruneHashOut = nullptr);
     bool CommitBlockList(const uint256& blockHash, const CDeterministicMNList& list, const uint256& pruneHash);
+    bool PruneLists(const std::vector<uint256>& pruneHashes);
     bool UndoBlock(const CBlock& block, const CBlockIndex* pindex);
 
     CDeterministicMNList GetListForBlock(const CBlockIndex* pindex) const;

@@ -16,6 +16,8 @@
 #include "utilstrencodings.h"
 #include "transaction.h"
 
+#include <limits>
+
 
 extern bool GetTransaction(const uint256 &hash, CTransaction &txOut, uint256 &hashBlock, bool fAllowSlow);
 
@@ -165,7 +167,7 @@ CAmount CTransaction::GetValueOut() const
         if (it->nValue < 0)
             throw std::runtime_error("CTransaction::GetValueOut() : value out of range : less than 0");
 
-        if ((nValueOut + it->nValue) < nValueOut)
+        if (it->nValue > std::numeric_limits<CAmount>::max() - nValueOut)
             throw std::runtime_error("CTransaction::GetValueOut() : value out of range : wraps the int64_t boundary");
 
         nValueOut += it->nValue;

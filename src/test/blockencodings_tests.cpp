@@ -193,4 +193,101 @@ BOOST_AUTO_TEST_CASE(compact_block_bounds_and_overflow_test)
     }
 }
 
+BOOST_AUTO_TEST_CASE(blockheader_adam_deserialization_bounds_test)
+{
+    // C-4: CBlockHeader::ForRead() must enforce hard bounds matching CheckBlockHeader()
+    auto makeStreamToSolutions = [](const std::vector<CPubKey>& miners, uint64_t nSolCount, const std::vector<unsigned char>* firstSol = nullptr) {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        CBlockHeader base;
+        base.nVersion = 12;
+        ss << base.nVersion << base.hashPrevBlock << base.hashMerkleRoot << base.nTime << base.nBits << base.nNonce;
+        WriteCompactSize(ss, miners.size());
+        for (const auto& pk : miners) {
+            ss << pk;
+        }
+        WriteCompactSize(ss, nSolCount);
+        if (firstSol) {
+            ss << *firstSol;
+        }
+        return ss;
+    };
+
+    CKey k;
+    k.MakeNewKey(true);
+    CPubKey pk = k.GetPubKey();
+
+    // 1. vAdamMiners > 32 throws
+    {
+        std::vector<CPubKey> miners(33, pk);
+        CDataStream ss = makeStreamToSolutions(miners, 0);
+        CBlockHeader out;
+        BOOST_CHECK_THROW(ss >> out, std::ios_base::failure);
+    }
+
+    // 2. Oversized CPubKey (> 65 bytes) inside vAdamMiners throws
+    {
+        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
+        CBlockHeader base;
+        base.nVersion = 12;
+        ss << base.nVersion << base.hashPrevBlock << base.hashMerkleRoot << base.nTime << base.nBits << base.nNonce;
+        WriteCompactSize(ss, 1ULL);
+        WriteCompactSize(ss, static_cast<uint64_t>(CPubKey::PUBLIC_KEY_SIZE) + 1ULL);
+        CBlockHeader out;
+        BOOST_CHECK_THROW(ss >> out, std::ios_base::failure);
+    }
+
+    // 3. vAdamSolutions > 32 throws
+    {
+        CDataStream ss = makeStreamToSolutions({pk}, 33ULL);
+        CBlockHeader out;
+        BOOST_CHECK_THROW(ss >> out, std::ios_base::failure);
+    }
+
+    // 4. Individual solution > 512 bytes throws
+    {
+        std::vector<unsigned char> bigSol(513, 0x11);
+        CDataStream ss = makeStreamToSolutions({pk}, 1ULL, &bigSol);
+        CBlockHeader out;
+        BOOST_CHECK_THROW(ss >> out, std::ios_base::failure);
+    }
+
+    // 5. vAdamVRFProof > 512 bytes throws
+    {
+        std::vector<unsigned char> smallSol(10, 0x22);
+        CDataStream ss = makeStreamToSolutions({pk}, 1ULL, &smallSol);
+        ss << std::vector<unsigned char>(513, 0x33);
+        CBlockHeader out;
+        BOOST_CHECK_THROW(ss >> out, std::ios_base::failure);
+    }
+
+    // 6. vAdamCoordinatorSig > 512 bytes throws
+    {
+        std::vector<unsigned char> smallSol(10, 0x22);
+        CDataStream ss = makeStreamToSolutions({pk}, 1ULL, &smallSol);
+        ss << std::vector<unsigned char>(10, 0x44);
+        ss << std::vector<unsigned char>(513, 0x55);
+        CBlockHeader out;
+        BOOST_CHECK_THROW(ss >> out, std::ios_base::failure);
+    }
+
+    // 7. vQuorumSig > 4096 bytes throws
+    {
+        std::vector<unsigned char> smallSol(10, 0x22);
+        CDataStream ss = makeStreamToSolutions({pk}, 1ULL, &smallSol);
+        ss << std::vector<unsigned char>(10, 0x44);
+        ss << std::vector<unsigned char>(10, 0x55);
+        ss << std::vector<unsigned char>(4097, 0x66);
+        CBlockHeader out;
+        BOOST_CHECK_THROW(ss >> out, std::ios_base::failure);
+    }
+
+    // 8. In-memory serialize / GetSerializeSize still works on valid oversized check inputs without throwing
+    {
+        CBlockHeader hdr;
+        hdr.nVersion = 12;
+        hdr.vQuorumSig.assign(4097, 0x66);
+        BOOST_CHECK_GT(::GetSerializeSize(hdr, SER_NETWORK, PROTOCOL_VERSION), 4096U);
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

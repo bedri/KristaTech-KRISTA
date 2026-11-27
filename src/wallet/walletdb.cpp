@@ -25,6 +25,9 @@
 #include <boost/scoped_ptr.hpp>
 #include <boost/thread.hpp>
 #include <fstream>
+#ifndef WIN32
+#include <sys/stat.h>
+#endif
 
 
 static uint64_t nAccountingEntryNumber = 0;
@@ -81,13 +84,14 @@ bool CWalletDB::WriteKey(const CPubKey& vchPubKey, const CPrivKey& vchPrivKey, c
             keyMeta, false))
         return false;
 
-    // hash pubkey/privkey to accelerate wallet load
-    std::vector<unsigned char> vchKey;
-    vchKey.reserve(vchPubKey.size() + vchPrivKey.size());
-    vchKey.insert(vchKey.end(), vchPubKey.begin(), vchPubKey.end());
-    vchKey.insert(vchKey.end(), vchPrivKey.begin(), vchPrivKey.end());
+    // hash pubkey/privkey to accelerate wallet load (without extra heap copy of vchPrivKey)
+    uint256 keyHash;
+    CHash256()
+        .Write(vchPubKey.begin(), vchPubKey.size())
+        .Write(vchPrivKey.data(), vchPrivKey.size())
+        .Finalize(keyHash.begin());
 
-    return Write(std::make_pair(std::string("key"), vchPubKey), std::make_pair(vchPrivKey, Hash(vchKey.begin(), vchKey.end())), false);
+    return Write(std::make_pair(std::string("key"), vchPubKey), std::make_pair(vchPrivKey, keyHash), false);
 }
 
 bool CWalletDB::WriteBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey)
@@ -99,7 +103,7 @@ bool CWalletDB::WriteBLSKey(const CKeyID& keyid, const CBLSSecretKey& blsKey)
 bool CWalletDB::WriteCryptedBLSKey(const CKeyID& keyid, const std::vector<unsigned char>& vchCryptedSecret)
 {
     nWalletDBUpdateCounter++;
-    if (!Write(std::make_pair(std::string("cblskey"), keyid), vchCryptedSecret, false)) {
+    if (!Write(std::make_pair(std::string("cblskey"), keyid), vchCryptedSecret, true)) {
         return false;
     }
     Erase(std::make_pair(std::string("blskey"), keyid));
@@ -494,6 +498,7 @@ bool ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue, CW
             CBLSSecretKey blsKey;
             ssValue >> blsKey;
             pwallet->LoadBLSKey(keyid, blsKey);
+            blsKey.Reset();
         } else if (strType == "key" || strType == "wkey") {
             CPubKey vchPubKey;
             ssKey >> vchPubKey;
@@ -527,13 +532,14 @@ bool ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue, CW
             bool fSkipCheck = false;
 
             if (!hash.IsNull()) {
-                // hash pubkey/privkey to accelerate wallet load
-                std::vector<unsigned char> vchKey;
-                vchKey.reserve(vchPubKey.size() + pkey.size());
-                vchKey.insert(vchKey.end(), vchPubKey.begin(), vchPubKey.end());
-                vchKey.insert(vchKey.end(), pkey.begin(), pkey.end());
+                // hash pubkey/privkey to accelerate wallet load without extra plaintext copy
+                uint256 computedHash;
+                CHash256()
+                    .Write(vchPubKey.begin(), vchPubKey.size())
+                    .Write(pkey.data(), pkey.size())
+                    .Finalize(computedHash.begin());
 
-                if (Hash(vchKey.begin(), vchKey.end()) != hash) {
+                if (computedHash != hash) {
                     strErr = "Error reading wallet database: CPubKey/CPrivKey corrupt";
                     return false;
                 }
@@ -1048,7 +1054,12 @@ bool AttemptBackupWallet(const CWallet& wallet, const fs::path& pathSrc, const f
     bool retStatus;
     std::string strMessage;
     try {
-        if (fs::equivalent(pathSrc, pathDest)) {
+        if (fs::is_symlink(pathDest)) {
+            LogPrintf("cannot backup wallet to symlink %s\n", pathDest.string());
+            NotifyBacked(wallet, false, strprintf("refused symlink destination %s\n", pathDest.string()));
+            return false;
+        }
+        if (fs::exists(pathDest) && fs::equivalent(pathSrc, pathDest)) {
             LogPrintf("cannot backup to wallet source file %s\n", pathDest.string());
             return false;
         }
@@ -1063,6 +1074,9 @@ bool AttemptBackupWallet(const CWallet& wallet, const fs::path& pathSrc, const f
         dst.flush();
         src.close();
         dst.close();
+#endif
+#ifndef WIN32
+        chmod(pathDest.string().c_str(), S_IRUSR | S_IWUSR);
 #endif
         strMessage = strprintf("copied %s to %s\n", wallet.strWalletFile, pathDest.string());
         LogPrintf("%s : %s\n", __func__, strMessage);

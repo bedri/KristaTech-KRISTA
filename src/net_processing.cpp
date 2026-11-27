@@ -61,6 +61,7 @@
 #include <boost/foreach.hpp>
 #include <atomic>
 #include <queue>
+#include <unordered_set>
 
 struct PartiallyDownloadedBlock {
     CBlockHeaderAndShortTxIDs cmpct;
@@ -70,12 +71,93 @@ struct PartiallyDownloadedBlock {
 static std::map<std::pair<NodeId, uint256>, PartiallyDownloadedBlock> mapPartiallyDownloadedBlocks;
 static RecursiveMutex cs_partiallyDownloadedBlocks;
 
-struct PoSCoordPeerRateEntry {
+struct PeerRateLimitEntry {
     int64_t nWindowStart{0};
     int nCount{0};
 };
-static RecursiveMutex cs_pos_coord_rate;
-static std::map<NodeId, PoSCoordPeerRateEntry> mapPeerPoSCoordRate GUARDED_BY(cs_pos_coord_rate);
+
+struct PeerTokenBucketEntry {
+    double dTokens{0.0};
+    int64_t nLastTimeMs{0};
+    PeerTokenBucketEntry() = default;
+    PeerTokenBucketEntry(double dTokensIn, int64_t nLastTimeMsIn)
+        : dTokens(dTokensIn), nLastTimeMs(nLastTimeMsIn) {}
+};
+
+template <typename KeyT>
+static bool CheckSlidingRateLimitLocked(std::map<KeyT, PeerRateLimitEntry>& table, const KeyT& key, int64_t now, int64_t windowSecs, int maxCount, size_t maxEntries = 2048)
+{
+    PeerRateLimitEntry& entry = table[key];
+    if (now - entry.nWindowStart >= windowSecs) {
+        entry.nWindowStart = now;
+        entry.nCount = 0;
+    }
+    if (++entry.nCount > maxCount) {
+        return false;
+    }
+    if (table.size() > maxEntries) {
+        for (auto it = table.begin(); it != table.end(); ) {
+            if (now - it->second.nWindowStart >= std::max<int64_t>(windowSecs * 2, 60)) {
+                it = table.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        while (table.size() > maxEntries) {
+            auto oldest = table.begin();
+            for (auto it = table.begin(); it != table.end(); ++it) {
+                if (it->second.nWindowStart < oldest->second.nWindowStart) {
+                    oldest = it;
+                }
+            }
+            table.erase(oldest);
+        }
+    }
+    return true;
+}
+
+static bool CheckPeerTokenBucketLocked(std::map<NodeId, PeerTokenBucketEntry>& table, NodeId peerId, int64_t nowMs, double maxBurst, double refillPerSec, size_t maxEntries = 2048)
+{
+    auto it = table.find(peerId);
+    if (it == table.end()) {
+        if (table.size() >= maxEntries) {
+            for (auto evIt = table.begin(); evIt != table.end(); ) {
+                if (nowMs - evIt->second.nLastTimeMs >= 60000) {
+                    evIt = table.erase(evIt);
+                } else {
+                    ++evIt;
+                }
+            }
+            if (table.size() >= maxEntries) {
+                table.erase(table.begin());
+            }
+        }
+        it = table.emplace(peerId, PeerTokenBucketEntry{maxBurst, nowMs}).first;
+    } else {
+        double elapsedSecs = std::max<int64_t>(0, nowMs - it->second.nLastTimeMs) / 1000.0;
+        it->second.dTokens = std::min(maxBurst, it->second.dTokens + elapsedSecs * refillPerSec);
+        it->second.nLastTimeMs = nowMs;
+    }
+    if (it->second.dTokens < 1.0) {
+        return false;
+    }
+    it->second.dTokens -= 1.0;
+    return true;
+}
+
+static RecursiveMutex cs_p2p_rate;
+static std::map<NodeId, PeerRateLimitEntry> mapPeerPoSCoordRate GUARDED_BY(cs_p2p_rate);
+static std::map<std::vector<unsigned char>, PeerRateLimitEntry> mapSubnetPoSCoordRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerRateLimitEntry> mapPeerPoSCoordSigRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerRateLimitEntry> mapPeerAdamSolRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerRateLimitEntry> mapPeerAdamOrphanRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerRateLimitEntry> mapPeerProposeBlockRate GUARDED_BY(cs_p2p_rate);
+static std::map<std::pair<NodeId, uint256>, PeerRateLimitEntry> mapPeerProposeReplyRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerRateLimitEntry> mapPeerQuorumSigShareRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerTokenBucketEntry> mapPeerGetBlocksRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerRateLimitEntry> mapPeerCmpctBlockRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerRateLimitEntry> mapPeerGetBlockTxnRate GUARDED_BY(cs_p2p_rate);
+static std::map<NodeId, PeerRateLimitEntry> mapPeerFutureBlockRate GUARDED_BY(cs_p2p_rate);
 static std::map<COutPoint, std::set<uint256>> mapSeenStakeCoordReqs GUARDED_BY(cs_pos_coord_sigs);
 static uint256 hashSeenStakeCoordParent GUARDED_BY(cs_pos_coord_sigs);
 
@@ -84,6 +166,7 @@ struct HeadersSyncState {
     arith_uint256 nBaseWork;
     arith_uint256 nAccumulatedWork;
     uint256 hashLast;
+    size_t nPresyncBytes{0};
 };
 static std::map<NodeId, HeadersSyncState> mapHeadersSyncState GUARDED_BY(cs_main);
 
@@ -362,8 +445,31 @@ void FinalizeNode(NodeId nodeid, bool& fUpdateConnectionTime)
         }
     }
     {
-        LOCK(cs_pos_coord_rate);
+        LOCK(cs_p2p_rate);
         mapPeerPoSCoordRate.erase(nodeid);
+        mapPeerPoSCoordSigRate.erase(nodeid);
+        mapPeerAdamSolRate.erase(nodeid);
+        mapPeerAdamOrphanRate.erase(nodeid);
+        mapPeerProposeBlockRate.erase(nodeid);
+        for (auto it = mapPeerProposeReplyRate.begin(); it != mapPeerProposeReplyRate.end(); ) {
+            if (it->first.first == nodeid) {
+                it = mapPeerProposeReplyRate.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        mapPeerQuorumSigShareRate.erase(nodeid);
+        mapPeerGetBlocksRate.erase(nodeid);
+        mapPeerCmpctBlockRate.erase(nodeid);
+        mapPeerGetBlockTxnRate.erase(nodeid);
+        mapPeerFutureBlockRate.erase(nodeid);
+    }
+    for (auto itSrc = mapBlockSource.begin(); itSrc != mapBlockSource.end(); ) {
+        if (itSrc->second == nodeid) {
+            itSrc = mapBlockSource.erase(itSrc);
+        } else {
+            ++itSrc;
+        }
     }
     nPreferredDownload -= state->fPreferredDownload;
 
@@ -603,6 +709,9 @@ void NotifyBlockReceivedFromPeer(const uint256& hash)
 
 void UpdatePeerBlockSourceAndTime(NodeId nodeId, const uint256& blockHash)
 {
+    if (mapBlockSource.size() >= 16384 && !mapBlockSource.count(blockHash)) {
+        mapBlockSource.erase(mapBlockSource.begin());
+    }
     mapBlockSource[blockHash] = nodeId;
     CNodeState* nodestate = State(nodeId);
     if (nodestate) nodestate->nLastSyncReqTime = GetTime();
@@ -626,12 +735,15 @@ bool CheckPeerBlockSpam(NodeId nodeId, int nHeight, CValidationState& state)
 void PenalizeInvalidBlockSource(const uint256& blockHash, unsigned char rejectCode, const std::string& rejectReason, int nDoS)
 {
     std::map<uint256, NodeId>::iterator it = mapBlockSource.find(blockHash);
-    if (it != mapBlockSource.end() && State(it->second)) {
-        CBlockReject reject = {rejectCode, rejectReason.substr(0, MAX_REJECT_MESSAGE_LENGTH), blockHash};
-        State(it->second)->rejects.push_back(reject);
-        if (nDoS > 0) {
-            Misbehaving(it->second, nDoS);
+    if (it != mapBlockSource.end()) {
+        if (State(it->second)) {
+            CBlockReject reject = {rejectCode, rejectReason.substr(0, MAX_REJECT_MESSAGE_LENGTH), blockHash};
+            State(it->second)->rejects.push_back(reject);
+            if (nDoS > 0) {
+                Misbehaving(it->second, nDoS);
+            }
         }
+        mapBlockSource.erase(it);
     }
 }
 
@@ -689,19 +801,19 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
     case MSG_SPORK:
         return sporkManager.HaveSpork(inv.hash);
     case MSG_MASTERNODE_WINNER:
-        if (masternodePayments.mapMasternodePayeeVotes.count(inv.hash)) {
+        if (masternodePayments.HasWinnerVote(inv.hash)) {
             masternodeSync.AddedMasternodeWinner(inv.hash);
             return true;
         }
         return false;
     case MSG_MASTERNODE_ANNOUNCE:
-        if (mnodeman.mapSeenMasternodeBroadcast.count(inv.hash)) {
+        if (mnodeman.HasSeenBroadcast(inv.hash)) {
             masternodeSync.AddedMasternodeList(inv.hash);
             return true;
         }
         return false;
     case MSG_MASTERNODE_PING:
-        return mnodeman.mapSeenMasternodePing.count(inv.hash);
+        return mnodeman.HasSeenPing(inv.hash);
     }
     // Don't know what it is, just say we already got one
     return true;
@@ -864,30 +976,33 @@ void static ProcessGetData(CNode* pfrom, CConnman& connman, std::atomic<bool>& i
                     }
                 }
                 if (!pushed && inv.type == MSG_MASTERNODE_WINNER) {
-                    if (masternodePayments.mapMasternodePayeeVotes.count(inv.hash)) {
+                    CMasternodePaymentWinner winner;
+                    if (masternodePayments.GetWinnerVote(inv.hash, winner)) {
                         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
                         ss.reserve(1000);
-                        ss << masternodePayments.mapMasternodePayeeVotes[inv.hash];
+                        ss << winner;
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNWINNER, ss));
                         pushed = true;
                     }
                 }
 
                 if (!pushed && inv.type == MSG_MASTERNODE_ANNOUNCE) {
-                    if (mnodeman.mapSeenMasternodeBroadcast.count(inv.hash)) {
+                    CMasternodeBroadcast mnb;
+                    if (mnodeman.GetSeenBroadcast(inv.hash, mnb)) {
                         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
                         ss.reserve(1000);
-                        ss << mnodeman.mapSeenMasternodeBroadcast[inv.hash];
+                        ss << mnb;
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNBROADCAST, ss));
                         pushed = true;
                     }
                 }
 
                 if (!pushed && inv.type == MSG_MASTERNODE_PING) {
-                    if (mnodeman.mapSeenMasternodePing.count(inv.hash)) {
+                    CMasternodePing mnp;
+                    if (mnodeman.GetSeenPing(inv.hash, mnp)) {
                         CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
                         ss.reserve(1000);
-                        ss << mnodeman.mapSeenMasternodePing[inv.hash];
+                        ss << mnp;
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNPING, ss));
                         pushed = true;
                     }
@@ -924,39 +1039,56 @@ static void HandleProcessedBlockResult(const char* strCommand, const CBlock& blo
     int nDoS = 0;
     if (state.IsInvalid(nDoS)) {
         if (state.GetRejectReason() == "time-too-new") {
-            bool fPreVerified = false;
-            {
-                LOCK(cs_main);
-                CBlockIndex* pindexPrev = nullptr;
-                auto miPrev = mapBlockIndex.find(block.hashPrevBlock);
-                if (miPrev != mapBlockIndex.end() && miPrev->second) {
-                    pindexPrev = miPrev->second;
-                }
-                fPreVerified = (IsFutureBlockPreVerified(block, pindexPrev) && block.GetBlockTime() <= GetAdjustedTime() + 300);
-            }
-            if (fPreVerified) {
-                LOCK(cs_future_blocks);
-                auto itExisting = mapFutureBlocks.find(hashBlock);
-                if (itExisting != mapFutureBlocks.end()) {
-                    if (itExisting->second.block.vtx.empty()) {
-                        itExisting->second = {block, pfrom->GetAddrName()};
-                        LogPrintf("Upgraded deferred future header %s to full block from peer %s\n", hashBlock.ToString(), pfrom->GetAddrName());
+            if (block.GetBlockTime() <= GetAdjustedTime() + 300) {
+                bool fSkipFutureCheck = false;
+                {
+                    LOCK(cs_future_blocks);
+                    auto itExisting = mapFutureBlocks.find(hashBlock);
+                    if (itExisting != mapFutureBlocks.end() && !itExisting->second.block.vtx.empty()) {
+                        fSkipFutureCheck = true;
                     }
-                } else {
-                    if (mapFutureBlocks.size() >= 64) {
-                        auto itMax = mapFutureBlocks.begin();
-                        for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
-                            if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
-                                itMax = it;
+                }
+                if (!fSkipFutureCheck) {
+                    bool fRateAllowed = true;
+                    if (!pfrom->fWhitelisted) {
+                        LOCK(cs_p2p_rate);
+                        fRateAllowed = CheckSlidingRateLimitLocked(mapPeerFutureBlockRate, pfrom->GetId(), GetTime(), 60, 8);
+                    }
+                    if (fRateAllowed) {
+                        CBlockIndex* pindexPrev = nullptr;
+                        {
+                            LOCK(cs_main);
+                            auto miPrev = mapBlockIndex.find(block.hashPrevBlock);
+                            if (miPrev != mapBlockIndex.end() && miPrev->second) {
+                                pindexPrev = miPrev->second;
                             }
                         }
-                        if (block.GetBlockTime() < itMax->second.block.GetBlockTime()) {
-                            mapFutureBlocks.erase(itMax);
+                        if (pindexPrev && IsFutureBlockPreVerified(block, pindexPrev) && block.GetBlockTime() <= GetAdjustedTime() + 300) {
+                            LOCK(cs_future_blocks);
+                            auto itExisting = mapFutureBlocks.find(hashBlock);
+                            if (itExisting != mapFutureBlocks.end()) {
+                                if (itExisting->second.block.vtx.empty()) {
+                                    itExisting->second = {block, pfrom->GetAddrName()};
+                                    LogPrintf("Upgraded deferred future header %s to full block from peer %s\n", hashBlock.ToString(), pfrom->GetAddrName());
+                                }
+                            } else {
+                                if (mapFutureBlocks.size() >= 64) {
+                                    auto itMax = mapFutureBlocks.begin();
+                                    for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
+                                        if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
+                                            itMax = it;
+                                        }
+                                    }
+                                    if (block.GetBlockTime() < itMax->second.block.GetBlockTime()) {
+                                        mapFutureBlocks.erase(itMax);
+                                    }
+                                }
+                                if (mapFutureBlocks.size() < 64) {
+                                    mapFutureBlocks[hashBlock] = {block, pfrom->GetAddrName()};
+                                    LogPrintf("Deferred future block %s from peer %s until valid\n", hashBlock.ToString(), pfrom->GetAddrName());
+                                }
+                            }
                         }
-                    }
-                    if (mapFutureBlocks.size() < 64) {
-                        mapFutureBlocks[hashBlock] = {block, pfrom->GetAddrName()};
-                        LogPrintf("Deferred future block %s from peer %s until valid\n", hashBlock.ToString(), pfrom->GetAddrName());
                     }
                 }
             }
@@ -974,6 +1106,206 @@ static void HandleProcessedBlockResult(const char* strCommand, const CBlock& blo
     } else {
         pfrom->AddInventoryKnown(inv);
     }
+}
+
+bool ProcessHeadersMessage(CNode* pfrom, CDataStream& vRecv, CConnman& connman)
+{
+    CNetMsgMaker msgMaker(pfrom->GetSendVersion());
+    std::vector<CBlockHeader> headers;
+
+    // Bypass the normal CBlock deserialization, as we don't want to risk deserializing 2000 full blocks.
+    unsigned int nCount = ReadCompactSize(vRecv);
+    if (nCount > MAX_HEADERS_RESULTS) {
+        LOCK(cs_main);
+        Misbehaving(pfrom->GetId(), 20);
+        return error("headers message size = %u", nCount);
+    }
+    headers.resize(nCount);
+    for (unsigned int n = 0; n < nCount; n++) {
+        vRecv >> headers[n];
+        uint64_t nTxCount = ReadCompactSize(vRecv);
+        if (nTxCount != 0) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return error("headers message non-zero tx count = %llu", (unsigned long long)nTxCount);
+        }
+    }
+
+    if (nCount == 0) {
+        // Nothing interesting. Stop asking this peer for more headers.
+        return true;
+    }
+
+    std::vector<std::pair<CBlockHeader, const CBlockIndex*>> vFutureHeaderCandidates;
+    {
+        LOCK(cs_main);
+
+        // HeadersSyncState low-work pre-sync protection: avoid polluting mapBlockIndex
+        // with large low-work header chains before cumulative work reaches threshold.
+        {
+            auto itSync = mapHeadersSyncState.find(pfrom->GetId());
+            if (!headers.empty()) {
+                const arith_uint256 nThresholdWork = chainActive.Tip() ? (UintToArith256(chainActive.Tip()->nChainWork) / 2) : arith_uint256(0);
+                CBlockIndex* pindexPrevFirst = nullptr;
+                auto miFirst = mapBlockIndex.find(headers[0].hashPrevBlock);
+                if (miFirst != mapBlockIndex.end()) {
+                    pindexPrevFirst = miFirst->second;
+                }
+
+                const bool fInPresync = (itSync != mapHeadersSyncState.end() && !itSync->second.vHeadersBuffer.empty());
+                const bool fNeedPresync = fInPresync || (pindexPrevFirst != nullptr && nThresholdWork > 0 && UintToArith256(pindexPrevFirst->nChainWork) < nThresholdWork);
+
+                if (fNeedPresync) {
+                    HeadersSyncState& syncState = mapHeadersSyncState[pfrom->GetId()];
+                    if (!fInPresync) {
+                        syncState.nBaseWork = UintToArith256(pindexPrevFirst->nChainWork);
+                        syncState.nAccumulatedWork = arith_uint256(0);
+                        syncState.nPresyncBytes = 0;
+                    }
+                    const size_t maxPresync = std::max<size_t>(16384, static_cast<size_t>(chainActive.Height()) + 2000);
+                    static constexpr size_t MAX_PRESYNC_BYTES = 8 * 1024 * 1024;
+                    const arith_uint256 powLimit = UintToArith256(Params().GetConsensus().powLimit);
+
+                    for (const CBlockHeader& hdr : headers) {
+                        if (!syncState.vHeadersBuffer.empty() && hdr.hashPrevBlock != syncState.hashLast) {
+                            Misbehaving(pfrom->GetId(), 20);
+                            mapHeadersSyncState.erase(pfrom->GetId());
+                            return error("non-continuous presync headers sequence");
+                        }
+                        if (syncState.vHeadersBuffer.size() >= maxPresync) {
+                            Misbehaving(pfrom->GetId(), 20);
+                            mapHeadersSyncState.erase(pfrom->GetId());
+                            return error("headers presync buffer exceeded without sufficient work");
+                        }
+                        const size_t hdrBytes = ::GetSerializeSize(hdr, SER_NETWORK, PROTOCOL_VERSION);
+                        if (syncState.nPresyncBytes + hdrBytes > MAX_PRESYNC_BYTES) {
+                            Misbehaving(pfrom->GetId(), 20);
+                            mapHeadersSyncState.erase(pfrom->GetId());
+                            return error("headers presync byte cap exceeded");
+                        }
+                        arith_uint256 bnTarget;
+                        bool fNegative = false;
+                        bool fOverflow = false;
+                        bnTarget.SetCompact(hdr.nBits, &fNegative, &fOverflow);
+                        CValidationState dummyHdrState;
+                        const bool fIsAdamOrPoS = (hdr.nVersion >= 11);
+                        if (fNegative || fOverflow || bnTarget == 0 || bnTarget > powLimit ||
+                            !CheckBlockHeader(hdr, dummyHdrState, !fIsAdamOrPoS)) {
+                            Misbehaving(pfrom->GetId(), 20);
+                            mapHeadersSyncState.erase(pfrom->GetId());
+                            return error("invalid presync header %s", hdr.GetHash().ToString());
+                        }
+                        syncState.nPresyncBytes += hdrBytes;
+                        syncState.vHeadersBuffer.push_back(hdr);
+                        syncState.hashLast = hdr.GetHash();
+                        CBlockIndex dummy;
+                        dummy.nBits = hdr.nBits;
+                        syncState.nAccumulatedWork += UintToArith256(GetBlockProof(dummy));
+                    }
+                    if (syncState.nBaseWork + syncState.nAccumulatedWork < nThresholdWork) {
+                        if (nCount == MAX_HEADERS_RESULTS) {
+                            CBlockLocator loc(std::vector<uint256>{syncState.hashLast});
+                            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, loc, UINT256_ZERO));
+                        }
+                        return true;
+                    }
+                    // Sufficient work reached: flush pre-synced headers into AcceptBlockHeader below and release state
+                    headers.swap(syncState.vHeadersBuffer);
+                    mapHeadersSyncState.erase(pfrom->GetId());
+                }
+            }
+        }
+
+        CBlockIndex* pindexLast = NULL;
+        for (const CBlockHeader& header : headers) {
+            CValidationState state;
+            if (pindexLast != NULL && header.hashPrevBlock != pindexLast->GetBlockHash()) {
+                Misbehaving(pfrom->GetId(), 20);
+                return error("non-continuous headers sequence");
+            }
+
+            /*TODO: this has a CBlock cast on it so that it will compile. There should be a solution for this
+             * before headers are reimplemented on mainnet
+             */
+            if (!AcceptBlockHeader((CBlock)header, state, &pindexLast)) {
+                int nDoS;
+                if (state.IsInvalid(nDoS)) {
+                    if (state.GetRejectReason() == "time-too-new") {
+                        if (header.GetBlockTime() <= GetAdjustedTime() + 300 && vFutureHeaderCandidates.size() < 16) {
+                            const uint256 hashHeader = header.GetHash();
+                            bool fSkipFuture = false;
+                            {
+                                LOCK(cs_future_blocks);
+                                auto itExisting = mapFutureBlocks.find(hashHeader);
+                                if (itExisting != mapFutureBlocks.end() && !itExisting->second.block.vtx.empty()) {
+                                    fSkipFuture = true;
+                                }
+                            }
+                            if (!fSkipFuture && !pfrom->fWhitelisted) {
+                                LOCK(cs_p2p_rate);
+                                if (!CheckSlidingRateLimitLocked(mapPeerFutureBlockRate, pfrom->GetId(), GetTime(), 60, 8)) {
+                                    fSkipFuture = true;
+                                }
+                            }
+                            if (!fSkipFuture) {
+                                auto miPrev = mapBlockIndex.find(header.hashPrevBlock);
+                                if (miPrev != mapBlockIndex.end() && miPrev->second) {
+                                    vFutureHeaderCandidates.emplace_back(header, miPrev->second);
+                                }
+                            }
+                        }
+                        continue;
+                    }
+                    if (nDoS > 0)
+                        Misbehaving(pfrom->GetId(), nDoS);
+                    std::string strError = "invalid header received " + header.GetHash().ToString();
+                    return error(strError.c_str());
+                }
+            }
+        }
+
+        if (pindexLast)
+            UpdateBlockAvailability(pfrom->GetId(), pindexLast->GetBlockHash());
+
+        if (nCount == MAX_HEADERS_RESULTS && pindexLast) {
+            // Headers message had its maximum size; the peer may have more headers.
+            // TODO: optimize: if pindexLast is an ancestor of chainActive.Tip or pindexBestHeader, continue
+            // from there instead.
+            LogPrintf("more getheaders (%d) to end to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
+            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexLast), UINT256_ZERO));
+        }
+
+        CheckBlockIndex();
+    }
+
+    for (const auto& cand : vFutureHeaderCandidates) {
+        const CBlockHeader& header = cand.first;
+        const CBlockIndex* pindexPrev = cand.second;
+        if (IsFutureBlockPreVerified(header, pindexPrev) && header.GetBlockTime() <= GetAdjustedTime() + 300) {
+            const uint256 hashHeader = header.GetHash();
+            LOCK(cs_future_blocks);
+            auto itExisting = mapFutureBlocks.find(hashHeader);
+            if (itExisting != mapFutureBlocks.end() && !itExisting->second.block.vtx.empty()) {
+                continue;
+            }
+            if (itExisting == mapFutureBlocks.end() && mapFutureBlocks.size() >= 64) {
+                auto itMax = mapFutureBlocks.begin();
+                for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
+                    if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
+                        itMax = it;
+                    }
+                }
+                if (header.GetBlockTime() < itMax->second.block.GetBlockTime()) {
+                    mapFutureBlocks.erase(itMax);
+                }
+            }
+            if (itExisting != mapFutureBlocks.end() || mapFutureBlocks.size() < 64) {
+                mapFutureBlocks[hashHeader] = {(CBlock)header, pfrom->GetAddrName()};
+                LogPrintf("Deferred future header %s from peer %s until valid\n", hashHeader.ToString(), pfrom->GetAddrName());
+            }
+        }
+    }
+    return true;
 }
 
 bool fRequestedSporksIDB = false;
@@ -1224,6 +1556,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
     CNetMsgMaker msgMaker(pfrom->GetSendVersion());
 
     if (strCommand == NetMsgType::VERACK) {
+        if (pfrom->fSuccessfullyConnected) {
+            return true;
+        }
         pfrom->SetRecvVersion(std::min(pfrom->nVersion.load(), PROTOCOL_VERSION));
 
         // Mark this node as currently connected, so we update its timestamp later.
@@ -1235,7 +1570,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         // Sync cached current-tip ADAM solutions to newly connected peers so
         // reconnecting or restarting nodes receive solutions broadcast prior to VERACK.
-        if (!pfrom->fFeeler && pfrom->GetSendVersion() >= MIN_PEER_PROTO_VERSION) {
+        bool expectedAdamSolSync = false;
+        if (!pfrom->fFeeler && pfrom->GetSendVersion() >= MIN_PEER_PROTO_VERSION &&
+            pfrom->fSentInitialAdamSolSync.compare_exchange_strong(expectedAdamSolSync, true)) {
             uint256 tipHash;
             bool fShouldSyncAdamSol = false;
             {
@@ -1397,6 +1734,22 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_p2p_rate);
+            if (!CheckPeerTokenBucketLocked(mapPeerGetBlocksRate, pfrom->GetId(), GetTimeMillis(), 64.0, 8.0)) {
+                return true;
+            }
+        }
+        if (pfrom->fPauseSend) {
+            return true;
+        }
+        {
+            LOCK(pfrom->cs_inventory);
+            if (pfrom->vInventoryToSend.size() >= MAX_INV_SZ - 1024) {
+                return true;
+            }
+        }
+
         LOCK(cs_main);
 
         // Find the last block the caller has in the main chain
@@ -1408,6 +1761,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         int nLimit = 500;
         LogPrint(BCLog::NET, "getblocks %d to %s limit %d from peer=%d\n", (pindex ? pindex->nHeight : -1), hashStop.IsNull() ? "end" : hashStop.ToString(), nLimit, pfrom->id);
         for (; pindex; pindex = chainActive.Next(pindex)) {
+            if (pfrom->fPauseSend) {
+                break;
+            }
             if (pindex->GetBlockHash() == hashStop) {
                 LogPrint(BCLog::NET, "  getblocks stopping at %d %s\n", pindex->nHeight, pindex->GetBlockHash().ToString());
                 break;
@@ -1550,147 +1906,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
     else if (strCommand == NetMsgType::HEADERS && Params().HeadersFirstSyncingActive() && !fImporting && !fReindex) // Ignore headers received while importing
     {
-        std::vector<CBlockHeader> headers;
-
-        // Bypass the normal CBlock deserialization, as we don't want to risk deserializing 2000 full blocks.
-        unsigned int nCount = ReadCompactSize(vRecv);
-        if (nCount > MAX_HEADERS_RESULTS) {
-            LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 20);
-            return error("headers message size = %u", nCount);
-        }
-        headers.resize(nCount);
-        for (unsigned int n = 0; n < nCount; n++) {
-            vRecv >> headers[n];
-            ReadCompactSize(vRecv); // ignore tx count; assume it is 0.
-        }
-
-        LOCK(cs_main);
-
-        if (nCount == 0) {
-            // Nothing interesting. Stop asking this peers for more headers.
-            return true;
-        }
-
-        // HeadersSyncState low-work pre-sync protection: avoid polluting mapBlockIndex
-        // with large low-work header chains before cumulative work reaches threshold.
-        {
-            HeadersSyncState& syncState = mapHeadersSyncState[pfrom->GetId()];
-            if (!headers.empty()) {
-                const arith_uint256 nThresholdWork = chainActive.Tip() ? (UintToArith256(chainActive.Tip()->nChainWork) / 2) : arith_uint256(0);
-                CBlockIndex* pindexPrevFirst = nullptr;
-                auto miFirst = mapBlockIndex.find(headers[0].hashPrevBlock);
-                if (miFirst != mapBlockIndex.end()) {
-                    pindexPrevFirst = miFirst->second;
-                }
-
-                const bool fInPresync = !syncState.vHeadersBuffer.empty();
-                const bool fNeedPresync = fInPresync || (pindexPrevFirst != nullptr && nThresholdWork > 0 && UintToArith256(pindexPrevFirst->nChainWork) < nThresholdWork);
-
-                if (fNeedPresync) {
-                    if (!fInPresync) {
-                        syncState.nBaseWork = UintToArith256(pindexPrevFirst->nChainWork);
-                        syncState.nAccumulatedWork = arith_uint256(0);
-                    }
-                    const size_t maxPresync = std::max<size_t>(16384, static_cast<size_t>(chainActive.Height()) + 2000);
-
-                    for (const CBlockHeader& hdr : headers) {
-                        if (!syncState.vHeadersBuffer.empty() && hdr.hashPrevBlock != syncState.hashLast) {
-                            Misbehaving(pfrom->GetId(), 20);
-                            mapHeadersSyncState.erase(pfrom->GetId());
-                            return error("non-continuous presync headers sequence");
-                        }
-                        if (syncState.vHeadersBuffer.size() >= maxPresync) {
-                            Misbehaving(pfrom->GetId(), 20);
-                            mapHeadersSyncState.erase(pfrom->GetId());
-                            return error("headers presync buffer exceeded without sufficient work");
-                        }
-                        syncState.vHeadersBuffer.push_back(hdr);
-                        syncState.hashLast = hdr.GetHash();
-                        CBlockIndex dummy;
-                        dummy.nBits = hdr.nBits;
-                        syncState.nAccumulatedWork += UintToArith256(GetBlockProof(dummy));
-                    }
-                    if (syncState.nBaseWork + syncState.nAccumulatedWork < nThresholdWork) {
-                        if (nCount == MAX_HEADERS_RESULTS) {
-                            CBlockLocator loc(std::vector<uint256>{syncState.hashLast});
-                            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, loc, UINT256_ZERO));
-                        }
-                        return true;
-                    }
-                    // Sufficient work reached: flush pre-synced headers into AcceptBlockHeader below
-                    headers.swap(syncState.vHeadersBuffer);
-                    syncState.vHeadersBuffer.clear();
-                    syncState.nAccumulatedWork = arith_uint256(0);
-                }
-            }
-        }
-
-        CBlockIndex* pindexLast = NULL;
-        for (const CBlockHeader& header : headers) {
-            CValidationState state;
-            if (pindexLast != NULL && header.hashPrevBlock != pindexLast->GetBlockHash()) {
-                Misbehaving(pfrom->GetId(), 20);
-                return error("non-continuous headers sequence");
-            }
-
-            /*TODO: this has a CBlock cast on it so that it will compile. There should be a solution for this
-             * before headers are reimplemented on mainnet
-             */
-            if (!AcceptBlockHeader((CBlock)header, state, &pindexLast)) {
-                int nDoS;
-                if (state.IsInvalid(nDoS)) {
-                    if (state.GetRejectReason() == "time-too-new") {
-                        CBlockIndex* pindexPrev = nullptr;
-                        auto miPrev = mapBlockIndex.find(header.hashPrevBlock);
-                        if (miPrev != mapBlockIndex.end() && miPrev->second) {
-                            pindexPrev = miPrev->second;
-                        }
-                        if (IsFutureBlockPreVerified(header, pindexPrev) && header.GetBlockTime() <= GetAdjustedTime() + 300) {
-                            const uint256 hashHeader = header.GetHash();
-                            LOCK(cs_future_blocks);
-                            auto itExisting = mapFutureBlocks.find(hashHeader);
-                            if (itExisting != mapFutureBlocks.end() && !itExisting->second.block.vtx.empty()) {
-                                continue;
-                            }
-                            if (itExisting == mapFutureBlocks.end() && mapFutureBlocks.size() >= 64) {
-                                auto itMax = mapFutureBlocks.begin();
-                                for (auto it = mapFutureBlocks.begin(); it != mapFutureBlocks.end(); ++it) {
-                                    if (it->second.block.GetBlockTime() > itMax->second.block.GetBlockTime()) {
-                                        itMax = it;
-                                    }
-                                }
-                                if (header.GetBlockTime() < itMax->second.block.GetBlockTime()) {
-                                    mapFutureBlocks.erase(itMax);
-                                }
-                            }
-                            if (itExisting != mapFutureBlocks.end() || mapFutureBlocks.size() < 64) {
-                                mapFutureBlocks[hashHeader] = {(CBlock)header, pfrom->GetAddrName()};
-                                LogPrintf("Deferred future header %s from peer %s until valid\n", hashHeader.ToString(), pfrom->GetAddrName());
-                            }
-                        }
-                        continue;
-                    }
-                    if (nDoS > 0)
-                        Misbehaving(pfrom->GetId(), nDoS);
-                    std::string strError = "invalid header received " + header.GetHash().ToString();
-                    return error(strError.c_str());
-                }
-            }
-        }
-
-        if (pindexLast)
-            UpdateBlockAvailability(pfrom->GetId(), pindexLast->GetBlockHash());
-
-        if (nCount == MAX_HEADERS_RESULTS && pindexLast) {
-            // Headers message had its maximum size; the peer may have more headers.
-            // TODO: optimize: if pindexLast is an ancestor of chainActive.Tip or pindexBestHeader, continue
-            // from there instead.
-            LogPrintf("more getheaders (%d) to end to peer=%d (startheight:%d)\n", pindexLast->nHeight, pfrom->id, pfrom->nStartingHeight);
-            connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(pindexLast), UINT256_ZERO));
-        }
-
-        CheckBlockIndex();
+        return ProcessHeadersMessage(pfrom, vRecv, connman);
     }
 
     else if (strCommand == NetMsgType::BLOCK && !fImporting && !fReindex) // Ignore blocks received while importing
@@ -1767,6 +1983,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
     else if (strCommand == NetMsgType::CMPCTBLOCK && !fImporting && !fReindex)
     {
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_p2p_rate);
+            if (!CheckSlidingRateLimitLocked(mapPeerCmpctBlockRate, pfrom->GetId(), GetTime(), 10, 32)) {
+                return true;
+            }
+        }
+
         CBlockHeaderAndShortTxIDs cmpct;
         vRecv >> cmpct;
         uint256 hashBlock = cmpct.header.GetHash();
@@ -1781,27 +2004,40 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 }
                 return error("cmpctblock: invalid block header %s: %s", hashBlock.ToString(), FormatStateMessage(hdrState));
             }
-            LOCK(cs_main);
-            if (mapBlockIndex.count(hashBlock)) {
-                // Already have block, ignore
-                return true;
-            }
-
-            auto miPrev = mapBlockIndex.find(cmpct.header.hashPrevBlock);
-            if (miPrev == mapBlockIndex.end() || !miPrev->second) {
-                // Missing parent, request headers
-                connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, chainActive.GetLocator(), hashBlock));
-                return true;
-            }
-            if (!ContextualCheckBlockHeader(cmpct.header, hdrState, miPrev->second)) {
-                if (hdrState.GetRejectReason() == "time-too-new") {
+            bool fMissingParent = false;
+            CBlockLocator missingParentLocator;
+            {
+                LOCK(cs_main);
+                if (mapBlockIndex.count(hashBlock)) {
+                    // Already have block, ignore
                     return true;
                 }
-                int nHdrDoS = 0;
-                if (hdrState.IsInvalid(nHdrDoS) && nHdrDoS > 0) {
-                    Misbehaving(pfrom->GetId(), nHdrDoS);
+
+                auto miPrev = mapBlockIndex.find(cmpct.header.hashPrevBlock);
+                if (miPrev == mapBlockIndex.end() || !miPrev->second) {
+                    fMissingParent = true;
+                    missingParentLocator = chainActive.GetLocator();
+                } else if (!ContextualCheckBlockHeader(cmpct.header, hdrState, miPrev->second)) {
+                    if (hdrState.GetRejectReason() == "time-too-new") {
+                        return true;
+                    }
+                    int nHdrDoS = 0;
+                    if (hdrState.IsInvalid(nHdrDoS) && nHdrDoS > 0) {
+                        Misbehaving(pfrom->GetId(), nHdrDoS);
+                    }
+                    return error("cmpctblock: contextual header check failed %s: %s", hashBlock.ToString(), FormatStateMessage(hdrState));
                 }
-                return error("cmpctblock: contextual header check failed %s: %s", hashBlock.ToString(), FormatStateMessage(hdrState));
+            }
+            if (fMissingParent) {
+                bool fAllowReq = pfrom->fWhitelisted;
+                if (!fAllowReq) {
+                    LOCK(cs_p2p_rate);
+                    fAllowReq = CheckPeerTokenBucketLocked(mapPeerGetBlocksRate, pfrom->GetId(), GetTimeMillis(), 64.0, 8.0);
+                }
+                if (fAllowReq && !pfrom->fPauseSend) {
+                    connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::GETHEADERS, missingParentLocator, hashBlock));
+                }
+                return true;
             }
         }
 
@@ -1831,14 +2067,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             block.vtx[abs_index] = cmpct.prefilledtxn[i].tx;
         }
         
-        // Map mempool tx by short IDs
+        // Map only mempool transactions whose short IDs are requested by this compact block
         std::map<uint64_t, CTransaction> mempool_shortids;
         std::set<uint64_t> collided_shortids;
-        {
+        if (!cmpct.shorttxids.empty()) {
+            std::unordered_set<uint64_t> neededShortIds(cmpct.shorttxids.begin(), cmpct.shorttxids.end());
             LOCK(mempool.cs);
             for (CTxMemPool::indexed_transaction_set::const_iterator mi = mempool.mapTx.begin(); mi != mempool.mapTx.end(); ++mi) {
                 const CTransaction& tx = mi->GetTx();
                 uint64_t sid = cmpct.GetShortID(tx.GetHash());
+                if (neededShortIds.count(sid) == 0) {
+                    continue;
+                }
                 if (mempool_shortids.count(sid)) {
                     collided_shortids.insert(sid);
                 } else {
@@ -1907,6 +2147,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
     else if (strCommand == NetMsgType::GETBLOCKTXN)
     {
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_p2p_rate);
+            if (!CheckSlidingRateLimitLocked(mapPeerGetBlockTxnRate, pfrom->GetId(), GetTime(), 10, 32)) {
+                return true;
+            }
+        }
+        if (pfrom->fPauseSend) {
+            return true;
+        }
+
         BlockTransactionsRequest req;
         vRecv >> req;
         
@@ -2010,12 +2260,31 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         if (GetBoolArg("-blocksonly", false) && !pfrom->fWhitelisted) {
             return true;
         }
+        const int64_t nNow = GetTime();
+        const int64_t nLastReq = pfrom->nLastMempoolReq.load();
+        if (!pfrom->fWhitelisted && nLastReq != 0 && (nNow - nLastReq) < 60) {
+            return true;
+        }
+        if (pfrom->fPauseSend) {
+            return true;
+        }
+        {
+            LOCK(pfrom->cs_inventory);
+            if (pfrom->vInventoryToSend.size() >= MAX_INV_SZ - 1024) {
+                return true;
+            }
+        }
+        pfrom->nLastMempoolReq.store(nNow);
+
         LOCK2(cs_main, pfrom->cs_filter);
 
         std::vector<uint256> vtxid;
         mempool.queryHashes(vtxid);
         std::vector<CInv> vInv;
         for (uint256& hash : vtxid) {
+            if (pfrom->fPauseSend) {
+                break;
+            }
             CInv inv(MSG_TX, hash);
             CTransaction tx;
             bool fInMemPool = mempool.lookup(hash, tx);
@@ -2028,7 +2297,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 vInv.clear();
             }
         }
-        if (vInv.size() > 0)
+        if (vInv.size() > 0 && !pfrom->fPauseSend)
             connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::INV, vInv));
     }
 
@@ -2179,12 +2448,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        if (!msg.minerKey.IsValid() || msg.vchSolution.empty() || msg.vchSolution.size() > 512 ||
-            !HasExactAdamSolutionEncoding(msg.vchSolution)) {
-            LogPrintf("ProcessMessage: adamsol: Invalid miner public key or solution encoding/size (%u) from peer %d\n", (unsigned int)msg.vchSolution.size(), pfrom->GetId());
+        if (!msg.minerKey.IsValid() || msg.vchSolution.empty() || msg.vchSolution.size() > 512) {
+            LogPrintf("ProcessMessage: adamsol: Invalid miner public key or solution size (%u) from peer %d\n", (unsigned int)msg.vchSolution.size(), pfrom->GetId());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
+        }
+
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_p2p_rate);
+            if (!CheckSlidingRateLimitLocked(mapPeerAdamSolRate, pfrom->GetId(), GetTime(), 15, 32)) {
+                return true;
+            }
         }
 
         uint256 prevBlockHash = msg.hashPrevBlock;
@@ -2198,15 +2473,33 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 }
             }
         }
+
+        if (!HasExactAdamSolutionEncoding(msg.vchSolution)) {
+            LogPrintf("ProcessMessage: adamsol: Invalid solution encoding from peer %d\n", pfrom->GetId());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
         CBlockIndex* pindexPrev = nullptr;
+        uint256 activeTipHash;
         {
             LOCK(cs_main);
             if (mapBlockIndex.count(prevBlockHash)) {
                 pindexPrev = mapBlockIndex[prevBlockHash];
             }
+            if (chainActive.Tip()) {
+                activeTipHash = chainActive.Tip()->GetBlockHash();
+            }
         }
 
         if (!pindexPrev) {
+            if (!pfrom->fWhitelisted) {
+                LOCK(cs_p2p_rate);
+                if (!CheckSlidingRateLimitLocked(mapPeerAdamOrphanRate, pfrom->GetId(), GetTime(), 60, 8)) {
+                    return true;
+                }
+            }
             LogPrint(BCLog::MASTERNODE, "ProcessMessage: adamsol: Predecessor index not found for hash %s, caching as orphan.\n", prevBlockHash.ToString());
             LOCK(cs_adam_solutions);
             if (mapOrphanAdamSolutions.size() >= 20 && !mapOrphanAdamSolutions.count(prevBlockHash)) {
@@ -2292,10 +2585,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (mapAdamSolutionsCache.size() > 1000 && !mapAdamSolutionsCache.count(prevBlockHash)) {
                 auto itEvict = mapAdamSolutionsCache.begin();
                 while (itEvict != mapAdamSolutionsCache.end() &&
-                       (itEvict->first == prevBlockHash || (chainActive.Tip() && itEvict->first == chainActive.Tip()->GetBlockHash()))) {
+                       (itEvict->first == prevBlockHash || (!activeTipHash.IsNull() && itEvict->first == activeTipHash))) {
                     ++itEvict;
                 }
                 if (itEvict != mapAdamSolutionsCache.end()) {
+                    mapAdamSolutionFirstSeen.erase(itEvict->first);
                     mapAdamSolutionsCache.erase(itEvict);
                 }
             }
@@ -2303,6 +2597,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             auto solIt = solutionsForBlock.find(msg.minerKey);
             if (solIt == solutionsForBlock.end()) {
                 solutionsForBlock[msg.minerKey] = msg.vchSolution;
+                RecordAdamSolutionTimestampLocked(prevBlockHash, msg.minerKey);
                 isNew = true;
             } else {
                 vchOldSol = solIt->second;
@@ -2314,6 +2609,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             if (!VerifyAdamSolution(prevBlockHash, adamSeed, msg.minerKey, vchOldSol, nBits, dummyHeader.nVersion, nNextHeight, electedIdx)) {
                 LOCK(cs_adam_solutions);
                 mapAdamSolutionsCache[prevBlockHash][msg.minerKey] = msg.vchSolution;
+                RecordAdamSolutionTimestampLocked(prevBlockHash, msg.minerKey);
                 isNew = true;
                 LogPrintf("ProcessMessage: Overwriting invalid/old-version cached solution for miner %s\n", msg.minerKey.GetID().ToString());
             }
@@ -2347,16 +2643,29 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_p2p_rate);
+            if (!CheckSlidingRateLimitLocked(mapPeerProposeBlockRate, pfrom->GetId(), GetTime(), 15, 16)) {
+                return true;
+            }
+        }
+
         uint256 blockHash = msg.block.GetHash();
 
         // Track seen proposed blocks to avoid infinite loop / double relay.
-        // On a 4s coordinator re-broadcast, reply to pfrom with any cached quorum signature shares for this block.
+        // On a 4s coordinator re-broadcast, reply to pfrom with any cached quorum signature shares for this block (throttled per peer+block).
         bool fAlreadySeen = false;
         {
             LOCK(cs_seen_prop);
             fAlreadySeen = (setSeenProposedBlocks.count(blockHash) > 0);
         }
         if (fAlreadySeen) {
+            if (!pfrom->fWhitelisted) {
+                LOCK(cs_p2p_rate);
+                if (!CheckSlidingRateLimitLocked(mapPeerProposeReplyRate, std::make_pair(pfrom->GetId(), blockHash), GetTime(), 2, 1)) {
+                    return true;
+                }
+            }
             std::vector<CQuorumSigShareMsg> vCachedShares;
             {
                 LOCK(cs_quorum_sigs);
@@ -2415,13 +2724,16 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
         int64_t nBlockTimeDiff = std::max<int64_t>(0, msg.block.GetBlockTime() - pindexPrev->GetBlockTime());
-        uint256 adamSeed = GetAdamSeed(pindexPrev);
+        uint256 adamSeed;
         std::vector<CPubKey> vExpectedMiners;
         std::vector<CPubKey> vStandbyMiners;
         CPubKey expectedCoordinator;
+        std::set<CPubKey> localMnKeys;
+        std::set<CPubKey> localCoinLockKeys;
+        bool fHasTrackKeys = false;
+        const bool fHardeningV3 = IsHardeningV3Active(nProposalHeight);
 
-        CPubKey signingCoordinator = expectedCoordinator;
-        bool fProposalValid = false;
+        // Phase 1 (LOCK(cs_main)): Verify tip match and snapshot deterministic ADAM pool / track keys
         {
             LOCK(cs_main);
             const CCoinsViewCache* pProposalView = nullptr;
@@ -2434,74 +2746,96 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 return true;
             }
 
-            if (fFallbackMode) {
-                int nActiveMns = GetActiveMasternodePoolCount(nProposalHeight - 1, pProposalView);
-                int threshold = consensus.GetAdamEffectiveThreshold(nProposalHeight, nBlockTimeDiff, nActiveMns);
-                if (msg.block.vAdamMiners.size() < (size_t)threshold ||
-                    msg.block.vAdamMiners.size() > (size_t)(consensus.GetAdamMinersCount(nProposalHeight) + 3) ||
-                    (msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size() - 1 &&
-                     msg.block.vAdamSolutions.size() != msg.block.vAdamMiners.size())) {
-                    LogPrintf("ProcessMessage: qblockprop: Fallback miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
-                    Misbehaving(pfrom->GetId(), 20);
-                    return true;
-                }
-                expectedCoordinator = msg.block.vAdamMiners.back();
-            } else {
-                if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pProposalView, &vStandbyMiners)) {
-                    LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
-                    return true;
-                }
-
-                if (!ValidateAdamCommitteeForTime(
-                        msg.block.hashPrevBlock, adamSeed, nProposalHeight, nBlockTimeDiff,
-                        msg.block.nBits, msg.block.nVersion, msg.block.vAdamMiners, msg.block.vAdamSolutions,
-                        vExpectedMiners, vStandbyMiners, nullptr, nullptr, pProposalView)) {
-                    LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions size mismatch for proposed block %s\n", blockHash.ToString());
-                    return true;
-                }
+            adamSeed = GetAdamSeed(pindexPrev);
+            if (!SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, nProposalHeight, pProposalView, &vStandbyMiners)) {
+                LogPrintf("ProcessMessage: qblockprop: SelectAdamNodes failed for proposed block %s\n", blockHash.ToString());
+                return true;
             }
 
-            signingCoordinator = expectedCoordinator;
-            bool fCoordSigValid = false;
+            if (msg.block.vAdamMiners != vExpectedMiners && IsAdamDualTrackActive(nProposalHeight)) {
+                GetAdamMinerPool(nProposalHeight - 1, pProposalView, &localMnKeys, &localCoinLockKeys);
+                fHasTrackKeys = true;
+            }
+        }
+
+        // Phase 2 (NO cs_main): BLS encoding, committee solutions, coordinator signature, and VRF verification
+        bool fCommitteeValid = ValidateAdamCommitteeForTime(
+            msg.block.hashPrevBlock, adamSeed, nProposalHeight, nBlockTimeDiff,
+            msg.block.nBits, msg.block.nVersion, msg.block.vAdamMiners, msg.block.vAdamSolutions,
+            vExpectedMiners, vStandbyMiners,
+            fHasTrackKeys ? &localMnKeys : nullptr,
+            fHasTrackKeys ? &localCoinLockKeys : nullptr,
+            nullptr);
+
+        CPubKey signingCoordinator = expectedCoordinator;
+        bool fCoordSigValid = false;
+        bool fVrfValid = false;
+        bool fBadAuthEncoding = false;
+        if (fCommitteeValid) {
             if (!msg.block.vAdamCoordinatorSig.empty() && !msg.block.vAdamVRFProof.empty()) {
                 if (msg.block.vAdamCoordinatorSig.size() > 512 || msg.block.vAdamVRFProof.size() > 512 ||
                     !HasExactBLSSignedDataEncoding(msg.block.vAdamCoordinatorSig) ||
                     !HasExactBLSSignedDataEncoding(msg.block.vAdamVRFProof)) {
-                    LogPrintf("ProcessMessage: qblockprop: Malformed coordinator signature or VRF proof encoding for proposed block %s\n", blockHash.ToString());
-                    Misbehaving(pfrom->GetId(), 20);
-                    return true;
-                }
-                fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash, nProposalHeight, pindexPrev);
-                if (!fCoordSigValid && !fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                    const bool fHardeningV3 = IsHardeningV3Active(nProposalHeight);
-                    std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                    if (!fHardeningV3) {
-                        for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                            if (!msg.block.vAdamSolutions[i].empty() &&
-                                VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i, pProposalView)) {
-                                mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
+                    fBadAuthEncoding = true;
+                } else {
+                    fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash, nProposalHeight, pindexPrev);
+                    if (!fCoordSigValid && !fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                        std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
+                        if (!fHardeningV3) {
+                            for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
+                                if (!msg.block.vAdamSolutions[i].empty() &&
+                                    VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i, nullptr)) {
+                                    mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
+                                }
+                            }
+                        }
+                        const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedMiners.empty())
+                            ? vExpectedMiners : msg.block.vAdamMiners;
+                        CPubKey activeFallback, prevFallback;
+                        int rotationIndex = 0;
+                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
+                            if (VerifyAdamCoordinatorSig(msg.block, activeFallback, &blockHash, nProposalHeight, pindexPrev)) {
+                                signingCoordinator = activeFallback;
+                                fCoordSigValid = true;
+                            } else if (VerifyAdamCoordinatorSig(msg.block, prevFallback, &blockHash, nProposalHeight, pindexPrev)) {
+                                signingCoordinator = prevFallback;
+                                fCoordSigValid = true;
                             }
                         }
                     }
-                    const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedMiners.empty())
-                        ? vExpectedMiners : msg.block.vAdamMiners;
-                    CPubKey activeFallback, prevFallback;
-                    int rotationIndex = 0;
-                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
-                        if (VerifyAdamCoordinatorSig(msg.block, activeFallback, &blockHash, nProposalHeight, pindexPrev)) {
-                            signingCoordinator = activeFallback;
-                            fCoordSigValid = true;
-                        } else if (VerifyAdamCoordinatorSig(msg.block, prevFallback, &blockHash, nProposalHeight, pindexPrev)) {
-                            signingCoordinator = prevFallback;
-                            fCoordSigValid = true;
-                        }
+                    if (fCoordSigValid) {
+                        fVrfValid = VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator, nProposalHeight, pindexPrev);
                     }
                 }
             }
+        }
 
-            if (!fCoordSigValid ||
-                !VerifyAdamVRFProof(adamSeed, msg.block.vAdamVRFProof, signingCoordinator, nProposalHeight, pindexPrev)) {
+        // Phase 3 (LOCK(cs_main)): Re-verify active tip and validate full block state
+        bool fProposalValid = false;
+        {
+            LOCK(cs_main);
+            const CCoinsViewCache* pProposalView = nullptr;
+            if (pindexPrev == chainActive.Tip() && pcoinsTip && pcoinsTip->GetBestBlock() == msg.block.hashPrevBlock) {
+                pProposalView = pcoinsTip;
+            }
+            if (!pProposalView) {
+                LogPrint(BCLog::MASTERNODE, "ProcessMessage: qblockprop: Deferring proposal %s because parent %s is no longer current tip\n",
+                         blockHash.ToString(), msg.block.hashPrevBlock.ToString());
+                return true;
+            }
+            if (fBadAuthEncoding) {
+                LogPrintf("ProcessMessage: qblockprop: Malformed coordinator signature or VRF proof encoding for proposed block %s\n", blockHash.ToString());
+                Misbehaving(pfrom->GetId(), 20);
+                return true;
+            }
+            if (!fCommitteeValid) {
+                LogPrintf("ProcessMessage: qblockprop: Elected miners or solutions mismatch for proposed block %s\n", blockHash.ToString());
+                Misbehaving(pfrom->GetId(), 20);
+                return true;
+            }
+            if (!fCoordSigValid || !fVrfValid) {
                 LogPrintf("ProcessMessage: qblockprop: Invalid coordinator signature or VRF proof for proposed block %s\n", blockHash.ToString());
+                Misbehaving(pfrom->GetId(), 20);
                 return true;
             }
 
@@ -2606,26 +2940,43 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        // LLMQ Primary-Solution Anti-Substitution Veto (R35-1):
+        // LLMQ Primary-Solution Anti-Substitution & Omission Veto (R35-1):
         // Evaluated AFTER setSeenProposedBlocks insertion and P2P relay so non-LLMQ nodes still relay
         // valid proposals to LLMQ members and vetoed proposals are not re-validated repeatedly.
-        if (!fFallbackMode && nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS) {
+        if (!fFallbackMode) {
             std::map<CPubKey, std::vector<unsigned char>> localSolutions;
+            std::map<CPubKey, int64_t> localFirstSeen;
             {
                 LOCK(cs_adam_solutions);
                 auto itSol = mapAdamSolutionsCache.find(msg.block.hashPrevBlock);
                 if (itSol != mapAdamSolutionsCache.end()) {
                     localSolutions = itSol->second;
                 }
+                auto itFirst = mapAdamSolutionFirstSeen.find(msg.block.hashPrevBlock);
+                if (itFirst != mapAdamSolutionFirstSeen.end()) {
+                    localFirstSeen = itFirst->second;
+                }
             }
             if (!localSolutions.empty()) {
+                const int64_t nowVeto = GetTime();
                 for (size_t i = 0; i < vExpectedMiners.size() && i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                    if (msg.block.vAdamMiners[i] != vExpectedMiners[i]) {
+                    if (nBlockTimeDiff >= ADAM_COMMITTEE_FALLBACK_TIMEOUT_SECS && msg.block.vAdamMiners[i] != vExpectedMiners[i]) {
                         auto itPrimarySol = localSolutions.find(vExpectedMiners[i]);
                         if (itPrimarySol != localSolutions.end() && !itPrimarySol->second.empty() &&
                             VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, vExpectedMiners[i], itPrimarySol->second, msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
                             LogPrintf("ProcessMessage: qblockprop: Refusing to sign proposal %s that substitutes primary validator seat %d (%s) despite valid local solution\n",
                                       blockHash.ToString(), (int)i, vExpectedMiners[i].GetID().ToString());
+                            return true;
+                        }
+                    } else if (msg.block.vAdamMiners[i] == vExpectedMiners[i] && msg.block.vAdamSolutions[i].empty()) {
+                        auto itPrimarySol = localSolutions.find(vExpectedMiners[i]);
+                        auto itFirstSeen = localFirstSeen.find(vExpectedMiners[i]);
+                        if (itPrimarySol != localSolutions.end() && !itPrimarySol->second.empty() &&
+                            itFirstSeen != localFirstSeen.end() && itFirstSeen->second > 0 &&
+                            (nowVeto - itFirstSeen->second) >= 5 &&
+                            VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, vExpectedMiners[i], itPrimarySol->second, msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i)) {
+                            LogPrintf("ProcessMessage: qblockprop: Refusing to sign proposal %s that omits primary validator solution for seat %d (%s) seen %llds ago\n",
+                                      blockHash.ToString(), (int)i, vExpectedMiners[i].GetID().ToString(), (long long)(nowVeto - itFirstSeen->second));
                             return true;
                         }
                     }
@@ -2699,11 +3050,18 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             return true;
         }
 
-        if (msg.vchSig.empty() || msg.vchSig.size() > 512 || !HasExactBLSSignedDataEncoding(msg.vchSig)) {
-            LogPrintf("ProcessMessage: qsigshare: Invalid signature share encoding/size (%u) from peer %d\n", (unsigned int)msg.vchSig.size(), pfrom->GetId());
+        if (msg.vchSig.empty() || msg.vchSig.size() > 512) {
+            LogPrintf("ProcessMessage: qsigshare: Invalid signature share size (%u) from peer %d\n", (unsigned int)msg.vchSig.size(), pfrom->GetId());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
+        }
+
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_p2p_rate);
+            if (!CheckSlidingRateLimitLocked(mapPeerQuorumSigShareRate, pfrom->GetId(), GetTime(), 15, 64)) {
+                return true;
+            }
         }
 
         uint256 hashProposedPrev;
@@ -2758,6 +3116,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         if (!found) {
             LogPrint(BCLog::MASTERNODE, "QUORUMSIGSHARE: Signer %s is not a member of active quorum for block %s\n", msg.collateralOutpoint.ToString(), msg.blockHash.ToString());
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        if (!HasExactBLSSignedDataEncoding(msg.vchSig)) {
+            LogPrintf("ProcessMessage: qsigshare: Invalid signature share encoding from peer %d\n", pfrom->GetId());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
@@ -2826,7 +3191,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         if (!msg.block.IsProofOfStake() || msg.block.nVersion < 11 || !msg.targetCoordinator.IsValid() ||
             msg.vchStakerAuthSig.empty() || msg.vchStakerAuthSig.size() > 512 ||
-            !HasExactBLSSignedDataEncoding(msg.vchStakerAuthSig) ||
             msg.block.vtx.size() < 2 || msg.block.vtx[1].vin.empty()) {
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
@@ -2842,25 +3206,15 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
-        {
-            LOCK(cs_pos_coord_rate);
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_p2p_rate);
             const int64_t now = GetTime();
-            PoSCoordPeerRateEntry& entry = mapPeerPoSCoordRate[pfrom->GetId()];
-            if (now - entry.nWindowStart >= 15) {
-                entry.nWindowStart = now;
-                entry.nCount = 0;
-            }
-            if (++entry.nCount > 8) {
+            if (!CheckSlidingRateLimitLocked(mapPeerPoSCoordRate, pfrom->GetId(), now, 15, 8)) {
                 return true;
             }
-            if (mapPeerPoSCoordRate.size() > 1024) {
-                for (auto it = mapPeerPoSCoordRate.begin(); it != mapPeerPoSCoordRate.end(); ) {
-                    if (now - it->second.nWindowStart >= 60) {
-                        it = mapPeerPoSCoordRate.erase(it);
-                    } else {
-                        ++it;
-                    }
-                }
+            const std::vector<unsigned char> netGroup = pfrom->addr.GetGroup();
+            if (!CheckSlidingRateLimitLocked(mapSubnetPoSCoordRate, netGroup, now, 15, 32)) {
+                return true;
             }
         }
 
@@ -2901,12 +3255,19 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
         if (fAlreadySeen) {
             if (fHaveCachedResp) {
-                CPoSCoordSignResponseMsg respMsg;
-                respMsg.reqHash = reqHash;
-                respMsg.coordinatorPubKey = cachedResp.coordinatorPubKey;
-                respMsg.vAdamVRFProof = cachedResp.vAdamVRFProof;
-                respMsg.vAdamCoordinatorSig = cachedResp.vAdamCoordinatorSig;
-                connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::POSCOORDSIG, respMsg));
+                bool fAllowCachedReply = pfrom->fWhitelisted;
+                if (!fAllowCachedReply) {
+                    LOCK(cs_p2p_rate);
+                    fAllowCachedReply = CheckSlidingRateLimitLocked(mapPeerProposeReplyRate, std::make_pair(pfrom->GetId(), reqHash), GetTime(), 2, 1);
+                }
+                if (fAllowCachedReply) {
+                    CPoSCoordSignResponseMsg respMsg;
+                    respMsg.reqHash = reqHash;
+                    respMsg.coordinatorPubKey = cachedResp.coordinatorPubKey;
+                    respMsg.vAdamVRFProof = cachedResp.vAdamVRFProof;
+                    respMsg.vAdamCoordinatorSig = cachedResp.vAdamCoordinatorSig;
+                    connman.PushMessage(pfrom, CNetMsgMaker(pfrom->GetSendVersion()).Make(NetMsgType::POSCOORDSIG, respMsg));
+                }
             }
             return true;
         }
@@ -2952,7 +3313,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
-        if (!VerifyPoSCoordRequestAuth(msg.block, reqHash, msg.vchStakerAuthSig, enableP2PKH, nProposalHeight)) {
+        if (!HasExactBLSSignedDataEncoding(msg.vchStakerAuthSig) ||
+            !VerifyPoSCoordRequestAuth(msg.block, reqHash, msg.vchStakerAuthSig, enableP2PKH, nProposalHeight)) {
             LogPrintf("ProcessMessage: poscoordreq: Invalid staker auth signature on req %s\n", reqHash.ToString());
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
@@ -2961,9 +3323,11 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         {
             LOCK(cs_pos_coord_sigs);
-            if (hashSeenStakeCoordParent != msg.block.hashPrevBlock || mapSeenStakeCoordReqs.size() >= 256) {
+            if (hashSeenStakeCoordParent != msg.block.hashPrevBlock) {
                 hashSeenStakeCoordParent = msg.block.hashPrevBlock;
                 mapSeenStakeCoordReqs.clear();
+            } else if (mapSeenStakeCoordReqs.count(stakePrevout) == 0 && mapSeenStakeCoordReqs.size() >= 1024) {
+                return true;
             }
             auto& seenSet = mapSeenStakeCoordReqs[stakePrevout];
             if (seenSet.size() >= 2 && seenSet.count(reqHash) == 0) {
@@ -3059,8 +3423,9 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         if (!ResolveLocalSigningKey(msg.targetCoordinator, nullptr, nProposalHeight, coordKey, blsKey, fOpOnly, pindexPrev) || !blsKey.IsValid()) {
             return true;
         }
-        if (!AcquireCoordinatorProposalSlot(msg.block.hashPrevBlock, msg.targetCoordinator, reqHash, false)) {
-            LogPrintf("ProcessMessage: poscoordreq: Declining req %s for coordinator %s (slot already committed on parent %s)\n",
+        RemoteCoordinatorProposalGuard coordSlotGuard;
+        if (!coordSlotGuard.Acquire(msg.block.hashPrevBlock, msg.targetCoordinator, reqHash)) {
+            LogPrintf("ProcessMessage: poscoordreq: Declining req %s for coordinator %s (slot already in-flight or committed on parent %s)\n",
                 reqHash.ToString(), msg.targetCoordinator.GetID().ToString(), msg.block.hashPrevBlock.ToString());
             return true;
         }
@@ -3087,9 +3452,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
-        if (!AcquireCoordinatorProposalSlot(msg.block.hashPrevBlock, msg.targetCoordinator, reqHash, true)) {
-            return true;
-        }
+        coordSlotGuard.MarkProduced();
 
         {
             LOCK(cs_pos_coord_sigs);
@@ -3132,12 +3495,17 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
 
         if (msg.reqHash.IsNull() || !msg.coordinatorPubKey.IsValid() ||
             msg.vAdamVRFProof.empty() || msg.vAdamVRFProof.size() > 512 ||
-            msg.vAdamCoordinatorSig.empty() || msg.vAdamCoordinatorSig.size() > 512 ||
-            !HasExactBLSSignedDataEncoding(msg.vAdamVRFProof) ||
-            !HasExactBLSSignedDataEncoding(msg.vAdamCoordinatorSig)) {
+            msg.vAdamCoordinatorSig.empty() || msg.vAdamCoordinatorSig.size() > 512) {
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
+        }
+
+        if (!pfrom->fWhitelisted) {
+            LOCK(cs_p2p_rate);
+            if (!CheckSlidingRateLimitLocked(mapPeerPoSCoordSigRate, pfrom->GetId(), GetTime(), 15, 16)) {
+                return true;
+            }
         }
 
         CSeenPoSCoordReqEntry reqEntry;
@@ -3154,6 +3522,13 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         if (msg.coordinatorPubKey != reqEntry.targetCoordinator || reqEntry.adamSeed.IsNull()) {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+            return true;
+        }
+
+        if (!HasExactBLSSignedDataEncoding(msg.vAdamVRFProof) ||
+            !HasExactBLSSignedDataEncoding(msg.vAdamCoordinatorSig)) {
             LOCK(cs_main);
             Misbehaving(pfrom->GetId(), 20);
             return true;
@@ -3444,6 +3819,10 @@ bool ProcessMessages(CNode* pfrom, CConnman& connman, std::atomic<bool>& interru
         if (!pfrom->vRecvGetData.empty())
             fMoreWork = true;
     } catch (const std::ios_base::failure& e) {
+        {
+            LOCK(cs_main);
+            Misbehaving(pfrom->GetId(), 20);
+        }
         connman.PushMessage(pfrom, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::REJECT, strCommand, REJECT_MALFORMED, std::string("error parsing message")));
         if (strstr(e.what(), "end of data")) {
             // Allow exceptions from under-length message on vRecv

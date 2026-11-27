@@ -28,9 +28,27 @@ bool TransactionSignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, 
     if (!keystore->GetKey(address, key))
         return false;
 
+    if (sigversion == SIGVERSION_TAPROOT) {
+        const PrecomputedTransactionData* precom = checker.GetPrecomputedData();
+        if (!precom || !precom->m_spent_outputs_ready) {
+            return false;
+        }
+        uint256 hash;
+        if (!ComputeTaprootSighash(*txTo, nIn, nHashType, SIGVERSION_TAPROOT, *precom, hash, true)) {
+            return false;
+        }
+        if (!key.SignSchnorr(hash, vchSig)) {
+            return false;
+        }
+        if (nHashType != 0) {
+            vchSig.push_back(static_cast<unsigned char>(nHashType));
+        }
+        return true;
+    }
+
     uint256 hash;
     try {
-        hash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion);
+        hash = SignatureHash(scriptCode, *txTo, nIn, nHashType, amount, sigversion, checker.GetPrecomputedData());
     } catch (std::logic_error ex) {
         return false;
     }
@@ -120,6 +138,21 @@ static bool SignStep(const BaseSignatureCreator& creator, const CScript& scriptP
             CPubKey pubKey(scriptPubKey.begin() + 1, scriptPubKey.begin() + 1 + scriptPubKey[0]);
             if (pubKey.IsValid()) {
                 return Sign1(pubKey.GetID(), creator, scriptPubKey, ret, sigversion);
+            }
+        }
+        return false;
+    case TX_WITNESS_V1_TAPROOT:
+        if (vSolutions.size() == 1 && vSolutions[0].size() == 32) {
+            std::vector<unsigned char> cand(33, 0x02);
+            std::memcpy(cand.data() + 1, vSolutions[0].data(), 32);
+            const CKeyID evenId = CPubKey(cand).GetID();
+            if (creator.KeyStore().HaveKey(evenId)) {
+                return Sign1(evenId, creator, scriptPubKey, ret, SIGVERSION_TAPROOT);
+            }
+            cand[0] = 0x03;
+            const CKeyID oddId = CPubKey(cand).GetID();
+            if (creator.KeyStore().HaveKey(oddId)) {
+                return Sign1(oddId, creator, scriptPubKey, ret, SIGVERSION_TAPROOT);
             }
         }
         return false;
@@ -392,6 +425,11 @@ const BaseSignatureChecker& DummySignatureCreator::Checker() const
 
 bool DummySignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, const CKeyID& keyid, const CScript& scriptCode, SigVersion sigversion) const
 {
+    if (sigversion == SIGVERSION_TAPROOT) {
+        // 64-byte dummy BIP340 Schnorr signature
+        vchSig.assign(64, 0x01);
+        return true;
+    }
     // Create a dummy signature that is a valid DER-encoding
     vchSig.assign(72, '\000');
     vchSig[0] = 0x30;

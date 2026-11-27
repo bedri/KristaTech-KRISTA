@@ -205,7 +205,10 @@ public:
         double f2 = aSize * bFees;
 
         if (f1 == f2) {
-            return a.GetTime() >= b.GetTime();
+            if (a.GetTime() != b.GetTime()) {
+                return a.GetTime() > b.GetTime();
+            }
+            return a.GetTx().GetHash() < b.GetTx().GetHash();
         }
         return f1 < f2;
     }

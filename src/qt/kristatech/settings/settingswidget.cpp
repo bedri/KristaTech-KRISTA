@@ -315,7 +315,7 @@ void SettingsWidget::onResetAction()
 {
     if (walletModel) {
         // confirmation dialog
-        if (!ask(tr("Confirm options reset"), tr("Client restart required to activate changes.") + "<br><br>" + tr("Client will be shutdown, do you want to proceed?")))
+        if (!ask(tr("Confirm options reset"), tr("Client restart required to activate changes.") + "\n\n" + tr("Client will be shutdown, do you want to proceed?")))
             return;
 
         /* reset all options and close GUI */

@@ -1043,26 +1043,29 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
         return false;
     }
 
-    QString destAddr;
-    std::unique_ptr<CReserveKey> internalReserveKey;
+    QString previewDestAddr;
     if (dryRun) {
         CTxDestination previewDest;
         if (!ExtractDestination(spendable[0].tx->vout[spendable[0].i].scriptPubKey, previewDest) || !IsValidDestination(previewDest)) {
             errorOut = tr("Failed to derive preview destination for consolidation.");
             return false;
         }
-        destAddr = QString::fromStdString(EncodeDestination(previewDest));
-    } else {
-        internalReserveKey.reset(new CReserveKey(wallet));
-        CPubKey internalPubKey;
-        if (!internalReserveKey->GetReservedKey(internalPubKey, true)) {
-            errorOut = tr("Failed to reserve internal change key for consolidation.");
-            return false;
-        }
-        destAddr = QString::fromStdString(EncodeDestination(internalPubKey.GetID()));
+        previewDestAddr = QString::fromStdString(EncodeDestination(previewDest));
     }
 
     for (const auto& batch : batches) {
+        QString batchDestAddr = previewDestAddr;
+        std::unique_ptr<CReserveKey> batchReserveKey;
+        if (!dryRun) {
+            batchReserveKey.reset(new CReserveKey(wallet));
+            CPubKey internalPubKey;
+            if (!batchReserveKey->GetReservedKey(internalPubKey, true)) {
+                errorOut = tr("Failed to reserve internal change key for consolidation.");
+                return false;
+            }
+            batchDestAddr = QString::fromStdString(EncodeDestination(internalPubKey.GetID()));
+        }
+
         CCoinControl cc;
         cc.fAllowOtherInputs = false;
         CAmount batchSum = 0;
@@ -1071,7 +1074,7 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
             batchSum += out.tx->vout[out.i].nValue;
         }
 
-        SendCoinsRecipient rec(destAddr, QString(), batchSum, QString());
+        SendCoinsRecipient rec(batchDestAddr, QString(), batchSum, QString());
         rec.fSubtractFeeFromAmount = true;
         QList<SendCoinsRecipient> recipients;
         recipients.append(rec);
@@ -1089,6 +1092,9 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
                 errorOut = tr("Failed to broadcast UTXO consolidation batch (status %1).").arg(static_cast<int>(sendStatus.status));
                 return false;
             }
+            if (batchReserveKey) {
+                batchReserveKey->KeepKey();
+            }
         }
 
         planOut.batchCount++;
@@ -1096,10 +1102,6 @@ bool WalletModel::runConsolidation(CAmount targetAmount, bool dryRun, Consolidat
         planOut.totalInputAmount += batchSum;
         planOut.estimatedFee += tx.getTransactionFee();
         planOut.totalBytes += static_cast<int>(tx.getTransactionSize());
-    }
-
-    if (internalReserveKey) {
-        internalReserveKey->KeepKey();
     }
 
     return true;

@@ -419,7 +419,7 @@ bool SettingsWalletRepairWidget::confirmRepairAction(const QString& title, const
     showHideOp(true);
     DefaultDialog* dialog = new DefaultDialog(host);
     dialog->setDanger(isDanger);
-    dialog->setText(title, htmlBody, okText, tr("CANCEL"));
+    dialog->setText(title, htmlBody, okText, tr("CANCEL"), true);
     bool confirmed = openDialogWithOpaqueBackgroundY(dialog, window, 3, 5);
     dialog->deleteLater();
     return confirmed;

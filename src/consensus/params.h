@@ -42,6 +42,7 @@ enum UpgradeIndex : uint32_t {
     UPGRADE_DIP3,
     UPGRADE_FAIRNESS,
     UPGRADE_HARDENING_V3,
+    UPGRADE_HARDENING_V4,
     // NOTE: Also add new upgrades to NetworkUpgradeInfo in upgrades.cpp
     UPGRADE_TESTDUMMY,
     MAX_NETWORK_UPGRADES,
@@ -166,22 +167,32 @@ struct Params {
         return nAdamOpenEntryHeight > 0 && nHeight >= nAdamOpenEntryHeight;
     }
 
-    int GetAdamThreshold(int nHeight) const {
+    int GetAdamThreshold(int nHeight, int nActiveMasternodes = -1) const {
+        const bool fModelD = (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_MODELD));
+        const int nBaseTarget = fModelD ? nAdamThresholdModelD : nAdamThreshold;
+        const int nMnQuota = fModelD ? ADAM_MODELD_MASTERNODE_TRACK_QUOTA : ADAM_MASTERNODE_TRACK_QUOTA;
+        if (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_HARDENING_V4)) {
+            if (nHeight < nAdamThresholdBootstrapLimit) {
+                // Under Model D + V4, enforce 8 > 7 non-MN seats as soon as the active MN quota exists.
+                if (fModelD && nActiveMasternodes >= nMnQuota) {
+                    return nAdamThresholdModelD;
+                }
+                return (nBaseTarget < 5) ? nBaseTarget : 5;
+            }
+            return nBaseTarget;
+        }
         if (nHeight < nAdamThresholdBootstrapLimit && nHeight >= 0) {
             return 5; // Bootstrap threshold for Mainnet/Regtest
         }
-        if (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_MODELD)) {
-            return nAdamThresholdModelD;
-        }
-        return nAdamThreshold;
+        return nBaseTarget;
     }
 
     int GetAdamEffectiveThreshold(int nHeight, int64_t nTimeElapsed, int nActiveMasternodes = -1) const {
-        int baseThreshold = GetAdamThreshold(nHeight);
+        int baseThreshold = GetAdamThreshold(nHeight, nActiveMasternodes);
         if (nTimeElapsed < ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS) {
             return baseThreshold;
         }
-        int nRelaxSteps = 1 + (int)((nTimeElapsed - ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS) / ADAM_THRESHOLD_RELAXATION_SLOT_SECS);
+        int64_t nRelaxSteps = 1 + ((nTimeElapsed - ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS) / ADAM_THRESHOLD_RELAXATION_SLOT_SECS);
         const bool fModelD = (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_MODELD));
         const int nMnQuota = fModelD ? ADAM_MODELD_MASTERNODE_TRACK_QUOTA : ADAM_MASTERNODE_TRACK_QUOTA;
         const int nPostBootstrapFloor = fModelD ? ADAM_MODELD_MIN_RELAXED_THRESHOLD : ADAM_MIN_RELAXED_THRESHOLD;
@@ -191,7 +202,10 @@ struct Params {
                                  ? ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP
                                  : nPostBootstrapFloor;
         int minThreshold = (baseThreshold < floorThreshold) ? baseThreshold : floorThreshold;
-        int relaxed = baseThreshold - nRelaxSteps;
+        if (nRelaxSteps >= (int64_t)(baseThreshold - minThreshold)) {
+            return minThreshold;
+        }
+        int relaxed = baseThreshold - (int)nRelaxSteps;
         return (relaxed < minThreshold) ? minThreshold : relaxed;
     }
 
@@ -199,6 +213,7 @@ struct Params {
     int nBurnDecayBlocks;
     int nMasternodeUptimeLimit;
     int nPoseReviveCooldownBlocks;
+    int nProUpRegCooldownBlocks;
 
     // Treasury governance parameters
     int nTreasuryGovernanceStartHeight;

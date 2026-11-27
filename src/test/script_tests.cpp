@@ -1253,4 +1253,44 @@ BOOST_AUTO_TEST_CASE(cltv_timelock_issolvable_and_combine_signatures)
     BOOST_CHECK(VerifyScript(combinedRight.scriptSig, cltvSpk, STANDARD_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY, checker, &serror));
 }
 
+BOOST_AUTO_TEST_CASE(base_checksig_nullfail_and_mescal_extract_destinations)
+{
+    CKey key;
+    key.MakeNewKey(true);
+    const CPubKey pk = key.GetPubKey();
+
+    CScript p2pk = CScript() << ToByteVector(pk) << OP_CHECKSIG;
+    CMutableTransaction txSpend;
+    txSpend.nVersion = 1;
+    txSpend.vin.resize(1);
+    txSpend.vin[0].prevout = COutPoint(uint256S("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"), 0);
+    txSpend.vout.resize(1);
+    txSpend.vout[0].nValue = 1 * COIN;
+    txSpend.vout[0].scriptPubKey = p2pk;
+
+    // Non-empty bad DER signature triggers SCRIPT_ERR_SIG_NULLFAIL under SCRIPT_VERIFY_NULLFAIL
+    std::vector<unsigned char> badSig = {0x30, 0x06, 0x02, 0x01, 0x01, 0x02, 0x01, 0x01, SIGHASH_ALL};
+    txSpend.vin[0].scriptSig = CScript() << badSig;
+    const CTransaction txConst(txSpend);
+    ScriptError serror = SCRIPT_ERR_UNKNOWN_ERROR;
+    BOOST_CHECK(!VerifyScript(txSpend.vin[0].scriptSig, p2pk, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_NULLFAIL,
+                              TransactionSignatureChecker(&txConst, 0, 2 * COIN), &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_SIG_NULLFAIL);
+
+    // Empty signature fails cleanly with EVAL_FALSE rather than NULLFAIL
+    CScript emptySigScript = CScript() << OP_0;
+    BOOST_CHECK(!VerifyScript(emptySigScript, p2pk, SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_NULLFAIL,
+                              TransactionSignatureChecker(&txConst, 0, 2 * COIN), &serror));
+    BOOST_CHECK_EQUAL(serror, SCRIPT_ERR_EVAL_FALSE);
+
+    // ExtractDestinations returns false cleanly on TX_MESCAL_CONTRACT without double-solving
+    CScript mescalSpk = CScript() << OP_IF << ToByteVector(pk) << OP_CHECKSIG << OP_ELSE << ToByteVector(pk) << OP_CHECKSIG << OP_ENDIF;
+    txnouttype outType = TX_NONSTANDARD;
+    std::vector<CTxDestination> addrs;
+    int nReq = 0;
+    BOOST_CHECK(!ExtractDestinations(mescalSpk, outType, addrs, nReq));
+    BOOST_CHECK_EQUAL(outType, TX_MESCAL_CONTRACT);
+    BOOST_CHECK(addrs.empty());
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -103,6 +103,8 @@ private:
     QVector<ConsoleLogEntry> consoleEntries;
     bool isCommandRunning{false};
     bool findMissHighlight{false};
+    bool lastCommandSensitive{false};
+    bool sessionHadSensitiveOutput{false};
 
     void startExecutor();
     void setCommandRunningState(bool running);

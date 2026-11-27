@@ -18,6 +18,7 @@
 #include "masternodeman.h"
 #include "rpc/client.h"
 #include "rpc/server.h"
+#include "support/cleanse.h"
 #include "util.h"
 #include "version.h"
 #ifdef ENABLE_WALLET
@@ -200,8 +201,18 @@ bool parseCommandLineSettings(std::vector<std::string>& args, const std::string&
 
 void RPCExecutor::requestCommand(const QString& command)
 {
+    auto cleanseStr = [](std::string& s) {
+        if (!s.empty()) memory_cleanse(&s[0], s.size());
+    };
+    std::string cmdStd = command.toStdString();
     std::vector<std::string> args;
-    if (!parseCommandLineSettings(args, command.toStdString())) {
+    const bool parsed = parseCommandLineSettings(args, cmdStd);
+    cleanseStr(cmdStd);
+    auto cleanseArgs = [&]() {
+        for (std::string& a : args) cleanseStr(a);
+    };
+    if (!parsed) {
+        cleanseArgs();
         Q_EMIT reply(SettingsConsoleWidget::CMD_ERROR, QString("Parse error: unbalanced ' or \""));
         return;
     }
@@ -214,6 +225,7 @@ void RPCExecutor::requestCommand(const QString& command)
         JSONRPCRequest req;
         req.params = RPCConvertValues(args[0], std::vector<std::string>(args.begin() + 1, args.end()));
         req.strMethod = args[0];
+        cleanseArgs();
         UniValue result = tableRPC.execute(req);
 
         if (result.isNull())
@@ -224,7 +236,9 @@ void RPCExecutor::requestCommand(const QString& command)
             strPrint = result.write(2);
 
         Q_EMIT reply(SettingsConsoleWidget::CMD_REPLY, QString::fromStdString(strPrint));
+        cleanseStr(strPrint);
     } catch (UniValue& objError) {
+        cleanseArgs();
         try {
             int code = find_value(objError, "code").get_int();
             std::string message = find_value(objError, "message").get_str();
@@ -233,6 +247,7 @@ void RPCExecutor::requestCommand(const QString& command)
             Q_EMIT reply(SettingsConsoleWidget::CMD_ERROR, QString::fromStdString(objError.write()));
         }
     } catch (std::exception& e) {
+        cleanseArgs();
         Q_EMIT reply(SettingsConsoleWidget::CMD_ERROR, QString("Error: ") + QString::fromStdString(e.what()));
     }
 }
@@ -452,6 +467,13 @@ SettingsConsoleWidget::~SettingsConsoleWidget()
 {
     GUIUtil::saveWindowGeometry("nRPCConsoleWindow", this);
     shutdownExecutor();
+    for (ConsoleLogEntry& entry : consoleEntries) {
+        entry.message.fill(QChar('0'));
+    }
+    consoleEntries.clear();
+    lastReplyText.fill(QChar('0'));
+    lastReplyText.clear();
+    history.clear();
     RPCUnsetTimerInterface(rpcTimerInterface);
     delete rpcTimerInterface;
     delete ui;
@@ -645,13 +667,19 @@ static QString categoryBadgeHtml(int category)
 
 void SettingsConsoleWidget::clear(bool clearHistory)
 {
+    for (ConsoleLogEntry& entry : consoleEntries) {
+        entry.message.fill(QChar('0'));
+    }
     consoleEntries.clear();
     ui->messagesWidget->clear();
     if (clearHistory) {
         history.clear();
         historyPtr = 0;
     }
+    lastReplyText.fill(QChar('0'));
     lastReplyText.clear();
+    lastCommandSensitive = false;
+    sessionHadSensitiveOutput = false;
     if (btnCopyLast) {
         btnCopyLast->setEnabled(false);
     }
@@ -747,13 +775,61 @@ void SettingsConsoleWidget::messageInternal(int category, const QString& message
     scrollToEnd();
 }
 
-static bool PotentiallyDangerousCommand(const QString& cmd)
+static void ParseConsoleVerbPair(const QString& cmd, QString& verbOut, QString& subOut, bool& hasArgsOrParenOut)
 {
     const QString trimmed = cmd.trimmed();
-    if (trimmed.startsWith("dumpwallet", Qt::CaseInsensitive) && trimmed.size() > 10) {
+    const QStringList parts = trimmed.simplified().split(QChar(' '));
+    verbOut.clear();
+    subOut.clear();
+    hasArgsOrParenOut = false;
+    if (parts.isEmpty()) return;
+
+    QString verbToken = parts[0];
+    const int parenIdx = verbToken.indexOf(QChar('('));
+    if (parenIdx >= 0) {
+        hasArgsOrParenOut = (trimmed.size() > parenIdx + 2); // non-empty inside (...)
+        verbToken = verbToken.left(parenIdx);
+    } else if (parts.size() > 1) {
+        hasArgsOrParenOut = true;
+    }
+    verbOut = verbToken.toLower();
+    verbOut.remove(QChar('"')).remove(QChar('\''));
+    if (parts.size() >= 2 && parenIdx < 0) {
+        subOut = parts[1].toLower();
+        subOut.remove(QChar('"')).remove(QChar('\''));
+    }
+}
+
+static bool IsSensitiveConsoleOutputCommand(const QString& cmd)
+{
+    QString verb, sub;
+    bool hasArgs = false;
+    ParseConsoleVerbPair(cmd, verb, sub, hasArgs);
+    if (verb == "dumpprivkey" || verb == "dumpwallet" ||
+        verb == "bip38decrypt" || verb == "bip38encrypt" ||
+        verb == "walletpassphrase" || verb == "walletpassphrasechange" ||
+        verb == "importprivkey" || verb == "setblsprivkey" ||
+        verb == "encryptwallet" || verb == "sethdseed" ||
+        verb == "signrawtransaction" || verb == "importmulti" ||
+        verb == "importwallet") {
         return true;
     }
-    if (trimmed.startsWith("dumpprivkey", Qt::CaseInsensitive) && trimmed.size() > 11) {
+    if (verb == "protx" && (sub == "bls_generate" || sub == "bls_pop" || sub == "update_service" || sub == "revoke")) {
+        return true;
+    }
+    return false;
+}
+
+static bool PotentiallyDangerousCommand(const QString& cmd)
+{
+    QString verb, sub;
+    bool hasArgs = false;
+    ParseConsoleVerbPair(cmd, verb, sub, hasArgs);
+    if (!hasArgs) return false;
+    if (verb == "dumpwallet" || verb == "dumpprivkey" || verb == "bip38decrypt") {
+        return true;
+    }
+    if (verb == "protx" && (sub == "bls_generate" || sub == "bls_pop")) {
         return true;
     }
     return false;
@@ -824,13 +900,19 @@ void SettingsConsoleWidget::on_lineEdit_returnPressed()
 
     if (PotentiallyDangerousCommand(cmd) &&
         !ask(tr("Security Warning"), tr("Private keys exported by this command give full control over your funds.\n\nNever share this output with anyone. Continue?"))) {
+        cmd.fill(QChar('0'));
         return;
     }
 
+    lastCommandSensitive = IsSensitiveConsoleOutputCommand(cmd);
+    if (lastCommandSensitive) {
+        sessionHadSensitiveOutput = true;
+    }
     const QString safeCmd = RedactSensitiveCommand(cmd);
     setCommandRunningState(true);
     messageInternal(CMD_REQUEST, safeCmd);
     Q_EMIT cmdCommandRequest(cmd);
+    cmd.fill(QChar('0'));
 
     history.removeOne(safeCmd);
     history.append(safeCmd);
@@ -906,13 +988,23 @@ void SettingsConsoleWidget::applyCommandTemplate(const QString& tmpl)
 void SettingsConsoleWidget::copyLastOutput()
 {
     if (!lastReplyText.trimmed().isEmpty()) {
-        GUIUtil::setClipboard(lastReplyText);
-        inform(tr("Latest RPC response copied to clipboard"));
+        if (lastCommandSensitive) {
+            GUIUtil::setSensitiveClipboard(lastReplyText);
+            inform(tr("Latest RPC response copied to clipboard (auto-clears in 60s)"));
+        } else {
+            GUIUtil::setClipboard(lastReplyText);
+            inform(tr("Latest RPC response copied to clipboard"));
+        }
     } else {
         const QString allText = ui->messagesWidget->toPlainText().trimmed();
         if (!allText.isEmpty()) {
-            GUIUtil::setClipboard(allText);
-            inform(tr("Console text copied to clipboard"));
+            if (sessionHadSensitiveOutput) {
+                GUIUtil::setSensitiveClipboard(allText);
+                inform(tr("Console text copied to clipboard (auto-clears in 60s)"));
+            } else {
+                GUIUtil::setClipboard(allText);
+                inform(tr("Console text copied to clipboard"));
+            }
         }
     }
 }

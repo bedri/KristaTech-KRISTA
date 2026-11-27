@@ -17,6 +17,10 @@
 #include <stdint.h>
 #include <utility>
 #include <vector>
+#ifndef WIN32
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #include <boost/test/unit_test.hpp>
 #include "wallet/test/wallet_test_fixture.h"
@@ -831,6 +835,63 @@ BOOST_AUTO_TEST_CASE(wallet_bls_encryption_and_migration_test)
     BOOST_REQUIRE(reloaded.Lock());
     BOOST_CHECK(reloaded.mapBLSKeys.empty());
     BOOST_CHECK(!reloaded.GetBLSKey(id2, fetched));
+}
+
+BOOST_AUTO_TEST_CASE(wallet_backup_permissions_and_encrypted_bls_overwrite_test)
+{
+    CWallet& wallet = *pwalletMain;
+    const fs::path srcWallet = GetDataDir() / "test_wallet_src.dat";
+    const fs::path backupDest = GetDataDir() / "test_backup_0600.dat";
+    const fs::path symlinkDest = GetDataDir() / "test_backup_symlink.dat";
+    fs::remove(srcWallet);
+    fs::remove(backupDest);
+    fs::remove(symlinkDest);
+    {
+        std::ofstream ofs(srcWallet.string().c_str(), std::ios::binary | std::ios::trunc);
+        BOOST_REQUIRE(ofs.good());
+        ofs << "dummy_wallet_backup_source";
+    }
+
+    // Non-existent backup target must succeed (no ENOENT from fs::equivalent) and enforce 0600 mode
+    BOOST_REQUIRE(AttemptBackupWallet(wallet, srcWallet, backupDest));
+    BOOST_CHECK(fs::exists(backupDest));
+#ifndef WIN32
+    {
+        struct stat st{};
+        BOOST_REQUIRE_EQUAL(stat(backupDest.string().c_str(), &st), 0);
+        BOOST_CHECK_EQUAL(st.st_mode & 0777, static_cast<mode_t>(0600));
+        BOOST_REQUIRE_EQUAL(::symlink(backupDest.string().c_str(), symlinkDest.string().c_str()), 0);
+        BOOST_CHECK(!AttemptBackupWallet(wallet, srcWallet, symlinkDest));
+    }
+#endif
+    fs::remove(symlinkDest);
+    fs::remove(backupDest);
+    fs::remove(srcWallet);
+
+    // Locked encrypted wallet must reject StoreMasternodeOperatorKeyPair without mutating metadata;
+    // unlocked encrypted wallet must allow overwriting encrypted cblskey record cleanly.
+    LOCK(wallet.cs_wallet);
+    CKey seedKey;
+    seedKey.MakeNewKey(true);
+    BOOST_REQUIRE(wallet.AddKeyPubKey(seedKey, seedKey.GetPubKey()));
+
+    CKey opKey;
+    opKey.MakeNewKey(true);
+    const CKeyID opKeyID = opKey.GetPubKey().GetID();
+    if (!wallet.IsCrypted()) {
+        BOOST_REQUIRE(wallet.EncryptWallet("BackupBlsPass#2026"));
+    }
+    if (!wallet.IsLocked()) {
+        BOOST_REQUIRE(wallet.Lock());
+    }
+    CKeyID outId;
+    std::string outBls;
+    BOOST_CHECK(!wallet.StoreMasternodeOperatorKeyPair(opKey, outId, outBls));
+    BOOST_CHECK_EQUAL(wallet.mapKeyMetadata.count(opKeyID), 0U);
+
+    BOOST_REQUIRE(wallet.Unlock(SecureString("BackupBlsPass#2026")));
+    BOOST_CHECK(wallet.StoreMasternodeOperatorKeyPair(opKey, outId, outBls));
+    BOOST_CHECK(wallet.StoreMasternodeOperatorKeyPair(opKey, outId, outBls)); // idempotent overwrite
 }
 
 BOOST_AUTO_TEST_SUITE_END()

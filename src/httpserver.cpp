@@ -14,6 +14,7 @@
 #include "rpc/protocol.h" // For HTTP status codes
 #include "sync.h"
 #include "guiinterface.h"
+#include "utilstrencodings.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -254,6 +255,96 @@ static std::string RequestMethodString(HTTPRequest::RequestMethod m)
     }
 }
 
+static bool ParseValidHTTPPort(const std::string& portStr)
+{
+    if (portStr.empty() || portStr.size() > 5) return false;
+    unsigned int portVal = 0;
+    for (unsigned char c : portStr) {
+        if (c < '0' || c > '9') return false;
+        portVal = portVal * 10 + (c - '0');
+    }
+    return portVal >= 1 && portVal <= 65535;
+}
+
+static std::string ToLowerASCII(const std::string& s)
+{
+    std::string out = s;
+    for (char& c : out) {
+        if (c >= 'A' && c <= 'Z') {
+            c = static_cast<char>(c - 'A' + 'a');
+        }
+    }
+    return out;
+}
+
+bool IsAllowedHTTPRequestHost(const std::string& rawHost)
+{
+    if (rawHost.empty() || rawHost.size() > 255) {
+        return false;
+    }
+    size_t colonCount = 0;
+    for (unsigned char ch : rawHost) {
+        if (ch <= 0x20 || ch >= 0x7f || ch == '/' || ch == '\\' || ch == '@' || ch == '?' || ch == '#' || ch == ',') {
+            return false;
+        }
+        if (ch == ':') colonCount++;
+    }
+
+    std::string hostOnly;
+    if (rawHost[0] == '[') {
+        const size_t closePos = rawHost.find(']');
+        if (closePos == std::string::npos || closePos <= 1) {
+            return false;
+        }
+        hostOnly = rawHost.substr(1, closePos - 1);
+        if (hostOnly.find(':') == std::string::npos || hostOnly.find('[') != std::string::npos) {
+            return false;
+        }
+        if (closePos + 1 < rawHost.size()) {
+            if (rawHost[closePos + 1] != ':' || !ParseValidHTTPPort(rawHost.substr(closePos + 2))) {
+                return false;
+            }
+        }
+    } else if (colonCount == 1) {
+        const size_t colonPos = rawHost.find(':');
+        hostOnly = rawHost.substr(0, colonPos);
+        if (!ParseValidHTTPPort(rawHost.substr(colonPos + 1))) {
+            return false;
+        }
+    } else {
+        hostOnly = rawHost;
+    }
+
+    if (hostOnly.empty()) {
+        return false;
+    }
+
+    const std::string hostLower = ToLowerASCII(hostOnly);
+    if (hostLower == "localhost") {
+        return true;
+    }
+
+    // Numeric IP literals (127.0.0.1, ::1, LAN/VPS IPs) are safe from DNS rebinding (fAllowLookup=false)
+    CNetAddr numericAddr;
+    if (LookupHost(hostOnly.c_str(), numericAddr, false) && numericAddr.IsValid()) {
+        return true;
+    }
+
+    // Explicitly configured -rpcbind hostnames (if any) are also permitted
+    if (mapMultiArgs.count("-rpcbind")) {
+        for (const std::string& bindSpec : mapMultiArgs.at("-rpcbind")) {
+            int bindPort = 0;
+            std::string bindHost;
+            SplitHostPort(bindSpec, bindPort, bindHost);
+            if (!bindHost.empty() && ToLowerASCII(bindHost) == hostLower) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
 /** HTTP request callback */
 static void http_request_cb(struct evhttp_request* req, void* arg)
 {
@@ -264,6 +355,15 @@ static void http_request_cb(struct evhttp_request* req, void* arg)
 
     // Early address-based allow check
     if (!ClientAllowed(hreq->GetPeer())) {
+        hreq->WriteReply(HTTP_FORBIDDEN);
+        return;
+    }
+
+    // Reject untrusted HTTP Host headers to defend localhost RPC against browser DNS-rebinding attacks
+    const std::pair<bool, std::string> hostHdr = hreq->GetHeader("host");
+    if (hostHdr.first && !IsAllowedHTTPRequestHost(hostHdr.second)) {
+        LogPrint(BCLog::HTTP, "Rejected HTTP request with disallowed Host header '%s' from %s\n",
+                 SanitizeString(hostHdr.second), hreq->GetPeer().ToString());
         hreq->WriteReply(HTTP_FORBIDDEN);
         return;
     }

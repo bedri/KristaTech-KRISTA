@@ -2974,17 +2974,23 @@ UniValue walletprocesspsbt(const JSONRPCRequest& request)
     if (!pwalletMain)
         return NullUniValue;
 
+    RPCTypeCheck(request.params, boost::assign::list_of(UniValue::VSTR)(UniValue::VBOOL)(UniValue::VSTR), true);
+
     PartiallySignedTransaction psbt;
     std::string error;
     if (!DecodeBase64PSBT(psbt, request.params[0].get_str(), error)) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
     }
+    if (psbt.inputs.size() > 4096 || psbt.outputs.size() > 4096) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "PSBT input/output count exceeds maximum (4096)");
+    }
 
-    bool sign = (request.params.size() > 1) ? request.params[1].get_bool() : true;
+    bool sign = (request.params.size() > 1 && !request.params[1].isNull()) ? request.params[1].get_bool() : true;
     int nHashType = SIGHASH_ALL;
     if (request.params.size() > 2 && !request.params[2].isNull()) {
         std::string strHashType = request.params[2].get_str();
-        if (strHashType == "ALL") nHashType = SIGHASH_ALL;
+        if (strHashType == "DEFAULT") nHashType = 0; // SIGHASH_DEFAULT (Taproot)
+        else if (strHashType == "ALL") nHashType = SIGHASH_ALL;
         else if (strHashType == "NONE") nHashType = SIGHASH_NONE;
         else if (strHashType == "SINGLE") nHashType = SIGHASH_SINGLE;
         else if (strHashType == "ALL|ANYONECANPAY") nHashType = SIGHASH_ALL | SIGHASH_ANYONECANPAY;
@@ -3025,11 +3031,25 @@ UniValue walletprocesspsbt(const JSONRPCRequest& request)
                 }
             }
         }
+        // Populate redeem_script for P2SH inputs if known by the wallet
+        if (psbt.inputs[i].redeem_script.empty()) {
+            CTxOut utxo;
+            if (psbt.GetInputUTXO(utxo, static_cast<int>(i))) {
+                txnouttype utxoType = TX_NONSTANDARD;
+                std::vector<std::vector<unsigned char>> vSolutions;
+                if (Solver(utxo.scriptPubKey, utxoType, vSolutions) && utxoType == TX_SCRIPTHASH && vSolutions.size() == 1) {
+                    CScript redeemScript;
+                    if (pwalletMain->GetCScript(CScriptID(uint160(vSolutions[0])), redeemScript)) {
+                        psbt.inputs[i].redeem_script = redeemScript;
+                    }
+                }
+            }
+        }
         if (sign) {
             if (!SignPSBTInput(*pwalletMain, psbt, i, nHashType)) {
                 complete = false;
             }
-        } else {
+        } else if (psbt.inputs[i].final_script_sig.empty()) {
             complete = false;
         }
     }

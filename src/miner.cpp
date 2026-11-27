@@ -320,10 +320,18 @@ bool SignAdamOrDip3(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretK
     return SignBLSWithECDSAFallback(hash, ecdsaKey, blsKey, vchSigOut, dst);
 }
 
+static constexpr int64_t PROPOSAL_SLOT_LEASE_SECS = 30;
+struct AcceptedRemoteReqEntry {
+    uint256 requestId;
+    int64_t nTime{0};
+    AcceptedRemoteReqEntry() = default;
+    AcceptedRemoteReqEntry(const uint256& reqIn, int64_t timeIn)
+        : requestId(reqIn), nTime(timeIn) {}
+};
 static std::mutex cs_active_proposal;
 static std::map<std::pair<uint256, CPubKey>, int64_t> mapInFlightParentCoord;
 static std::map<std::pair<uint256, CPubKey>, int64_t> mapProducedParentCoord;
-static std::map<std::pair<uint256, CPubKey>, uint256> mapAcceptedRemoteReqId;
+static std::map<std::pair<uint256, CPubKey>, AcceptedRemoteReqEntry> mapAcceptedRemoteReqId;
 
 static void PruneParentCoordMap(std::map<std::pair<uint256, CPubKey>, int64_t>& targetMap, const uint256& keepParentHash, int64_t now, int64_t maxAgeSecs, size_t maxEntries = 256)
 {
@@ -355,13 +363,21 @@ static void PruneParentCoordMap(std::map<std::pair<uint256, CPubKey>, int64_t>& 
 static bool IsParentBlockProducedOrInFlight(const uint256& parentHash, const CPubKey& coordKey)
 {
     std::lock_guard<std::mutex> lock(cs_active_proposal);
+    const int64_t now = GetTime();
     const auto key = std::make_pair(parentHash, coordKey);
-    if (mapProducedParentCoord.count(key) > 0) {
-        return true;
+    auto itProduced = mapProducedParentCoord.find(key);
+    if (itProduced != mapProducedParentCoord.end()) {
+        if ((now - itProduced->second) < PROPOSAL_SLOT_LEASE_SECS) {
+            return true;
+        }
+        mapProducedParentCoord.erase(itProduced);
     }
     auto it = mapInFlightParentCoord.find(key);
-    if (it != mapInFlightParentCoord.end() && (GetTime() - it->second) < 15) {
-        return true;
+    if (it != mapInFlightParentCoord.end()) {
+        if ((now - it->second) < 15) {
+            return true;
+        }
+        mapInFlightParentCoord.erase(it);
     }
     return false;
 }
@@ -393,27 +409,138 @@ bool AcquireCoordinatorProposalSlot(const uint256& parentHash, const CPubKey& co
     const int64_t now = GetTime();
     const auto key = std::make_pair(parentHash, coordKey);
     auto itAccepted = mapAcceptedRemoteReqId.find(key);
-    if (itAccepted != mapAcceptedRemoteReqId.end() && !requestId.IsNull() && itAccepted->second == requestId) {
-        return true;
+    if (itAccepted != mapAcceptedRemoteReqId.end()) {
+        if ((now - itAccepted->second.nTime) >= PROPOSAL_SLOT_LEASE_SECS) {
+            mapAcceptedRemoteReqId.erase(itAccepted);
+        } else if (!requestId.IsNull() && itAccepted->second.requestId == requestId) {
+            return true;
+        }
     }
-    if (mapProducedParentCoord.count(key) > 0) {
-        return false;
+    auto itProduced = mapProducedParentCoord.find(key);
+    if (itProduced != mapProducedParentCoord.end()) {
+        if ((now - itProduced->second) < PROPOSAL_SLOT_LEASE_SECS) {
+            return false;
+        }
+        mapProducedParentCoord.erase(itProduced);
     }
     auto it = mapInFlightParentCoord.find(key);
-    if (it != mapInFlightParentCoord.end() && (now - it->second) < 15) {
-        return false;
+    if (it != mapInFlightParentCoord.end()) {
+        if ((now - it->second) < 15) {
+            return false;
+        }
+        mapInFlightParentCoord.erase(it);
     }
     if (fMarkProduced && !Params().IsRegTestNet()) {
-        PruneParentCoordMap(mapProducedParentCoord, parentHash, now, 600);
+        PruneParentCoordMap(mapProducedParentCoord, parentHash, now, PROPOSAL_SLOT_LEASE_SECS);
         mapProducedParentCoord[key] = now;
         if (!requestId.IsNull()) {
+            for (auto itReq = mapAcceptedRemoteReqId.begin(); itReq != mapAcceptedRemoteReqId.end(); ) {
+                if ((now - itReq->second.nTime) >= PROPOSAL_SLOT_LEASE_SECS) {
+                    itReq = mapAcceptedRemoteReqId.erase(itReq);
+                } else {
+                    ++itReq;
+                }
+            }
             if (mapAcceptedRemoteReqId.size() > 256) {
                 mapAcceptedRemoteReqId.clear();
             }
-            mapAcceptedRemoteReqId[key] = requestId;
+            mapAcceptedRemoteReqId[key] = AcceptedRemoteReqEntry{requestId, now};
         }
     }
     return true;
+}
+
+bool RemoteCoordinatorProposalGuard::Acquire(const uint256& parentHash, const CPubKey& coordKey, const uint256& requestId)
+{
+    std::lock_guard<std::mutex> lock(cs_active_proposal);
+    const int64_t now = GetTime();
+    const auto key = std::make_pair(parentHash, coordKey);
+    auto itAccepted = mapAcceptedRemoteReqId.find(key);
+    if (itAccepted != mapAcceptedRemoteReqId.end()) {
+        if ((now - itAccepted->second.nTime) >= PROPOSAL_SLOT_LEASE_SECS) {
+            mapAcceptedRemoteReqId.erase(itAccepted);
+        } else if (!requestId.IsNull() && itAccepted->second.requestId == requestId) {
+            m_parentHash = parentHash;
+            m_coordKey = coordKey;
+            m_requestId = requestId;
+            m_active = false;
+            m_produced = true;
+            return true;
+        }
+    }
+    auto itProduced = mapProducedParentCoord.find(key);
+    if (itProduced != mapProducedParentCoord.end()) {
+        if ((now - itProduced->second) < PROPOSAL_SLOT_LEASE_SECS) {
+            return false;
+        }
+        mapProducedParentCoord.erase(itProduced);
+    }
+    auto itInFlight = mapInFlightParentCoord.find(key);
+    if (itInFlight != mapInFlightParentCoord.end()) {
+        if ((now - itInFlight->second) < 15) {
+            return false;
+        }
+        mapInFlightParentCoord.erase(itInFlight);
+    }
+    PruneParentCoordMap(mapInFlightParentCoord, parentHash, now, 60);
+    mapInFlightParentCoord[key] = now;
+    m_parentHash = parentHash;
+    m_coordKey = coordKey;
+    m_requestId = requestId;
+    m_active = true;
+    m_produced = false;
+    return true;
+}
+
+void RemoteCoordinatorProposalGuard::MarkProduced()
+{
+    if (!m_active || m_produced) {
+        return;
+    }
+    m_produced = true;
+    std::lock_guard<std::mutex> lock(cs_active_proposal);
+    const auto key = std::make_pair(m_parentHash, m_coordKey);
+    mapInFlightParentCoord.erase(key);
+    if (!Params().IsRegTestNet()) {
+        const int64_t now = GetTime();
+        PruneParentCoordMap(mapProducedParentCoord, m_parentHash, now, PROPOSAL_SLOT_LEASE_SECS);
+        mapProducedParentCoord[key] = now;
+        if (!m_requestId.IsNull()) {
+            for (auto itReq = mapAcceptedRemoteReqId.begin(); itReq != mapAcceptedRemoteReqId.end(); ) {
+                if ((now - itReq->second.nTime) >= PROPOSAL_SLOT_LEASE_SECS) {
+                    itReq = mapAcceptedRemoteReqId.erase(itReq);
+                } else {
+                    ++itReq;
+                }
+            }
+            if (mapAcceptedRemoteReqId.size() > 256) {
+                mapAcceptedRemoteReqId.clear();
+            }
+            mapAcceptedRemoteReqId[key] = AcceptedRemoteReqEntry{m_requestId, now};
+        }
+    }
+}
+
+RemoteCoordinatorProposalGuard::~RemoteCoordinatorProposalGuard()
+{
+    if (m_active && !m_produced) {
+        std::lock_guard<std::mutex> lock(cs_active_proposal);
+        mapInFlightParentCoord.erase(std::make_pair(m_parentHash, m_coordKey));
+    }
+}
+
+void AgeCoordinatorProposalSlotsForTest(int64_t nSeconds)
+{
+    std::lock_guard<std::mutex> lock(cs_active_proposal);
+    for (auto& kv : mapInFlightParentCoord) {
+        kv.second -= nSeconds;
+    }
+    for (auto& kv : mapProducedParentCoord) {
+        kv.second -= nSeconds;
+    }
+    for (auto& kv : mapAcceptedRemoteReqId) {
+        kv.second.nTime -= nSeconds;
+    }
 }
 
 static void ReleaseParentBlockInFlight(const uint256& parentHash)
@@ -459,14 +586,21 @@ struct ActiveProposalGuard {
         std::lock_guard<std::mutex> lock(cs_active_proposal);
         const int64_t now = GetTime();
         const auto key = std::make_pair(parentHash, coordKey);
-        if (mapProducedParentCoord.count(key) > 0) {
-            fAcquired = false;
-            return false;
+        auto itProduced = mapProducedParentCoord.find(key);
+        if (itProduced != mapProducedParentCoord.end()) {
+            if ((now - itProduced->second) < PROPOSAL_SLOT_LEASE_SECS) {
+                fAcquired = false;
+                return false;
+            }
+            mapProducedParentCoord.erase(itProduced);
         }
         auto it = mapInFlightParentCoord.find(key);
-        if (it != mapInFlightParentCoord.end() && (now - it->second) < 15) {
-            fAcquired = false;
-            return false;
+        if (it != mapInFlightParentCoord.end()) {
+            if ((now - it->second) < 15) {
+                fAcquired = false;
+                return false;
+            }
+            mapInFlightParentCoord.erase(it);
         }
         PruneParentCoordMap(mapInFlightParentCoord, parentHash, now, 60);
         mapInFlightParentCoord[key] = now;
@@ -480,7 +614,7 @@ struct ActiveProposalGuard {
         if (fEngaged && fAcquired && !Params().IsRegTestNet()) {
             std::lock_guard<std::mutex> lock(cs_active_proposal);
             const int64_t now = GetTime();
-            PruneParentCoordMap(mapProducedParentCoord, parentHash, now, 600);
+            PruneParentCoordMap(mapProducedParentCoord, parentHash, now, PROPOSAL_SLOT_LEASE_SECS);
             mapProducedParentCoord[std::make_pair(parentHash, coordKey)] = now;
         }
     }
@@ -704,8 +838,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         {
                             LOCK(cs_adam_solutions);
                             mapAdamSolutionsCache[pblock->hashPrevBlock][minerKey] = vchSolution;
+                            RecordAdamSolutionTimestampLocked(pblock->hashPrevBlock, minerKey);
                         }
-                        
+
                         if (minerIndex < pblock->vAdamSolutions.size()) {
                             pblock->vAdamSolutions[minerIndex] = vchSolution;
                         } else {
@@ -913,9 +1048,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
         if (!resolvedMnCollateralScript) {
-            CMasternode* pmn = mnodeman.Find(expectedCoordinator);
-            if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                effectiveScriptPubKey = GetScriptForDestination(pmn->pubKeyCollateralAddress.GetID());
+            CMasternode mn;
+            if (mnodeman.Get(expectedCoordinator, mn) && mn.pubKeyCollateralAddress.IsValid()) {
+                effectiveScriptPubKey = GetScriptForDestination(mn.pubKeyCollateralAddress.GetID());
             } else {
                 effectiveScriptPubKey = GetScriptForDestination(expectedCoordinator.GetID());
             }
@@ -1085,12 +1220,24 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         // Collect transactions into block
         uint64_t nBlockSize = 1000;
         uint64_t nBlockTx = 0;
-        int nBlockSigOps = 100;
+        unsigned int nBlockSigOps = 0;
+        for (const CTransaction& existingTx : pblock->vtx) {
+            nBlockSigOps += GetLegacySigOpCount(existingTx);
+        }
+        if (nBlockSigOps < 100) {
+            nBlockSigOps = 100;
+        }
         int nZeroCoinTxInBlock = 0;
         const bool fDualTrackBlock = IsAdamDualTrackActive(nHeight);
+        const bool fHardeningV2Block = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V2);
+        const bool fFairnessBlock = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS);
+        const bool fHardeningV4Block = IsHardeningV4Active(nHeight);
+        const uint256 minerPowTarget = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Block);
+        const uint256 zeroCoinPowTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Block, fFairnessBlock);
+        std::map<CBLSPubKey, CPubKey> seenBlockRegBls;
         int nCoinLockTxInBlock = 0;
         int nPoWLockTxInBlock = 0;
-        if (fDualTrackBlock) {
+        if (fDualTrackBlock || fHardeningV4Block) {
             for (const CTransaction& existingTx : pblock->vtx) {
                 const bool fExistingZeroCoin = IsZeroCoinPoWTransaction(existingTx);
                 bool fCountedCoinLock = false;
@@ -1101,13 +1248,20 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     CPubKey regPubKey;
                     int64_t nRegLockTime = 0;
                     CKeyID regKeyId;
-                    if (!fCountedCoinLock && MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
-                        nCoinLockTxInBlock++;
-                        fCountedCoinLock = true;
-                    } else if (!fExistingZeroCoin && !fCountedPoWLock &&
-                               MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
-                        nPoWLockTxInBlock++;
-                        fCountedPoWLock = true;
+                    CBLSPubKey regBlsPk;
+                    CBLSSignature regBlsPoP;
+                    if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
+                        if (regBlsPk.IsValid()) seenBlockRegBls.emplace(regBlsPk, regPubKey);
+                        if (fDualTrackBlock && !fCountedCoinLock) {
+                            nCoinLockTxInBlock++;
+                            fCountedCoinLock = true;
+                        }
+                    } else if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
+                        if (regBlsPk.IsValid()) seenBlockRegBls.emplace(regBlsPk, regPubKey);
+                        if (fDualTrackBlock && !fExistingZeroCoin && !fCountedPoWLock) {
+                            nPoWLockTxInBlock++;
+                            fCountedPoWLock = true;
+                        }
                     }
                 }
             }
@@ -1131,10 +1285,10 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             if (nBlockSize + nTxSize >= nBlockMaxSize)
                 continue;
 
-            // Legacy limits on sigOps:
-            unsigned int nMaxBlockSigOps = MAX_BLOCK_SIGOPS_CURRENT;
+            // Legacy limits on sigOps (must stay <= CheckBlock MAX_BLOCK_SIGOPS_LEGACY = 20,000):
+            unsigned int nMaxBlockSigOps = MAX_BLOCK_SIGOPS_LEGACY;
             unsigned int nTxSigOps = GetLegacySigOpCount(tx);
-            if (nBlockSigOps + nTxSigOps >= nMaxBlockSigOps)
+            if (nBlockSigOps + nTxSigOps > nMaxBlockSigOps)
                 continue;
 
             const bool fZeroCoinPoW = IsZeroCoinPoWTransaction(tx);
@@ -1143,7 +1297,8 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
             bool fHasCoinLockOutput = false;
             bool fHasPoWLockOutput = false;
-            if (fDualTrackBlock) {
+            std::vector<std::pair<CBLSPubKey, CPubKey>> vTxRegBlsKeys;
+            if (fZeroCoinPoW || fDualTrackBlock || fHardeningV4Block) {
                 int nCoinLockOutputsInTx = 0;
                 int nPoWLockOutputsInTx = 0;
                 bool fInvalidRegLockTx = false;
@@ -1153,31 +1308,83 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     CPubKey regPubKey;
                     int64_t nRegLockTime = 0;
                     CKeyID regKeyId;
-                    if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId)) {
-                        if (txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
+                    CBLSPubKey regBlsPk;
+                    CBLSSignature regBlsPoP;
+                    if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
+                        if (fDualTrackBlock && txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
                             fInvalidRegLockTx = true;
                             break;
                         }
-                        nCoinLockOutputsInTx++;
-                    } else if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId)) {
-                        if (!fZeroCoinPoW && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
+                        std::string strBlsErr;
+                        if (!CheckRegistrationBlsBinding(regPubKey, regBlsPk, regBlsPoP, nHeight, pindexPrev, pcoinsTip, true, strBlsErr)) {
                             fInvalidRegLockTx = true;
                             break;
+                        }
+                        if (regBlsPk.IsValid()) {
+                            auto itSeen = seenBlockRegBls.find(regBlsPk);
+                            if (itSeen != seenBlockRegBls.end() && itSeen->second != regPubKey) {
+                                fInvalidRegLockTx = true;
+                                break;
+                            }
+                            vTxRegBlsKeys.emplace_back(regBlsPk, regPubKey);
+                        }
+                        nCoinLockOutputsInTx++;
+                    } else if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
+                        if (fDualTrackBlock && !fZeroCoinPoW && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
+                            fInvalidRegLockTx = true;
+                            break;
+                        }
+                        std::string strBlsErr;
+                        if (!CheckRegistrationBlsBinding(regPubKey, regBlsPk, regBlsPoP, nHeight, pindexPrev, pcoinsTip, true, strBlsErr)) {
+                            fInvalidRegLockTx = true;
+                            break;
+                        }
+                        if (fHardeningV4Block || fZeroCoinPoW) {
+                            if (vchNonce.size() != 4) {
+                                fInvalidRegLockTx = true;
+                                break;
+                            }
+                            const uint32_t nRegNonce = (uint32_t)vchNonce[0] | ((uint32_t)vchNonce[1] << 8) |
+                                                       ((uint32_t)vchNonce[2] << 16) | ((uint32_t)vchNonce[3] << 24);
+                            const CBLSPubKey* pBoundBls = (fHardeningV4Block || regBlsPk.IsValid()) ? &regBlsPk : nullptr;
+                            if (fZeroCoinPoW) {
+                                if (ComputeZeroCoinRegistrationHash(nRegNonce, hashChallenge, regPubKey, fHardeningV2Block, pBoundBls) > zeroCoinPowTarget) {
+                                    fInvalidRegLockTx = true;
+                                    break;
+                                }
+                            } else if (fHardeningV4Block || regBlsPk.IsValid()) {
+                                if (ComputeMinerPoWRegistrationHash(nRegNonce, hashChallenge, regPubKey, fHardeningV2Block, pBoundBls) > minerPowTarget) {
+                                    fInvalidRegLockTx = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (regBlsPk.IsValid()) {
+                            auto itSeen = seenBlockRegBls.find(regBlsPk);
+                            if (itSeen != seenBlockRegBls.end() && itSeen->second != regPubKey) {
+                                fInvalidRegLockTx = true;
+                                break;
+                            }
+                            vTxRegBlsKeys.emplace_back(regBlsPk, regPubKey);
                         }
                         nPoWLockOutputsInTx++;
                     }
                 }
-                if (fInvalidRegLockTx || nCoinLockOutputsInTx > 1 || nPoWLockOutputsInTx > 1)
+                if (fInvalidRegLockTx)
                     continue;
-                if (nCoinLockOutputsInTx > 0) {
-                    if (nCoinLockTxInBlock >= ADAM_MAX_COIN_LOCK_TX_PER_BLOCK)
+                if (fDualTrackBlock) {
+                    if (nCoinLockOutputsInTx > 1 || nPoWLockOutputsInTx > 1)
                         continue;
-                    fHasCoinLockOutput = true;
-                }
-                if (!fZeroCoinPoW && nPoWLockOutputsInTx > 0) {
-                    if (nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK)
-                        continue;
-                    fHasPoWLockOutput = true;
+                    if (nCoinLockOutputsInTx > 0) {
+                        if (nCoinLockTxInBlock >= ADAM_MAX_COIN_LOCK_TX_PER_BLOCK)
+                            continue;
+                        fHasCoinLockOutput = true;
+                    }
+                    if (!fZeroCoinPoW && nPoWLockOutputsInTx > 0) {
+                        if (nPoWLockTxInBlock >= ADAM_MAX_POW_LOCK_TX_PER_BLOCK)
+                            continue;
+                        fHasPoWLockOutput = true;
+                    }
                 }
             }
 
@@ -1223,7 +1430,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             CAmount nTxFees = fZeroCoinPoW ? 0 : (view.GetValueIn(tx) - tx.GetValueOut());
 
             nTxSigOps += fZeroCoinPoW ? 0 : GetP2SHSigOpCount(tx, view);
-            if (nBlockSigOps + nTxSigOps >= nMaxBlockSigOps)
+            if (nBlockSigOps + nTxSigOps > nMaxBlockSigOps)
                 continue;
 
             // Note that flags: we don't want to set mempool/IsStandard()
@@ -1309,6 +1516,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 nCoinLockTxInBlock++;
             if (fHasPoWLockOutput)
                 nPoWLockTxInBlock++;
+            for (const auto& blsPair : vTxRegBlsKeys) {
+                seenBlockRegBls.emplace(blsPair.first, blsPair.second);
+            }
 
             // Added
             pblock->vtx.push_back(tx);
@@ -1491,23 +1701,32 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 LogPrintf("CreateNewBlock: Aborting PoS coordinator co-sign wait (shutdown or chain tip updated)\n");
                 return nullptr;
             }
+            bool fHasCandidateSig = false;
+            CPoSCoordSigEntry entry;
             {
                 LOCK(cs_pos_coord_sigs);
                 auto itSig = mapPoSCoordSigs.find(reqHash);
                 if (itSig != mapPoSCoordSigs.end()) {
-                    const CPoSCoordSigEntry entry = itSig->second;
-                    pblock->vAdamVRFProof = entry.vAdamVRFProof;
-                    pblock->vAdamCoordinatorSig = entry.vAdamCoordinatorSig;
-                    const uint256 blockHashSigned = pblock->GetHash();
-                    if (VerifyAdamVRFProof(adamSeed, pblock->vAdamVRFProof, expectedCoordinator, nHeight, pindexPrev) &&
-                        VerifyAdamCoordinatorSig(*pblock, expectedCoordinator, &blockHashSigned, nHeight, pindexPrev)) {
-                        fGotCoordSig = true;
-                        LogPrintf("CreateNewBlock: Received valid cooperative PoS coordinator co-signature from %s after %d ms\n",
-                            expectedCoordinator.GetID().ToString(), nWaitCount * 25);
-                        break;
-                    } else {
-                        pblock->vAdamVRFProof.clear();
-                        pblock->vAdamCoordinatorSig.clear();
+                    entry = itSig->second;
+                    fHasCandidateSig = true;
+                }
+            }
+            if (fHasCandidateSig) {
+                pblock->vAdamVRFProof = entry.vAdamVRFProof;
+                pblock->vAdamCoordinatorSig = entry.vAdamCoordinatorSig;
+                const uint256 blockHashSigned = pblock->GetHash();
+                if (VerifyAdamVRFProof(adamSeed, pblock->vAdamVRFProof, expectedCoordinator, nHeight, pindexPrev) &&
+                    VerifyAdamCoordinatorSig(*pblock, expectedCoordinator, &blockHashSigned, nHeight, pindexPrev)) {
+                    fGotCoordSig = true;
+                    LogPrintf("CreateNewBlock: Received valid cooperative PoS coordinator co-signature from %s after %d ms\n",
+                        expectedCoordinator.GetID().ToString(), nWaitCount * 25);
+                    break;
+                } else {
+                    pblock->vAdamVRFProof.clear();
+                    pblock->vAdamCoordinatorSig.clear();
+                    LOCK(cs_pos_coord_sigs);
+                    auto itSig = mapPoSCoordSigs.find(reqHash);
+                    if (itSig != mapPoSCoordSigs.end()) {
                         mapPoSCoordSigs.erase(itSig);
                     }
                 }
@@ -1608,9 +1827,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
             }
 
-            size_t nThreshold = quorum.members.size() / 2 + 1;
-            if (nThreshold < 2) nThreshold = 2;
-            if (quorum.members.size() < nThreshold) nThreshold = quorum.members.size();
+            const size_t nThreshold = llmq::GetQuorumThreshold(quorum.members.size(), nHeight);
 
             // 2. If local signatures are insufficient, request via P2P
             if (qsig.signatures.size() < nThreshold) {
@@ -1652,23 +1869,26 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         LogPrintf("CreateNewBlock: Aborting quorum signature wait (shutdown or chain tip updated)\n");
                         return nullptr;
                     }
+                    std::vector<std::pair<COutPoint, std::vector<unsigned char>>> vQuorumSharesSnapshot;
                     {
                         LOCK(cs_quorum_sigs);
-                        if (mapQuorumBlockSigs.count(qsig.blockHash)) {
-                            for (const auto& pair : mapQuorumBlockSigs[qsig.blockHash]) {
-                                CPubKey memberPubKey;
-                                bool isActiveMember = false;
-                                for (const auto& member : quorum.members) {
-                                    if (member.collateralOutpoint == pair.first) {
-                                        memberPubKey = member.pubKeyMasternode;
-                                        isActiveMember = true;
-                                        break;
-                                    }
-                                }
-                                if (isActiveMember) {
-                                    tryAddShare(pair.first, memberPubKey, pair.second);
-                                }
+                        auto itQ = mapQuorumBlockSigs.find(qsig.blockHash);
+                        if (itQ != mapQuorumBlockSigs.end()) {
+                            vQuorumSharesSnapshot.assign(itQ->second.begin(), itQ->second.end());
+                        }
+                    }
+                    for (const auto& pair : vQuorumSharesSnapshot) {
+                        CPubKey memberPubKey;
+                        bool isActiveMember = false;
+                        for (const auto& member : quorum.members) {
+                            if (member.collateralOutpoint == pair.first) {
+                                memberPubKey = member.pubKeyMasternode;
+                                isActiveMember = true;
+                                break;
                             }
+                        }
+                        if (isActiveMember) {
+                            tryAddShare(pair.first, memberPubKey, pair.second);
                         }
                     }
 
@@ -1760,10 +1980,11 @@ void IncrementExtraNonce(CBlock* pblock, CBlockIndex* pindexPrev, unsigned int& 
 
 CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
 {
-    if (!chainActive.Tip())
+    const CBlockIndex* pindexTip = GetChainTip();
+    if (!pindexTip)
         return nullptr;
 
-    const int nHeightNext = chainActive.Tip()->nHeight + 1;
+    const int nHeightNext = pindexTip->nHeight + 1;
 
     // If we're building a late PoW block, don't continue
     // PoS blocks are built directly with CreateNewBlock
@@ -1812,9 +2033,9 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
     if (!gotKey && (fMasterNode || !amnodeman.GetActiveMasternodesCopy().empty())) {
         for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
             if (activeMasternode.pubKeyMasternode.IsValid()) {
-                CMasternode* pmn = mnodeman.Find(activeMasternode.pubKeyMasternode);
-                if (pmn && pmn->pubKeyCollateralAddress.IsValid()) {
-                    pubkey = pmn->pubKeyCollateralAddress;
+                CMasternode mn;
+                if (mnodeman.Get(activeMasternode.pubKeyMasternode, mn) && mn.pubKeyCollateralAddress.IsValid()) {
+                    pubkey = mn.pubKeyCollateralAddress;
                 } else {
                     pubkey = activeMasternode.pubKeyMasternode;
                 }
@@ -1871,25 +2092,28 @@ int GetConfiguredMinerThreads()
 {
     return g_nConfiguredMinerThreads.load();
 }
-bool fStakeableCoins = false;
-bool fMasternodeSync = false;
+std::atomic<bool> fStakeableCoins{false};
+std::atomic<bool> fMasternodeSync{false};
 
 void CheckForCoins(CWallet* pwallet, const int minutes, std::vector<COutput>* availableCoins)
 {
     //control the amount of times the client will check for mintable coins
+    static std::mutex cs_check_for_coins;
+    std::lock_guard<std::mutex> lock(cs_check_for_coins);
     int nTimeNow = GetTime();
     static uint256 hashLastBlock = UINT256_ZERO;
-    uint256 hashTip = chainActive.Tip() ? chainActive.Tip()->GetBlockHash() : UINT256_ZERO;
+    const CBlockIndex* pindexTip = GetChainTip();
+    uint256 hashTip = pindexTip ? pindexTip->GetBlockHash() : UINT256_ZERO;
     if (hashTip != hashLastBlock || (nTimeNow - nMintableLastCheck.load() > minutes * 60)) {
         hashLastBlock = hashTip;
         nMintableLastCheck.store(nTimeNow);
         if (!Params().IsRegTestNet() && IsInitialBlockDownload()) {
-            fMasternodeSync = false;
-            fStakeableCoins = false;
+            fMasternodeSync.store(false);
+            fStakeableCoins.store(false);
             return;
         }
-        fStakeableCoins = pwallet->StakeableCoins(availableCoins);
-        fMasternodeSync = true;
+        fStakeableCoins.store(pwallet->StakeableCoins(availableCoins));
+        fMasternodeSync.store(true);
     }
 }
 #ifdef ENABLE_WALLET
@@ -1913,8 +2137,21 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 {
     if (!pwallet || !pubkey.IsValid() || !pubkey.IsCompressed() || ShutdownRequested() || !fGenerateBitcoins) return;
 
-    if (!Params().IsRegTestNet() && (IsInitialBlockDownload() || (IsModelDActive(chainActive.Height() + 1) && !masternodeSync.IsSynced()))) {
-        return;
+    {
+        bool fWaitingSync = false;
+        if (!Params().IsRegTestNet()) {
+            if (IsInitialBlockDownload()) {
+                fWaitingSync = true;
+            } else {
+                LOCK(cs_main);
+                if (IsModelDActive(chainActive.Height() + 1) && !masternodeSync.IsSynced()) {
+                    fWaitingSync = true;
+                }
+            }
+        }
+        if (fWaitingSync) {
+            return;
+        }
     }
 
     CMinerRegistrationSlotGuard regSlotGuard;
@@ -2071,10 +2308,14 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         }
     }
 
+    static RecursiveMutex cs_last_reg_send;
     static int nLastRegSendHeight = 0;
-    if (nLastRegSendHeight > 0 && chainActive.Height() - nLastRegSendHeight < 50) {
-        // We already sent a registration transaction recently (less than 50 blocks ago)
-        return;
+    {
+        LOCK2(cs_main, cs_last_reg_send);
+        if (nLastRegSendHeight > 0 && chainActive.Height() - nLastRegSendHeight < 50) {
+            // We already sent a registration transaction recently (less than 50 blocks ago)
+            return;
+        }
     }
 
     if (ShutdownRequested() || !fGenerateBitcoins) return;
@@ -2087,17 +2328,22 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
     }
 
     // Deterministically derive and persist the canonical BLS key from the ECDSA private key
+    CBLSSecretKey minerBlsKey;
     {
         LOCK(pwallet->cs_wallet);
         CKey minerPrivKey;
         if (pwallet->GetKey(pubkey.GetID(), minerPrivKey) && minerPrivKey.IsValid()) {
             CBLSSecretKey blsKey = DeriveBLSFromCKey(minerPrivKey);
             if (blsKey.IsValid()) {
+                minerBlsKey = blsKey;
                 CBLSSecretKey existingBls;
                 if (!pwallet->GetBLSKey(pubkey.GetID(), existingBls) || CBLSPubKey(existingBls) != CBLSPubKey(blsKey)) {
                     pwallet->AddBLSKey(pubkey.GetID(), blsKey);
                 }
             }
+        }
+        if (!minerBlsKey.IsValid()) {
+            pwallet->GetBLSKey(pubkey.GetID(), minerBlsKey);
         }
     }
 
@@ -2158,9 +2404,27 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         if (IsModelDActive(nCurrentHeight) && fShouldAutoSelectCoinLock && pubkey.IsCompressed() && nMatureCoinLockBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
             // Renew our existing Coin-Lock seat or fill a vacant Coin-Lock quota slot once Funded PoW-Locks are populated!
             int64_t locktime = nCurrentHeight + 2900;
-            scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
-                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            const bool fUseV4Bls = IsHardeningV4Active(nCurrentHeight + 1);
+            if (fUseV4Bls) {
+                if (!minerBlsKey.IsValid()) {
+                    LogPrintf("AutoRegisterMiner: Hardening v4 requires valid BLS key to build Coin-Lock registration.\n");
+                    return;
+                }
+                CBLSPubKey minerBlsPubKey(minerBlsKey);
+                CBLSSignature minerBlsPoP;
+                if (!minerBlsPubKey.IsValid() || !minerBlsPoP.SignPoP(minerBlsKey) || !minerBlsPoP.IsValid()) {
+                    LogPrintf("AutoRegisterMiner: Failed to sign BLS PoP for Coin-Lock registration.\n");
+                    return;
+                }
+                scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(minerBlsPoP) << OP_2DROP
+                                         << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
+                                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                         << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            } else {
+                scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
+                                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                         << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            }
             nAmount = MINER_REGISTRATION_LOCK_AMOUNT;
             LogPrintf("AutoRegisterMiner: Selecting Coin-Lock (PoL) registration (lock amount: %d KRISTA, locktime: %d blocks)\n", MINER_REGISTRATION_LOCK_AMOUNT / COIN, locktime);
             break;
@@ -2205,7 +2469,8 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     }
                     nAmount = POW_LOCK_REGISTRATION_AMOUNT;
                     target = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
-                } else if (!fKeyUnfundedInPool && !fWalletHasActiveZeroCoinSeat && nBootstrapGateCount < maxBootstrapPoolSize) {
+                } else if (!fKeyUnfundedInPool && !fWalletHasActiveZeroCoinSeat &&
+                           (Params().GetConsensus().IsAdamOpenEntryActive(currentHeight + 1) || nBootstrapGateCount < maxBootstrapPoolSize)) {
                     if (fHardeningV2Next && !pubkey.IsCompressed()) {
                         LogPrintf("AutoRegisterMiner: Zero-Coin PoW requires a compressed public key.\n");
                         return;
@@ -2224,19 +2489,37 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     }
                     LogPrintf("AutoRegisterMiner: Zero-Coin bootstrap pool is full (%u/%u funded validators) and wallet lacks 10.01 KRISTA with %d confirmations.\n",
                               (unsigned int)nBootstrapGateCount, (unsigned int)maxBootstrapPoolSize, ADAM_POW_LOCK_MIN_INPUT_DEPTH);
-                    nLastRegSendHeight = currentHeight - 30;
+                    {
+                        LOCK(cs_last_reg_send);
+                        nLastRegSendHeight = currentHeight - 30;
+                    }
                     return;
                 }
             }
 
             const bool fUseX11KVS = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
             const bool fZeroCoinV2 = (nAmount == 0) && fUseX11KVS;
+            bool fUseV4Bls = IsHardeningV4Active(currentHeight + 1);
+            CBLSPubKey minerBlsPubKey;
+            CBLSSignature minerBlsPoP;
+            if (fUseV4Bls) {
+                if (!minerBlsKey.IsValid()) {
+                    LogPrintf("AutoRegisterMiner: Hardening v4 requires valid BLS key to build PoW registration.\n");
+                    return;
+                }
+                minerBlsPubKey = CBLSPubKey(minerBlsKey);
+                if (!minerBlsPubKey.IsValid() || !minerBlsPoP.SignPoP(minerBlsKey) || !minerBlsPoP.IsValid()) {
+                    LogPrintf("AutoRegisterMiner: Failed to sign BLS PoP for PoW registration.\n");
+                    return;
+                }
+            }
             unsigned char powHeaderBuf[80];
             if (fUseX11KVS) {
+                const CBLSPubKey* pBoundBls = fUseV4Bls ? &minerBlsPubKey : nullptr;
                 if (nAmount == 0) {
-                    BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf);
+                    BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, pBoundBls);
                 } else {
-                    BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf);
+                    BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, pBoundBls);
                 }
             }
             uint32_t nonce = 0;
@@ -2258,6 +2541,9 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     ss << nonce;
                     ss << challengeHash;
                     ss << pubkey;
+                    if (fUseV4Bls) {
+                        ss << minerBlsPubKey;
+                    }
                     puzzleHash = ss.GetHash();
                 }
                 if (puzzleHash <= target) {
@@ -2341,12 +2627,22 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 : (currentHeight + 2900);
             CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
             ssNonce << nonce;
-            scriptPubKey = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
-                                     << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
-                                     << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
-                                     << OP_DROP << OP_DROP << OP_DROP
-                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            if (fUseV4Bls) {
+                scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(minerBlsPoP) << OP_2DROP
+                                         << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                         << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
+                                         << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
+                                         << OP_DROP << OP_DROP << OP_DROP
+                                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                         << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            } else {
+                scriptPubKey = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                         << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
+                                         << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
+                                         << OP_DROP << OP_DROP << OP_DROP
+                                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                         << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            }
             LogPrintf("AutoRegisterMiner: Selecting PoW-Lock registration (amount: %lld, locktime: %d blocks)\n", (long long)nAmount, locktime);
             break;
         }
@@ -2416,7 +2712,10 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
             if (!regCoinControl.HasSelected() || nSelected < nAmount) {
                 LogPrintf("AutoRegisterMiner: Waiting for an input UTXO with at least %d confirmations for registration.\n",
                           nReqInputDepth);
-                nLastRegSendHeight = chainActive.Height() - 30;
+                {
+                    LOCK(cs_last_reg_send);
+                    nLastRegSendHeight = chainActive.Height() - 30;
+                }
                 return;
             }
             created = pwallet->CreateTransaction(scriptPubKey, nAmount, wtx, reservekey, nFeeRequired, strError, &regCoinControl, ALL_COINS, (CAmount)0);
@@ -2427,7 +2726,10 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 
     if (!created) {
         LogPrintf("AutoRegisterMiner ERROR: CreateTransaction failed: %s\n", strError);
-        nLastRegSendHeight = chainActive.Height() - 30; // backoff 20 blocks before retrying
+        {
+            LOCK2(cs_main, cs_last_reg_send);
+            nLastRegSendHeight = chainActive.Height() - 30; // backoff 20 blocks before retrying
+        }
         return;
     }
 
@@ -2441,11 +2743,17 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
 
     if (res.status != CWallet::CommitStatus::OK) {
         LogPrintf("AutoRegisterMiner ERROR: CommitTransaction failed!\n");
-        nLastRegSendHeight = chainActive.Height() - 30; // backoff 20 blocks before retrying
+        {
+            LOCK2(cs_main, cs_last_reg_send);
+            nLastRegSendHeight = chainActive.Height() - 30; // backoff 20 blocks before retrying
+        }
         return;
     }
 
-    nLastRegSendHeight = chainActive.Height();
+    {
+        LOCK2(cs_main, cs_last_reg_send);
+        nLastRegSendHeight = chainActive.Height();
+    }
     LogPrintf("AutoRegisterMiner: Successfully broadcasted registration transaction %s\n", wtx.GetHash().GetHex());
 }
 #endif
@@ -2677,6 +2985,10 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             if (it != mapAdamSolutionsCache.end()) {
                                 it->second.erase(myMinerKey);
                             }
+                            auto itFirst = mapAdamSolutionFirstSeen.find(pindexPrev->GetBlockHash());
+                            if (itFirst != mapAdamSolutionFirstSeen.end()) {
+                                itFirst->second.erase(myMinerKey);
+                            }
                         }
                     }
                     if (alreadySolved) continue;
@@ -2839,6 +3151,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                             solutionsForBlock[task.myMinerKey] = vchSolution;
                                             shouldBroadcast = true;
                                         }
+                                        RecordAdamSolutionTimestampLocked(tipHash, task.myMinerKey);
                                     }
 
                                     if (shouldBroadcast) {

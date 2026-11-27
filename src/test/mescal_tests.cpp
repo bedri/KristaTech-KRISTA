@@ -13,6 +13,7 @@
 #include "policy/policy.h"
 #include "script/interpreter.h"
 #include "script/mescal.h"
+#include "script/sigcache.h"
 #include "script/standard.h"
 #include "test/test_kristatech.h"
 #include "utilstrencodings.h"
@@ -1476,6 +1477,171 @@ BOOST_AUTO_TEST_CASE(mescal_taproot_bip341_and_policy_phase2_test)
         std::string decompErr;
         CMescal::Decompile(mescalLock5B, decompErr);
         BOOST_CHECK_MESSAGE(decompErr.empty(), decompErr);
+    }
+}
+
+BOOST_AUTO_TEST_CASE(taproot_branch_lex_ecdsa_sigcache_and_mescal_hardening_test)
+{
+    // 1. Bip-341 ComputeTapBranchHash must use byte-order memcmp, not uint256::operator< (MSB-first vs LSB-first),
+    //    and VerifyScript must preserve CachingTransactionSignatureChecker for ECDSA-in-Tapscript.
+    CKey internalKey;
+    internalKey.MakeNewKey(true);
+    CXOnlyPubKey internalXOnly(internalKey.GetPubKey());
+    BOOST_REQUIRE(internalXOnly.IsFullyValid());
+
+    CKey ecdsaKey;
+    ecdsaKey.MakeNewKey(true);
+    const CPubKey ecdsaPk = ecdsaKey.GetPubKey();
+
+    auto tapLeafHashFn = [](const CScript& leafScript) -> uint256 {
+        unsigned char tag[32];
+        CSHA256 sTag;
+        sTag.Write((const unsigned char*)"TapLeaf", 7);
+        sTag.Finalize(tag);
+        CDataStream ds(SER_NETWORK, PROTOCOL_VERSION);
+        ds << static_cast<uint8_t>(0xc0) << leafScript;
+        unsigned char res[32];
+        CSHA256 s;
+        s.Write(tag, 32);
+        s.Write(tag, 32);
+        s.Write(reinterpret_cast<const unsigned char*>(&ds[0]), ds.size());
+        s.Finalize(res);
+        return uint256(std::vector<unsigned char>(res, res + 32));
+    };
+
+    CScript leafA = CScript() << ToByteVector(ecdsaPk) << OP_CHECKSIG;
+    uint256 hashA = tapLeafHashFn(leafA);
+
+    // Find sibling script leafB so hashA[0] vs hashB[0] disagrees with uint256::operator< (high byte hashA[31] vs hashB[31])
+    CScript leafB;
+    uint256 hashB;
+    bool foundDisagreeingPair = false;
+    for (int salt = 1; salt < 20000; ++salt) {
+        CScript cand = CScript() << CScriptNum(salt) << OP_DROP << OP_TRUE;
+        uint256 h = tapLeafHashFn(cand);
+        const bool memLess = std::memcmp(hashA.begin(), h.begin(), 32) < 0;
+        const bool arithLess = (hashA < h);
+        if (memLess != arithLess) {
+            leafB = cand;
+            hashB = h;
+            foundDisagreeingPair = true;
+            break;
+        }
+    }
+    BOOST_REQUIRE(foundDisagreeingPair);
+
+    unsigned char tagBr[32];
+    CSHA256 sTagBr;
+    sTagBr.Write((const unsigned char*)"TapBranch", 9);
+    sTagBr.Finalize(tagBr);
+    CSHA256 sBr;
+    sBr.Write(tagBr, 32);
+    sBr.Write(tagBr, 32);
+    if (std::memcmp(hashA.begin(), hashB.begin(), 32) < 0) {
+        sBr.Write(hashA.begin(), 32);
+        sBr.Write(hashB.begin(), 32);
+    } else {
+        sBr.Write(hashB.begin(), 32);
+        sBr.Write(hashA.begin(), 32);
+    }
+    unsigned char brBytes[32];
+    sBr.Finalize(brBytes);
+    uint256 merkleRoot(std::vector<unsigned char>(brBytes, brBytes + 32));
+
+    bool parity = false;
+    CPubKey qFull = internalXOnly.CreateTapTweak(&merkleRoot, &parity);
+    BOOST_REQUIRE(qFull.IsValid());
+    CScript tapSpk = GetScriptForDestination(WitnessV1Taproot(CXOnlyPubKey(qFull)));
+
+    std::vector<unsigned char> controlBlock(65);
+    controlBlock[0] = 0xc0 | (parity ? 1 : 0);
+    std::memcpy(controlBlock.data() + 1, internalXOnly.begin(), 32);
+    std::memcpy(controlBlock.data() + 33, hashB.begin(), 32);
+
+    CMutableTransaction txSpend;
+    txSpend.nVersion = 2;
+    txSpend.vin.emplace_back(COutPoint(GetRandHash(), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1);
+    txSpend.vout.emplace_back(4 * COIN, CScript() << OP_TRUE);
+    const CTransaction txTmp(txSpend);
+    PrecomputedTransactionData precom(txTmp);
+    precom.Init(txTmp, {CTxOut(5 * COIN, tapSpk)});
+
+    uint256 bip341TapSighash;
+    BOOST_REQUIRE(ComputeTaprootSighash(txTmp, 0, SIGHASH_ALL, SIGVERSION_TAPSCRIPT, precom, bip341TapSighash, true, &hashA, 0xffffffff));
+    std::vector<unsigned char> tapSig;
+    BOOST_REQUIRE(ecdsaKey.Sign(bip341TapSighash, tapSig));
+    tapSig.push_back(static_cast<unsigned char>(SIGHASH_ALL));
+
+    txSpend.vin[0].scriptSig = CScript() << tapSig << std::vector<unsigned char>(leafA.begin(), leafA.end()) << controlBlock;
+    const CTransaction txValid(txSpend);
+    PrecomputedTransactionData precomValid(txValid);
+    precomValid.Init(txValid, {CTxOut(5 * COIN, tapSpk)});
+
+    const unsigned int flagsBip341 = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_STRICTENC |
+                                     SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_TAPROOT | SCRIPT_VERIFY_TAPROOT_BIP341;
+    ScriptError serror = SCRIPT_ERR_UNKNOWN_ERROR;
+    CachingTransactionSignatureChecker cacheStore(&txValid, 0, 5 * COIN, true, precomValid);
+    BOOST_CHECK_MESSAGE(VerifyScript(txValid.vin[0].scriptSig, tapSpk, flagsBip341, cacheStore, &serror), ScriptErrorString(serror));
+    // Re-verify using CachingTransactionSignatureChecker store=false (consumes cached entry)
+    CachingTransactionSignatureChecker cacheHit(&txValid, 0, 5 * COIN, false, precomValid);
+    BOOST_CHECK(VerifyScript(txValid.vin[0].scriptSig, tapSpk, flagsBip341, cacheHit, &serror));
+
+    // Legacy SIGVERSION_BASE ECDSA signature inside Tapscript MUST FAIL under SCRIPT_VERIFY_TAPROOT_BIP341
+    uint256 legacySighash = SignatureHash(leafA, txValid, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+    std::vector<unsigned char> legacySig;
+    BOOST_REQUIRE(ecdsaKey.Sign(legacySighash, legacySig));
+    legacySig.push_back(static_cast<unsigned char>(SIGHASH_ALL));
+    CMutableTransaction txBad(txSpend);
+    txBad.vin[0].scriptSig = CScript() << legacySig << std::vector<unsigned char>(leafA.begin(), leafA.end()) << controlBlock;
+    const CTransaction txBadConst(txBad);
+    PrecomputedTransactionData precomBad(txBadConst);
+    precomBad.Init(txBadConst, {CTxOut(5 * COIN, tapSpk)});
+    BOOST_CHECK(!VerifyScript(txBadConst.vin[0].scriptSig, tapSpk, flagsBip341,
+                              TransactionSignatureChecker(&txBadConst, 0, 5 * COIN, precomBad), &serror));
+
+    // 2. MESCAL compile/decompile hardening: empty-stack OP_IF preserves stack-input roundtrip,
+    //    duplicate OP_ELSE / nested OP_NOTIF / uncompressed miner pubkeys / >520B hash160 are rejected.
+    {
+        CKey k;
+        k.MakeNewKey(false); // 65-byte uncompressed pubkey
+        const std::string uncompHex = HexStr(k.GetPubKey());
+        const std::string h160Hex = HexStr(ToByteVector(k.GetPubKey().GetID()));
+        std::string err;
+
+        CScript badCl = CMescal::Compile(
+            "{\"basic\":{\"M\":{\"role\":\"coin-lock-miner\",\"inputs\":[{\"value\":\"" + uncompHex + "\"},{\"value\":100},{\"value\":\"" + h160Hex + "\"}]}},\"contract\":{\"X\":{\"actions\":[{\"type\":\"basic\",\"name\":\"M\"}]}},\"active_contract\":\"X\"}",
+            err);
+        BOOST_CHECK(badCl.empty() && !err.empty());
+
+        err.clear();
+        CScript badPow = CMescal::Compile(
+            "{\"basic\":{\"P\":{\"role\":\"pow-miner\",\"inputs\":[{\"value\":\"0102\"},{\"value\":\"abcd\"},{\"value\":\"" + HexStr(ecdsaPk) + "\"},{\"value\":100},{\"value\":\"" + h160Hex + "\"}]}},\"contract\":{\"X\":{\"actions\":[{\"type\":\"basic\",\"name\":\"P\"}]}},\"active_contract\":\"X\"}",
+            err);
+        BOOST_CHECK(badPow.empty() && !err.empty());
+
+        err.clear();
+        std::string hugeHex(1042, 'a'); // 521 bytes
+        CScript badHash = CMescal::Compile(
+            "{\"basic\":{\"H\":{\"role\":\"hash160\",\"inputs\":[{\"value\":\"" + hugeHex + "\"}]}},\"contract\":{\"X\":{\"actions\":[{\"type\":\"basic\",\"name\":\"H\"}]}},\"active_contract\":\"X\"}",
+            err);
+        BOOST_CHECK(badHash.empty() && !err.empty());
+
+        err.clear();
+        CScript dupElse = CScript() << OP_1 << OP_IF << OP_1 << OP_ELSE << OP_2 << OP_ELSE << OP_3 << OP_ENDIF;
+        BOOST_CHECK(CMescal::Decompile(dupElse, err).isNull() && !err.empty());
+
+        err.clear();
+        CScript nestedNotIf = CScript() << OP_1 << OP_IF << OP_1 << OP_NOTIF << OP_2 << OP_ENDIF << OP_ENDIF;
+        BOOST_CHECK(CMescal::Decompile(nestedNotIf, err).isNull() && !err.empty());
+
+        // Empty-stack OP_IF decompiles to stack-input and compiles back identically without injecting OP_1
+        err.clear();
+        CScript stackIf = CScript() << OP_IF << OP_2 << OP_ELSE << OP_3 << OP_ENDIF;
+        UniValue decomp = CMescal::Decompile(stackIf, err);
+        BOOST_CHECK_MESSAGE(err.empty(), err);
+        CScript recompiled = CMescal::Compile(decomp.write(), err);
+        BOOST_CHECK_MESSAGE(err.empty(), err);
+        BOOST_CHECK(recompiled == stackIf);
     }
 }
 

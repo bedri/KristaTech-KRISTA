@@ -123,17 +123,38 @@ public:
 
     void DsegUpdate(CNode* pnode);
 
-    /// Find an entry
+private:
+    /// Find an entry (caller must hold cs)
     CMasternode* Find(const CScript& payee);
     CMasternode* Find(const CTxIn& vin);
     CMasternode* Find(const CPubKey& pubKeyMasternode);
     CMasternode* Find(const CService &addr);
 
+public:
+    bool Get(const CScript& payee, CMasternode& mnRet);
+    bool Get(const CTxIn& vin, CMasternode& mnRet);
+    bool Get(const CPubKey& pubKeyMasternode, CMasternode& mnRet);
+    bool Get(const CService& addr, CMasternode& mnRet);
+
+    bool ApplyBroadcastUpdate(const CTxIn& vin, const CMasternode& updatedMn);
+    bool ApplyPingUpdate(const CTxIn& vin, const CMasternode& updatedMn);
+    bool ApplyLocalPing(const CTxIn& vin, const CMasternodePing& mnp);
+
+    bool HasSeenBroadcast(const uint256& hash) const;
+    bool GetSeenBroadcast(const uint256& hash, CMasternodeBroadcast& mnbRet) const;
+    void AddSeenBroadcast(const CMasternodeBroadcast& mnb);
+    void EraseSeenBroadcast(const uint256& hash);
+    bool UpdateSeenBroadcastPing(const uint256& hash, const CMasternodePing& mnp);
+
+    bool HasSeenPing(const uint256& hash) const;
+    bool GetSeenPing(const uint256& hash, CMasternodePing& mnpRet) const;
+    void AddSeenPing(const CMasternodePing& mnp);
+
     /// Find an entry in the masternode list that is next to be paid
-    CMasternode* GetNextMasternodeInQueueForPayment(int nBlockHeight, bool fFilterSigTime, int& nCount);
+    bool GetNextMasternodeInQueueForPayment(int nBlockHeight, bool fFilterSigTime, int& nCount, CMasternode* pmnOut = nullptr);
 
     /// Get the current winner for this block
-    CMasternode* GetCurrentMasterNode(int mod = 1, int64_t nBlockHeight = 0, int minProtocol = 0);
+    bool GetCurrentMasterNode(CMasternode& mnOut, int mod = 1, int64_t nBlockHeight = 0, int minProtocol = 0);
 
     std::vector<CMasternode> GetFullMasternodeVector()
     {
@@ -148,7 +169,7 @@ public:
     void ProcessMessage(CNode* pfrom, std::string& strCommand, CDataStream& vRecv);
 
     /// Return the number of (unique) Masternodes
-    int size() { return vMasternodes.size(); }
+    int size() const { LOCK(cs); return vMasternodes.size(); }
 
     /// Return the number of Masternodes older than (default) 8000 seconds
     int stable_size ();

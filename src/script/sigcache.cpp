@@ -44,6 +44,13 @@ public:
         CSHA256().Write(nonce.begin(), 32).Write(hash.begin(), 32).Write(&pubkey[0], pubkey.size()).Write(&vchSig[0], vchSig.size()).Finalize(entry.begin());
     }
 
+    void
+    ComputeEntrySchnorr(uint256& entry, const uint256 &hash, const std::vector<unsigned char>& vchSig, const CXOnlyPubKey& pubkey)
+    {
+        static const unsigned char tag = 'S';
+        CSHA256().Write(nonce.begin(), 32).Write(&tag, 1).Write(hash.begin(), 32).Write(pubkey.begin(), 32).Write(vchSig.data(), vchSig.size()).Finalize(entry.begin());
+    }
+
     bool
     Get(const uint256& entry, const bool erase)
     {
@@ -90,6 +97,19 @@ bool CachingTransactionSignatureChecker::VerifySignature(const std::vector<unsig
     if (signatureCache.Get(entry, !store))
         return true;
     if (!TransactionSignatureChecker::VerifySignature(vchSig, pubkey, sighash))
+        return false;
+    if (store)
+        signatureCache.Set(entry);
+    return true;
+}
+
+bool CachingTransactionSignatureChecker::VerifySchnorrSignature(const std::vector<unsigned char>& vchSig, const CXOnlyPubKey& pubkey, const uint256& sighash) const
+{
+    uint256 entry;
+    signatureCache.ComputeEntrySchnorr(entry, sighash, vchSig, pubkey);
+    if (signatureCache.Get(entry, !store))
+        return true;
+    if (!TransactionSignatureChecker::VerifySchnorrSignature(vchSig, pubkey, sighash))
         return false;
     if (store)
         signatureCache.Set(entry);

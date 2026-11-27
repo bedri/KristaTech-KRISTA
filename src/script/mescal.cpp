@@ -101,12 +101,17 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
             }
             script << OP_HASH160 << hashBytes << (isHashEqualVerify ? OP_EQUALVERIFY : OP_EQUAL);
         } else {
+            std::vector<unsigned char> rawData;
             if (IsHex(valStr)) {
-                script << ParseHex(valStr);
+                rawData = ParseHex(valStr);
             } else {
-                script << std::vector<unsigned char>(valStr.begin(), valStr.end());
+                rawData.assign(valStr.begin(), valStr.end());
             }
-            script << OP_HASH160;
+            if (rawData.size() > MAX_SCRIPT_ELEMENT_SIZE) {
+                errorStr = "hash160 data exceeds MAX_SCRIPT_ELEMENT_SIZE (520 bytes)";
+                return CScript();
+            }
+            script << rawData << OP_HASH160;
         }
     } else if (role == "check-signature-verification") {
         if (!inputs.isArray() || inputs.size() < 1 || !inputs[0].isObject() || !inputs[0].exists("value") || !inputs[0]["value"].isStr()) {
@@ -231,6 +236,10 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
         if (!ParseValidatedPubKey(inputs[0]["value"].get_str(), pubkeyBytes, errorStr)) {
             return CScript();
         }
+        if (pubkeyBytes.size() != CPubKey::COMPRESSED_PUBLIC_KEY_SIZE) {
+            errorStr = "coin-lock-miner requires a 33-byte compressed public key";
+            return CScript();
+        }
         int64_t lockTime = 0;
         if (!ParseValidatedLockTime(inputs[1], lockTime, errorStr)) {
             return CScript();
@@ -256,12 +265,23 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
         }
         std::string nonceHex = inputs[0]["value"].get_str();
         std::string challengeHex = inputs[1]["value"].get_str();
-        if (!IsHex(nonceHex) || !IsHex(challengeHex)) {
-            errorStr = "pow-miner nonce and challenge must be valid hex strings";
+        if (!IsHex(nonceHex) || (nonceHex.size() % 2) != 0 ||
+            !IsHex(challengeHex) || challengeHex.size() != 64) {
+            errorStr = "pow-miner nonce must be even-length hex and challenge must be 64-char hex";
+            return CScript();
+        }
+        std::vector<unsigned char> nonceBytes = ParseHex(nonceHex);
+        std::vector<unsigned char> challengeBytes = ParseHex(challengeHex);
+        if (nonceBytes.empty() || nonceBytes.size() > MAX_SCRIPT_ELEMENT_SIZE || challengeBytes.size() != 32) {
+            errorStr = "pow-miner nonce must be 1..520 bytes and challenge must be 32 bytes";
             return CScript();
         }
         std::vector<unsigned char> pubkeyBytes;
         if (!ParseValidatedPubKey(inputs[2]["value"].get_str(), pubkeyBytes, errorStr)) {
+            return CScript();
+        }
+        if (pubkeyBytes.size() != CPubKey::COMPRESSED_PUBLIC_KEY_SIZE) {
+            errorStr = "pow-miner requires a 33-byte compressed public key";
             return CScript();
         }
         int64_t lockTime = 0;
@@ -272,9 +292,15 @@ static CScript CompileBasicBlock(const UniValue& blockObj, const std::map<std::s
         if (!ParseValidatedHash160(inputs[4]["value"].get_str(), pubkeyHashBytes, errorStr)) {
             return CScript();
         }
-        script << ParseHex(nonceHex) << ParseHex(challengeHex) << pubkeyBytes << OP_DROP << OP_DROP << OP_DROP
+        script << nonceBytes << challengeBytes << pubkeyBytes << OP_DROP << OP_DROP << OP_DROP
                << CScriptNum(lockTime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
                << OP_DUP << OP_HASH160 << pubkeyHashBytes << OP_EQUALVERIFY << OP_CHECKSIG;
+    } else if (role == "stack-input") {
+        if (!inConditionExpr) {
+            errorStr = "stack-input can only be used inside an if-condition expression";
+            return CScript();
+        }
+        // Expects boolean expression value from witness/scriptSig stack before OP_IF
     } else {
         errorStr = "Unknown basic block role: " + role;
     }
@@ -922,13 +948,8 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int de
             } else {
                 UniValue expr(UniValue::VOBJ);
                 expr.push_back(Pair("type", "basic"));
-                expr.push_back(Pair("name", "true"));
-                expr.push_back(Pair("role", "number"));
-                UniValue inputs(UniValue::VARR);
-                UniValue input(UniValue::VOBJ);
-                input.push_back(Pair("value", 1));
-                inputs.push_back(input);
-                expr.push_back(Pair("inputs", inputs));
+                expr.push_back(Pair("name", "stack-input-" + std::to_string(basicCount++)));
+                expr.push_back(Pair("role", "stack-input"));
                 exprList.push_back(expr);
             }
 
@@ -944,7 +965,10 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int de
                 CScript::const_iterator mark = pc;
                 if (!script.GetOp(pc, innerOp, innerVch)) break;
 
-                if (innerOp == OP_IF) {
+                if (innerOp == OP_NOTIF) {
+                    errorStr = "OP_NOTIF is not supported in MESCAL contracts";
+                    return UniValue();
+                } else if (innerOp == OP_IF) {
                     ifDepth++;
                     if (depth + ifDepth > MAX_MESCAL_CONDITION_DEPTH) {
                         errorStr = "Maximum condition nesting depth exceeded (max 32)";
@@ -954,6 +978,10 @@ UniValue CMescal::Decompile(const CScript& script, std::string& errorStr, int de
                     ifDepth--;
                     if (ifDepth == 0) break;
                 } else if (innerOp == OP_ELSE && ifDepth == 1) {
+                    if (inFalse) {
+                        errorStr = "Duplicate OP_ELSE in MESCAL contract";
+                        return UniValue();
+                    }
                     inFalse = true;
                     continue;
                 }

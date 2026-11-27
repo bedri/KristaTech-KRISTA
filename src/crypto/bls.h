@@ -7,8 +7,11 @@
 
 #include "uint256.h"
 #include "serialize.h"
+#include <functional>
+#include <map>
 #include <vector>
 #include <string>
+#include <utility>
 #include "key.h"
 #include "pubkey.h"
 
@@ -163,17 +166,19 @@ struct CBLSSignedData {
 bool SignBLSWithECDSAFallback(const uint256& hash, const CKey& ecdsaKey, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut, const std::string& dst = BLS_DST);
 bool SignBLSOperatorOnly(const uint256& hash, const CBLSSecretKey& blsKey, std::vector<unsigned char>& vchSigOut, const std::string& dst = BLS_DST);
 bool HasExactBLSSignedDataEncoding(const std::vector<unsigned char>& vchData);
-bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig, const std::string& dst = BLS_DST, bool fStrictDER = false);
+using PinActivePredicate = std::function<bool(int, const uint256&)>;
+bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig, const std::string& dst = BLS_DST, bool fStrictDER = false, const PinActivePredicate& fnIsPinActive = nullptr);
 bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut = nullptr, CBLSSignature* pBlsSigOut = nullptr, const std::string& dst = BLS_DST, bool fRequireEmptyEcdsa = false);
 bool VerifySelfContainedBLSSignedData(const uint256& hash, const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut, const std::string& dst = BLS_DST, bool fRequireEmptyEcdsa = false);
 bool ExtractBLSPubKeyFromSignedData(const std::vector<unsigned char>& vchSig, CBLSPubKey& blsPubKeyOut);
-bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut);
-bool IsBLSPubKeyPinnedToOther(const CPubKey& ownerPubKey, const CBLSPubKey& blsPubKey);
-bool PinBLSPubKey(const CPubKey& ecdsaPubKey, const CBLSPubKey& blsPubKey, int nHeight);
-void UnpinBLSPubKeysAtHeight(int nHeight);
+bool GetPinnedBLSPubKey(const CPubKey& ecdsaPubKey, CBLSPubKey& blsPubKeyOut, const PinActivePredicate& fnIsPinActive = nullptr);
+bool IsBLSPubKeyPinnedToOther(const CPubKey& ownerPubKey, const CBLSPubKey& blsPubKey, const PinActivePredicate& fnIsPinActive = nullptr);
+bool PinBLSPubKey(const CPubKey& ecdsaPubKey, const CBLSPubKey& blsPubKey, int nHeight, const uint256& blockHash = uint256(), const PinActivePredicate& fnIsPinActive = nullptr);
+void UnpinBLSPubKeysAtHeight(int nHeight, const uint256& blockHash = uint256());
 void ClearPinnedBLSPubKeys();
 void ExportPinnedBLSPubKeys(std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapOut);
 void ImportPinnedBLSPubKeys(const std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapIn, int nMaxHeight);
+void ImportPinnedBLSPubKeysWithHashes(const std::map<CPubKey, std::pair<CBLSPubKey, int>>& mapIn, const std::map<CPubKey, uint256>& mapBlockHashes, int nMaxHeight);
 CBLSSecretKey DeriveBLSFromSeed(const unsigned char* seed, size_t seed_size);
 CBLSSecretKey DeriveBLSFromCKey(const CKey& key);
 CBLSSecretKey DeriveEphemeralBLSFromCKey(const CKey& key, const uint256& contextHash);

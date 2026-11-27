@@ -773,6 +773,25 @@ bool CNode::SendV2PacketLocked(const std::string& command, const std::vector<uns
     return true;
 }
 
+size_t CNode::QueueCompleteRecvMessages(size_t receiveFloodSize)
+{
+    size_t nSizeAdded = 0;
+    LOCK(cs_vRecv);
+    auto it(vRecvMsg.begin());
+    for (; it != vRecvMsg.end(); ++it) {
+        if (!it->complete())
+            break;
+        nSizeAdded += it->vRecv.size() + CMessageHeader::HEADER_SIZE;
+    }
+    {
+        LOCK(cs_vProcessMsg);
+        vProcessMsg.splice(vProcessMsg.end(), vRecvMsg, vRecvMsg.begin(), it);
+        nProcessQueueSize += nSizeAdded;
+        fPauseRecv = nProcessQueueSize > receiveFloodSize;
+    }
+    return nSizeAdded;
+}
+
 bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete)
 {
     complete = false;
@@ -894,6 +913,11 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
             }
             v2RecvGarbage.assign(v2RecvBuf.begin(), v2RecvBuf.begin() + termPos);
             v2RecvBuf.erase(v2RecvBuf.begin(), v2RecvBuf.begin() + termPos + recvTerm.size());
+            v2DecoyPackets = 0;
+            v2ConsecutiveDecoys = 0;
+            v2DecoyWindowStart = 0;
+            v2DecoyWindowPackets = 0;
+            v2DecoyWindowBytes = 0;
             v2RecvState = V2RecvState::VERSION_PACKET;
         }
 
@@ -935,7 +959,28 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
                 if (ignore) {
                     if (v2RecvState == V2RecvState::VERSION_PACKET && ++v2DecoyPackets > 64) {
                         LogPrint(BCLog::NET, "Too many BIP324 decoy packets during handshake peer=%d\n", id);
+                        fDisconnect = true;
                         return false;
+                    }
+                    if (v2RecvState == V2RecvState::APPLICATION) {
+                        if (++v2ConsecutiveDecoys > 64) {
+                            LogPrint(BCLog::NET, "Too many consecutive BIP324 decoy packets peer=%d\n", id);
+                            fDisconnect = true;
+                            return false;
+                        }
+                        const int64_t now = GetTime();
+                        if (v2DecoyWindowStart == 0 || now - v2DecoyWindowStart >= 60) {
+                            v2DecoyWindowStart = now;
+                            v2DecoyWindowPackets = 0;
+                            v2DecoyWindowBytes = 0;
+                        }
+                        v2DecoyWindowPackets++;
+                        v2DecoyWindowBytes += bodyLen + BIP324Cipher::LENGTH_LEN;
+                        if (v2DecoyWindowPackets > 256 || v2DecoyWindowBytes > (4U * 1024U * 1024U)) {
+                            LogPrint(BCLog::NET, "Exceeded BIP324 decoy rate budget peer=%d\n", id);
+                            fDisconnect = true;
+                            return false;
+                        }
                     }
                     auto itOther = mapRecvBytesPerMsgCmd.find(NET_MESSAGE_COMMAND_OTHER);
                     if (itOther != mapRecvBytesPerMsgCmd.end()) itOther->second += bodyLen + BIP324Cipher::LENGTH_LEN;
@@ -944,10 +989,15 @@ bool CNode::ReceiveMsgBytes(const char* pch, unsigned int nBytes, bool& complete
 
                 if (v2RecvState == V2RecvState::VERSION_PACKET) {
                     v2DecoyPackets = 0;
+                    v2ConsecutiveDecoys = 0;
+                    v2DecoyWindowStart = 0;
+                    v2DecoyWindowPackets = 0;
+                    v2DecoyWindowBytes = 0;
                     v2RecvState = V2RecvState::APPLICATION;
                     LogPrint(BCLog::NET, "BIP324 v2 encrypted session established with peer=%d\n", id);
                     continue;
                 }
+                v2ConsecutiveDecoys = 0;
 
                 if (contents.empty()) {
                     return false;
@@ -1601,19 +1651,7 @@ void CConnman::ThreadSocketHandler()
                                 pnode->CloseSocketDisconnect();
                             RecordBytesRecv(nBytes);
                             if (notify) {
-                                size_t nSizeAdded = 0;
-                                auto it(pnode->vRecvMsg.begin());
-                                for (; it != pnode->vRecvMsg.end(); ++it) {
-                                    if (!it->complete())
-                                        break;
-                                    nSizeAdded += it->vRecv.size() + CMessageHeader::HEADER_SIZE;
-                                }
-                                {
-                                    LOCK(pnode->cs_vProcessMsg);
-                                    pnode->vProcessMsg.splice(pnode->vProcessMsg.end(), pnode->vRecvMsg, pnode->vRecvMsg.begin(), it);
-                                    pnode->nProcessQueueSize += nSizeAdded;
-                                    pnode->fPauseRecv = pnode->nProcessQueueSize > nReceiveFloodSize;
-                                }
+                                pnode->QueueCompleteRecvMessages(nReceiveFloodSize);
                                 WakeMessageHandler();
                             }
                         } else if (nBytes == 0) {
@@ -2765,6 +2803,12 @@ CNode::CNode(NodeId idIn, ServiceFlags nLocalServicesIn, int nMyStartingHeightIn
     fSupportsCompactBlocks = false;
     fHighBandwidthCompactBlocks = false;
     fSentCmpct = false;
+    fSentInitialAdamSolSync = false;
+    nLastMempoolReq = 0;
+    v2ConsecutiveDecoys = 0;
+    v2DecoyWindowStart = 0;
+    v2DecoyWindowPackets = 0;
+    v2DecoyWindowBytes = 0;
     nAddrTokenBucket = 1.0;
     nLastAddrTokenUpdate = GetTime();
     minFeeFilter = 0;

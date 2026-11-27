@@ -10,6 +10,7 @@
 
 #include "base58.h"
 #include "evo/deterministicmns.h"
+#include "httpserver.h"
 #include "netbase.h"
 #include "util.h"
 
@@ -456,6 +457,40 @@ BOOST_AUTO_TEST_CASE(rpc_batch_limit_parse_and_validaterange_tests)
     overflowParams.push_back(0);
     overflowParams.push_back(std::numeric_limits<int>::max());
     BOOST_CHECK_THROW(validaterange(overflowParams, hStart, hEnd), UniValue);
+}
+
+BOOST_AUTO_TEST_CASE(http_host_header_rebinding_test)
+{
+    BOOST_CHECK(IsAllowedHTTPRequestHost("localhost"));
+    BOOST_CHECK(IsAllowedHTTPRequestHost("LOCALHOST:27998"));
+    BOOST_CHECK(IsAllowedHTTPRequestHost("127.0.0.1"));
+    BOOST_CHECK(IsAllowedHTTPRequestHost("127.0.0.1:27998"));
+    BOOST_CHECK(IsAllowedHTTPRequestHost("[::1]"));
+    BOOST_CHECK(IsAllowedHTTPRequestHost("[::1]:27998"));
+    BOOST_CHECK(IsAllowedHTTPRequestHost("168.119.227.178:27998"));
+
+    BOOST_CHECK(!IsAllowedHTTPRequestHost(""));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("evil.com"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("evil.com:27998"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("localhost.evil.com"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("evil.localhost:27998"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("user@127.0.0.1"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("localhost/admin"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("localhost?x=1"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("127.0.0.1,evil.com"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("[::1"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("[127.0.0.1]"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("127.0.0.1:99999"));
+
+    const bool hadRpcBind = mapMultiArgs.count("-rpcbind") > 0;
+    std::vector<std::string> prevRpcBind;
+    if (hadRpcBind) prevRpcBind = mapMultiArgs["-rpcbind"];
+    mapMultiArgs["-rpcbind"] = {"my-node.internal:27998"};
+    BOOST_CHECK(IsAllowedHTTPRequestHost("my-node.internal:27998"));
+    BOOST_CHECK(IsAllowedHTTPRequestHost("my-node.internal"));
+    BOOST_CHECK(!IsAllowedHTTPRequestHost("other.internal"));
+    if (hadRpcBind) mapMultiArgs["-rpcbind"] = prevRpcBind;
+    else mapMultiArgs.erase("-rpcbind");
 }
 
 BOOST_AUTO_TEST_SUITE_END()

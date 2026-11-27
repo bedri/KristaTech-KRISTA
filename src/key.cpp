@@ -10,10 +10,14 @@
 #include "uint256.h"
 #include "crypto/common.h"
 #include "crypto/hmac_sha512.h"
+#include "crypto/sha256.h"
 #include "random.h"
+#include "support/cleanse.h"
 
 #include <secp256k1.h>
+#include <secp256k1_extrakeys.h>
 #include <secp256k1_recovery.h>
+#include <secp256k1_schnorrsig.h>
 
 static secp256k1_context* secp256k1_context_sign = nullptr;
 
@@ -224,6 +228,77 @@ bool CKey::Sign(const uint256& hash, std::vector<unsigned char>& vchSig, uint32_
     assert(ret);
     secp256k1_ecdsa_signature_serialize_der(secp256k1_context_sign, (unsigned char*)vchSig.data(), &nSigLen, &sig);
     vchSig.resize(nSigLen);
+    return true;
+}
+
+bool CKey::SignSchnorr(const uint256& hash, std::vector<unsigned char>& vchSig, const unsigned char* aux32) const
+{
+    if (!fValid || !secp256k1_context_sign)
+        return false;
+    secp256k1_keypair keypair;
+    if (secp256k1_keypair_create(secp256k1_context_sign, &keypair, begin()) != 1) {
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    vchSig.resize(64);
+    const int ret = secp256k1_schnorrsig_sign32(secp256k1_context_sign, vchSig.data(), hash.begin(), &keypair, aux32);
+    memory_cleanse(&keypair, sizeof(keypair));
+    if (ret != 1) {
+        vchSig.clear();
+        return false;
+    }
+    return true;
+}
+
+bool CKey::SignTaprootKeyPath(const uint256& hash, std::vector<unsigned char>& vchSig, const uint256* merkle_root, const unsigned char* aux32) const
+{
+    if (!fValid || !secp256k1_context_sign)
+        return false;
+    secp256k1_keypair keypair;
+    if (secp256k1_keypair_create(secp256k1_context_sign, &keypair, begin()) != 1) {
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    secp256k1_xonly_pubkey internal_xonly;
+    if (secp256k1_keypair_xonly_pub(secp256k1_context_sign, &internal_xonly, nullptr, &keypair) != 1) {
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    unsigned char internal32[32];
+    if (secp256k1_xonly_pubkey_serialize(secp256k1_context_sign, internal32, &internal_xonly) != 1) {
+        memory_cleanse(internal32, sizeof(internal32));
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    unsigned char tag_hash[32];
+    CSHA256 shaTag;
+    shaTag.Write((const unsigned char*)"TapTweak", 8);
+    shaTag.Finalize(tag_hash);
+    unsigned char tweak[32];
+    CSHA256 shaTweak;
+    shaTweak.Write(tag_hash, 32);
+    shaTweak.Write(tag_hash, 32);
+    shaTweak.Write(internal32, 32);
+    if (merkle_root != nullptr) {
+        shaTweak.Write(merkle_root->begin(), 32);
+    }
+    shaTweak.Finalize(tweak);
+    memory_cleanse(internal32, sizeof(internal32));
+
+    if (secp256k1_keypair_xonly_tweak_add(secp256k1_context_sign, &keypair, tweak) != 1) {
+        memory_cleanse(tweak, sizeof(tweak));
+        memory_cleanse(&keypair, sizeof(keypair));
+        return false;
+    }
+    memory_cleanse(tweak, sizeof(tweak));
+
+    vchSig.resize(64);
+    const int ret = secp256k1_schnorrsig_sign32(secp256k1_context_sign, vchSig.data(), hash.begin(), &keypair, aux32);
+    memory_cleanse(&keypair, sizeof(keypair));
+    if (ret != 1) {
+        vchSig.clear();
+        return false;
+    }
     return true;
 }
 

@@ -964,10 +964,10 @@ void TopBar::refreshMasternodeStatus(bool force)
                 }
                 if (!isSynced) continue;
 
-                auto pmn = mnodeman.Find(txIn);
-                if (!pmn) continue;
+                CMasternode mn;
+                if (!mnodeman.Get(txIn, mn)) continue;
 
-                int activeState = pmn->activeState;
+                int activeState = mn.activeState;
                 if (activeState == CMasternode::MASTERNODE_PRE_ENABLED || activeState == CMasternode::MASTERNODE_ENABLED) {
                     nMNActive++;
                 }

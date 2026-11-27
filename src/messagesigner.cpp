@@ -146,9 +146,9 @@ bool CSignedMessage::CheckSignature() const
 const CPubKey CSignedMessage::GetPublicKey(std::string& strErrorRet) const
 {
     const CTxIn vin = GetVin();
-    CMasternode* pmn = mnodeman.Find(vin);
-    if(pmn) {
-        return pmn->pubKeyMasternode;
+    CMasternode mn;
+    if (mnodeman.Get(vin, mn)) {
+        return mn.pubKeyMasternode;
     }
     strErrorRet = strprintf("Unable to find masternode vin %s", vin.prevout.hash.GetHex());
     return CPubKey();

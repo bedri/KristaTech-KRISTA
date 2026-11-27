@@ -13,13 +13,21 @@
 #include "rpc/server.h"
 #include "script/script.h"
 #include "script/standard.h"
+#include "support/cleanse.h"
 #include "sync.h"
 #include "util.h"
 #include "utilstrencodings.h"
 #include "utiltime.h"
 #include "wallet/wallet.h"
 
+#include <cstdio>
+#include <errno.h>
 #include <fstream>
+#ifndef WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 #include <secp256k1.h>
 #include <stdint.h>
 
@@ -294,8 +302,12 @@ UniValue importwallet(const JSONRPCRequest& request)
 
     EnsureWalletIsUnlocked();
 
+    const fs::path importPath(request.params[0].get_str());
+    if (fs::is_symlink(importPath) || !fs::exists(importPath) || !fs::is_regular_file(importPath))
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file (must be an existing regular file)");
+
     std::ifstream file;
-    file.open(request.params[0].get_str().c_str(), std::ios::in | std::ios::ate);
+    file.open(importPath.c_str(), std::ios::in | std::ios::ate);
     if (!file.is_open())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
 
@@ -310,19 +322,37 @@ UniValue importwallet(const JSONRPCRequest& request)
     while (file.good()) {
         pwalletMain->ShowProgress("", std::max(1, std::min(99, (int)(((double)file.tellg() / (double)nFilesize) * 100))));
         std::string line;
+        std::vector<std::string> vstr;
         std::getline(file, line);
+        struct LineGuard {
+            std::string& s;
+            std::vector<std::string>& vec;
+            LineGuard(std::string& sIn, std::vector<std::string>& vecIn) : s(sIn), vec(vecIn) {}
+            ~LineGuard() {
+                if (!s.empty()) memory_cleanse(&s[0], s.size());
+                for (std::string& item : vec) {
+                    if (!item.empty()) memory_cleanse(&item[0], item.size());
+                }
+            }
+        } lineGuard(line, vstr);
+
         if (line.empty() || line[0] == '#')
             continue;
 
-        std::vector<std::string> vstr;
         boost::split(vstr, line, boost::is_any_of(" "));
         if (vstr.size() < 2)
             continue;
         CKey key = DecodeSecret(vstr[0]);
+        if (!vstr[0].empty()) {
+            memory_cleanse(&vstr[0][0], vstr[0].size());
+        }
         if (!key.IsValid())
             continue;
         CPubKey pubkey = key.GetPubKey();
-        assert(key.VerifyPubKey(pubkey));
+        if (!key.VerifyPubKey(pubkey)) {
+            fGood = false;
+            continue;
+        }
         CKeyID keyid = pubkey.GetID();
         if (pwalletMain->HaveKey(keyid)) {
             LogPrintf("Skipping import of %s (key already present)\n", EncodeDestination(keyid));
@@ -352,6 +382,7 @@ UniValue importwallet(const JSONRPCRequest& request)
             continue;
         }
         pwalletMain->mapKeyMetadata[keyid].nCreateTime = nTime;
+        CWalletDB(pwalletMain->strWalletFile).WriteKeyMetadata(pubkey, pwalletMain->mapKeyMetadata[keyid]);
         if (fLabel) // TODO: This is not entirely true.. needs to be reviewed properly.
             pwalletMain->SetAddressBook(keyid, strLabel, AddressBook::AddressBookPurpose::RECEIVE);
         nTimeBegin = std::min(nTimeBegin, nTime);
@@ -366,8 +397,10 @@ UniValue importwallet(const JSONRPCRequest& request)
     if (!pwalletMain->nTimeFirstKey || nTimeBegin < pwalletMain->nTimeFirstKey)
         pwalletMain->nTimeFirstKey = nTimeBegin;
 
-    LogPrintf("Rescanning last %i blocks\n", chainActive.Height() - pindex->nHeight + 1);
-    pwalletMain->ScanForWalletTransactions(pindex);
+    if (pindex) {
+        LogPrintf("Rescanning last %i blocks\n", chainActive.Height() - pindex->nHeight + 1);
+        pwalletMain->ScanForWalletTransactions(pindex);
+    }
     pwalletMain->MarkDirty();
 
     if (!fGood)
@@ -445,24 +478,69 @@ UniValue dumpwallet(const JSONRPCRequest& request)
     fs::path filepath = request.params[0].get_str().c_str();
     filepath = fs::absolute(filepath);
 
-    /* Prevent arbitrary files from being overwritten. There have been reports
-     * that users have overwritten wallet files this way:
-     * https://github.com/bitcoin/bitcoin/issues/9934
-     * It may also avoid other security issues.
-     */
-    if (fs::exists(filepath)) {
-        throw JSONRPCError(RPC_INVALID_PARAMETER, filepath.string() + " already exists. If you are sure this is what you want, move it out of the way first");
+    auto cleanseString = [](std::string& s) {
+        if (!s.empty()) memory_cleanse(&s[0], s.size());
+    };
+    auto cleanseExtKey = [](CExtKey& ek) {
+        ek.key = CKey();
+        memory_cleanse(ek.chaincode.begin(), ek.chaincode.size());
+        memory_cleanse(ek.vchFingerprint, sizeof(ek.vchFingerprint));
+    };
+
+    /* Prevent arbitrary files from being overwritten or created with permissive umask permissions (M-9). */
+    if (fs::is_symlink(filepath) || fs::exists(filepath)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, filepath.string() + " already exists or is a symlink. If you are sure this is what you want, move it out of the way first");
     }
 
+#ifndef WIN32
+    const int dumpFd = ::open(filepath.string().c_str(), O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR);
+    if (dumpFd < 0) {
+        if (errno == EEXIST || errno == ELOOP) {
+            throw JSONRPCError(RPC_INVALID_PARAMETER, filepath.string() + " already exists or is a symlink. Move it out of the way first");
+        }
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
+    }
+    FILE* dumpFp = ::fdopen(dumpFd, "wb");
+    if (!dumpFp) {
+        ::close(dumpFd);
+        ::unlink(filepath.string().c_str());
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
+    }
+    struct DumpFileGuard {
+        FILE* fp;
+        std::string path;
+        bool ok;
+        DumpFileGuard(FILE* fpIn, const std::string& pathIn) : fp(fpIn), path(pathIn), ok(false) {}
+        ~DumpFileGuard() {
+            if (fp) {
+                ::fclose(fp);
+            }
+            if (!ok) {
+                ::unlink(path.c_str());
+            }
+        }
+    } dumpGuard(dumpFp, filepath.string());
+    auto writeDumpLine = [&](const std::string& text) {
+        if (!text.empty() && std::fwrite(text.data(), 1, text.size(), dumpFp) != text.size()) {
+            throw JSONRPCError(RPC_MISC_ERROR, "Failed writing wallet dump file");
+        }
+    };
+#else
     std::ofstream file;
-    file.open(request.params[0].get_str().c_str());
+    file.open(filepath.string().c_str(), std::ios::out | std::ios::binary);
     if (!file.is_open())
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot open wallet dump file");
+    auto writeDumpLine = [&](const std::string& text) {
+        file << text;
+        if (!file.good()) {
+            throw JSONRPCError(RPC_MISC_ERROR, "Failed writing wallet dump file");
+        }
+    };
+#endif
 
     std::map<CKeyID, int64_t> mapKeyBirth;
     pwalletMain->GetKeyBirthTimes(mapKeyBirth);
     const std::map<CKeyID, int64_t>& mapKeyPool = spk_man->GetAllReserveKeys();
-
 
     // sort time/key pairs
     std::vector<std::pair<int64_t, CKeyID> > vKeyBirth;
@@ -474,16 +552,16 @@ UniValue dumpwallet(const JSONRPCRequest& request)
 
     CBlockIndex* tip = chainActive.Tip();
     // produce output
-    file << strprintf("# Wallet dump created by KristaTech %s (%s)\n", CLIENT_BUILD, CLIENT_DATE);
-    file << strprintf("# * Created on %s\n", EncodeDumpTime(GetTime()));
+    writeDumpLine(strprintf("# Wallet dump created by KristaTech %s (%s)\n", CLIENT_BUILD, CLIENT_DATE));
+    writeDumpLine(strprintf("# * Created on %s\n", EncodeDumpTime(GetTime())));
     if (tip) {
-        file << strprintf("# * Best block at time of backup was %i (%s),\n", tip->nHeight,
-                          tip->GetBlockHash().ToString());
-        file << strprintf("#   mined on %s\n", EncodeDumpTime(tip->GetBlockTime()));
+        writeDumpLine(strprintf("# * Best block at time of backup was %i (%s),\n", tip->nHeight,
+                                tip->GetBlockHash().ToString()));
+        writeDumpLine(strprintf("#   mined on %s\n", EncodeDumpTime(tip->GetBlockTime())));
     } else {
-        file << "# Missing tip information\n";
+        writeDumpLine("# Missing tip information\n");
     }
-    file << "\n";
+    writeDumpLine("\n");
 
     // Add the base58check encoded extended master if the wallet uses HD
     CKeyID seed_id = spk_man->GetHDChain().GetID();
@@ -493,25 +571,27 @@ UniValue dumpwallet(const JSONRPCRequest& request)
         if (pwalletMain->GetKey(seed_id, seed)) {
             CExtKey masterKey;
             masterKey.SetSeed(seed.begin(), seed.size());
+            seed = CKey();
 
-            file << "# extended private masterkey: " << KeyIO::EncodeExtKey(masterKey) << "\n";
+            std::string encodedMaster = KeyIO::EncodeExtKey(masterKey);
+            writeDumpLine(std::string("# extended private masterkey: ") + encodedMaster + "\n");
+            cleanseString(encodedMaster);
 
-            CExtKey purposeKey;            //key at m/purpose' --> key at m/44'
-            CExtKey cointypeKey;           //key at m/purpose'/coin_type'  --> key at m/44'/BIP32_HDCHAIN'
-            CExtKey accountKey;            //key at m/purpose'/coin_type'/account' ---> key at m/44'/BIP32_HDCHAIN'/0'
-            CExtKey changeKey;             //key at m/purpose'/coin_type'/account'/change ---> key at m/44'/BIP32_HDCHAIN'/0'/HDChain::ChangeType::ECOMMERCE.
-
-            // derive m/0'
-            // use hardened derivation (child keys >= 0x80000000 are hardened after bip32)
+            CExtKey purposeKey;
+            CExtKey cointypeKey;
+            CExtKey accountKey;
+            CExtKey changeKey;
             masterKey.Derive(purposeKey, 44 | BIP32_HARDENED_KEY_LIMIT);
-            // derive m/purpose'/coin_type'
             purposeKey.Derive(cointypeKey, BIP32_HDCHAIN | BIP32_HARDENED_KEY_LIMIT);
-            // derive m/purpose'/coin_type'/account' // Hardcoded to account 0 for now.
             cointypeKey.Derive(accountKey, 0 | BIP32_HARDENED_KEY_LIMIT);
-            // derive m/purpose'/coin_type'/account'/change'
             accountKey.Derive(changeKey, HDChain::ChangeType::ECOMMERCE);
 
-            file << "# extended public masterkey: " << KeyIO::EncodeExtPubKey(changeKey.Neuter()) << "\n\n";
+            writeDumpLine(std::string("# extended public masterkey: ") + KeyIO::EncodeExtPubKey(changeKey.Neuter()) + "\n\n");
+            cleanseExtKey(changeKey);
+            cleanseExtKey(accountKey);
+            cleanseExtKey(cointypeKey);
+            cleanseExtKey(purposeKey);
+            cleanseExtKey(masterKey);
         }
     }
 
@@ -522,24 +602,49 @@ UniValue dumpwallet(const JSONRPCRequest& request)
         if (pwalletMain->GetKey(keyid, key)) {
             const CKeyMetadata& metadata = pwalletMain->mapKeyMetadata[keyid];
             std::string strAddr = EncodeDestination(keyid);
+            std::string strSecret = KeyIO::EncodeSecret(key);
+            key = CKey();
 
-            file << strprintf("%s %s ", KeyIO::EncodeSecret(key), strTime);
+            std::string metaSuffix;
             if (pwalletMain->mapAddressBook.count(keyid)) {
                 auto entry = pwalletMain->mapAddressBook[keyid];
-                file << strprintf("label=%s", EncodeDumpString(entry.name));
+                metaSuffix = strprintf("label=%s", EncodeDumpString(entry.name));
             } else if (keyid == seed_id) {
-                file << "hdseed=1";
+                metaSuffix = "hdseed=1";
             } else if (mapKeyPool.count(keyid)) {
-                file << "reserve=1";
+                metaSuffix = "reserve=1";
             } else {
-                file << "change=1";
+                metaSuffix = "change=1";
             }
-            file << strprintf(" # addr=%s%s\n", strAddr, (metadata.HasKeyOrigin() ? " hdkeypath="+metadata.key_origin.pathToString() : ""));
+            std::string lineOut = strprintf("%s %s %s # addr=%s%s\n",
+                                            strSecret, strTime, metaSuffix, strAddr,
+                                            (metadata.HasKeyOrigin() ? " hdkeypath=" + metadata.key_origin.pathToString() : ""));
+            cleanseString(strSecret);
+            try {
+                writeDumpLine(lineOut);
+            } catch (...) {
+                cleanseString(lineOut);
+                throw;
+            }
+            cleanseString(lineOut);
         }
     }
-    file << "\n";
-    file << "# End of dump\n";
+    writeDumpLine("\n");
+    writeDumpLine("# End of dump\n");
+
+#ifndef WIN32
+    if (std::fflush(dumpFp) != 0 || std::ferror(dumpFp)) {
+        throw JSONRPCError(RPC_MISC_ERROR, "Failed flushing wallet dump file");
+    }
+    dumpGuard.fp = nullptr;
+    if (::fclose(dumpFp) != 0) {
+        throw JSONRPCError(RPC_MISC_ERROR, "Failed closing wallet dump file");
+    }
+    dumpGuard.ok = true;
+#else
+    file.flush();
     file.close();
+#endif
 
     UniValue reply(UniValue::VOBJ);
     reply.push_back(Pair("filename", filepath.string()));

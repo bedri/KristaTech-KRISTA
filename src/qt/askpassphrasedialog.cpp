@@ -1009,11 +1009,10 @@ void AskPassphraseDialog::warningMessage()
     KRISTATECHGUI* gui = qobject_cast<KRISTATECHGUI*>(parentWidget());
     const QString title = tr("Wallet Encrypted — Action Required");
     const QString body =
-        QStringLiteral("<b>") + tr("Your wallet has been encrypted with AES-256.") + QStringLiteral("</b><br><br>") +
+        tr("Your wallet has been encrypted with AES-256.") + QStringLiteral("\n\n") +
         tr("KristaTech will close now to finish the encryption process cleanly and clear unencrypted keys from memory.") +
-        QStringLiteral("<br><br><b>") +
-        tr("CRITICAL BACKUP NOTICE: Previous unencrypted backups of wallet.dat are now obsolete and will not recover newly generated keys. Open Settings → Backup & Passphrase after restarting to export a fresh encrypted backup.") +
-        QStringLiteral("</b>");
+        QStringLiteral("\n\n") +
+        tr("CRITICAL BACKUP NOTICE: Previous unencrypted backups of wallet.dat are now obsolete and will not recover newly generated keys. Open Settings → Backup & Passphrase after restarting to export a fresh encrypted backup.");
 
     showThemedNotice(gui ? static_cast<QWidget*>(gui) : this, title, body, true, tr("Close Wallet Now"));
     QDialog::accept();

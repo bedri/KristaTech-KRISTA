@@ -1553,6 +1553,10 @@ void SendWidget::onPsbtClicked()
             editResult->setPlainText(tr("Failed to open file: %1").arg(path));
             return;
         }
+        if (f.size() > 10 * 1024 * 1024) {
+            editResult->setPlainText(tr("PSBT file exceeds maximum supported size (10 MB)."));
+            return;
+        }
         QByteArray raw = f.readAll();
         if (raw.startsWith("psbt\xff")) {
             editPsbt->setPlainText(QString::fromLatin1(raw.toBase64()));
@@ -1560,6 +1564,11 @@ void SendWidget::onPsbtClicked()
             editPsbt->setPlainText(QString::fromUtf8(raw).trimmed());
         }
     });
+
+    auto extractRpcError = [](const UniValue& err) -> QString {
+        const UniValue& msgVal = find_value(err, "message");
+        return msgVal.isStr() ? QString::fromStdString(msgVal.get_str()) : QString::fromStdString(err.write());
+    };
 
     connect(btnDecode, &QPushButton::clicked, &dlg, [&]() {
         QString b64 = editPsbt->toPlainText().trimmed();
@@ -1570,7 +1579,7 @@ void SendWidget::onPsbtClicked()
             UniValue res = runRpc("decodepsbt", p);
             editResult->setPlainText(QString::fromStdString(res.write(2)));
         } catch (const UniValue& err) {
-            editResult->setPlainText(QString::fromStdString(find_value(err, "message").get_str()));
+            editResult->setPlainText(extractRpcError(err));
         } catch (const std::exception& e) {
             editResult->setPlainText(QString::fromStdString(e.what()));
         }
@@ -1591,14 +1600,14 @@ void SendWidget::onPsbtClicked()
             editPsbt->setPlainText(QString::fromStdString(updated));
             editResult->setPlainText(tr("PSBT signed successfully.\nComplete: %1").arg(complete ? tr("Yes (ready to finalize & broadcast)") : tr("No (more signatures required)")));
         } catch (const UniValue& err) {
-            editResult->setPlainText(QString::fromStdString(find_value(err, "message").get_str()));
+            editResult->setPlainText(extractRpcError(err));
         } catch (const std::exception& e) {
             editResult->setPlainText(QString::fromStdString(e.what()));
         }
     });
 
     connect(btnCopy, &QPushButton::clicked, &dlg, [&]() {
-        QApplication::clipboard()->setText(editPsbt->toPlainText().trimmed());
+        GUIUtil::setClipboard(editPsbt->toPlainText().trimmed());
         inform(tr("PSBT copied to clipboard"));
     });
 
@@ -1606,6 +1615,62 @@ void SendWidget::onPsbtClicked()
         QString b64 = editPsbt->toPlainText().trimmed();
         if (b64.isEmpty()) return;
         try {
+            const int dispUnit = (walletModel && walletModel->getOptionsModel())
+                ? walletModel->getOptionsModel()->getDisplayUnit()
+                : BitcoinUnits::PIV;
+
+            QString psbtSummaryLines;
+            try {
+                UniValue pDec(UniValue::VARR);
+                pDec.push_back(b64.toStdString());
+                UniValue decRes = runRpc("decodepsbt", pDec);
+                const UniValue& txObj = find_value(decRes, "tx");
+                const UniValue& voutArr = txObj.isObject() ? find_value(txObj, "vout") : NullUniValue;
+                const UniValue& vinArr = txObj.isObject() ? find_value(txObj, "vin") : NullUniValue;
+                const UniValue& feeVal = find_value(decRes, "fee");
+                CAmount totalOut = 0;
+                QStringList destSummaries;
+                if (voutArr.isArray()) {
+                    for (unsigned int k = 0; k < voutArr.size(); ++k) {
+                        const UniValue& o = voutArr[k];
+                        const UniValue& valUv = find_value(o, "value");
+                        CAmount amt = 0;
+                        if (valUv.isNum()) {
+                            amt = AmountFromValue(valUv);
+                            totalOut += amt;
+                        }
+                        QString destDesc = tr("(non-address / OP_RETURN / contract)");
+                        const UniValue& spkObj = find_value(o, "scriptPubKey");
+                        if (spkObj.isObject()) {
+                            const UniValue& addrs = find_value(spkObj, "addresses");
+                            if (addrs.isArray() && !addrs.empty() && addrs[0].isStr()) {
+                                destDesc = QString::fromStdString(addrs[0].get_str());
+                            } else if (find_value(spkObj, "type").isStr()) {
+                                destDesc = QString::fromStdString(find_value(spkObj, "type").get_str());
+                            }
+                        }
+                        if (destSummaries.size() < 6) {
+                            destSummaries << QString("  • %1 -> %2").arg(BitcoinUnits::formatWithUnit(dispUnit, amt), destDesc);
+                        }
+                    }
+                    if (voutArr.size() > 6) {
+                        destSummaries << tr("  ... and %1 more output(s)").arg(voutArr.size() - 6);
+                    }
+                }
+                QString feeStr = feeVal.isNum()
+                    ? BitcoinUnits::formatWithUnit(dispUnit, AmountFromValue(feeVal))
+                    : tr("Unknown (verify all UTXOs before broadcasting!)");
+                psbtSummaryLines = tr("• Inputs: %1  |  Outputs: %2\n"
+                                      "• Total Output: %3\n"
+                                      "• Fee: %4\n%5\n")
+                                       .arg(vinArr.isArray() ? static_cast<int>(vinArr.size()) : 0)
+                                       .arg(voutArr.isArray() ? static_cast<int>(voutArr.size()) : 0)
+                                       .arg(BitcoinUnits::formatWithUnit(dispUnit, totalOut), feeStr,
+                                            destSummaries.isEmpty() ? QString() : (tr("• Destinations:\n") + destSummaries.join("\n") + "\n"));
+            } catch (...) {
+                psbtSummaryLines = tr("• Outputs/Fee: Unavailable (decodepsbt failed)\n");
+            }
+
             UniValue pFin(UniValue::VARR);
             pFin.push_back(b64.toStdString());
             pFin.push_back(true);
@@ -1621,8 +1686,10 @@ void SendWidget::onPsbtClicked()
                 psbtConfirm.setText(
                     tr("Confirm PSBT Broadcast"),
                     tr("Finalize and broadcast this signed BIP174 PSBT transaction to the KristaTech network?\n\n"
-                       "• Raw Transaction Size: %1 bytes\n\n"
+                       "%1"
+                       "• Raw Transaction Size: %2 bytes\n\n"
                        "Once broadcast, this transaction cannot be reversed.")
+                        .arg(psbtSummaryLines)
                         .arg(rawHex.size() / 2),
                     tr("BROADCAST TX"),
                     tr("CANCEL")
@@ -1638,7 +1705,7 @@ void SendWidget::onPsbtClicked()
             editResult->setPlainText(tr("Transaction Broadcast Successfully!\nTXID: %1").arg(QString::fromStdString(txid.get_str())));
             inform(tr("PSBT Broadcast! TXID: %1").arg(QString::fromStdString(txid.get_str()).left(20) + "..."));
         } catch (const UniValue& err) {
-            editResult->setPlainText(QString::fromStdString(find_value(err, "message").get_str()));
+            editResult->setPlainText(extractRpcError(err));
         } catch (const std::exception& e) {
             editResult->setPlainText(QString::fromStdString(e.what()));
         }

@@ -258,6 +258,9 @@ public:
     void CleanPaymentList();
 
     bool GetBlockPayee(int nBlockHeight, CScript& payee);
+    bool HasWinnerVote(const uint256& hash) const;
+    bool GetWinnerVote(const uint256& hash, CMasternodePaymentWinner& winnerRet) const;
+    bool HasBlockPayeeWithVotes(int nBlockHeight, const CScript& scriptPubKey, int nVotes) const;
     bool IsTransactionValid(const CTransaction& txNew, int nBlockHeight);
     bool IsScheduled(CMasternode& mn, int nNotBlockHeight);
 
@@ -286,6 +289,7 @@ public:
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action)
     {
+        LOCK2(cs_mapMasternodeBlocks, cs_mapMasternodePayeeVotes);
         READWRITE(mapMasternodePayeeVotes);
         READWRITE(mapMasternodeBlocks);
     }

@@ -552,10 +552,10 @@ void RPCConsole::walletReindex()
 /** Restart wallet with "-resync" */
 void RPCConsole::walletResync()
 {
-    QString resyncWarning = tr("This will delete your local blockchain folders and the wallet will synchronize the complete Blockchain from scratch.<br /><br />");
-        resyncWarning +=   tr("This needs quite some time and downloads a lot of data.<br /><br />");
-        resyncWarning +=   tr("Your transactions and funds will be visible again after the download has completed.<br /><br />");
-        resyncWarning +=   tr("Do you want to continue?.<br />");
+    QString resyncWarning = tr("This will delete your local blockchain folders and the wallet will synchronize the complete Blockchain from scratch.") + QStringLiteral("\n\n");
+        resyncWarning +=   tr("This needs quite some time and downloads a lot of data.") + QStringLiteral("\n\n");
+        resyncWarning +=   tr("Your transactions and funds will be visible again after the download has completed.") + QStringLiteral("\n\n");
+        resyncWarning +=   tr("Do you want to continue?.");
     if (!showThemedConfirm(this, tr("Confirm resync Blockchain"), resyncWarning, tr("YES"), tr("CANCEL"), true)) {
         // Resync canceled
         return;

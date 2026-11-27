@@ -162,7 +162,7 @@ void CMasternodeSync::Reset()
 
 void CMasternodeSync::AddedMasternodeList(const uint256& hash)
 {
-    if (mnodeman.mapSeenMasternodeBroadcast.count(hash)) {
+    if (mnodeman.HasSeenBroadcast(hash)) {
         if (mapSeenSyncMNB[hash] < MASTERNODE_SYNC_THRESHOLD) {
             lastMasternodeList = GetTime();
             mapSeenSyncMNB[hash]++;
@@ -175,7 +175,7 @@ void CMasternodeSync::AddedMasternodeList(const uint256& hash)
 
 void CMasternodeSync::AddedMasternodeWinner(const uint256& hash)
 {
-    if (masternodePayments.mapMasternodePayeeVotes.count(hash)) {
+    if (masternodePayments.HasWinnerVote(hash)) {
         if (mapSeenSyncMNW[hash] < MASTERNODE_SYNC_THRESHOLD) {
             lastMasternodeWinner = GetTime();
             mapSeenSyncMNW[hash]++;

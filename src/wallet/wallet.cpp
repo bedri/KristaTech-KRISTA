@@ -4955,6 +4955,9 @@ bool CWallet::StoreMasternodeOperatorKeyPair(const CKey& ecdsaKey, CKeyID& keyID
     if (!ecdsaKey.IsValid()) {
         return false;
     }
+    if (IsCrypted() && IsLocked()) {
+        return false;
+    }
     CPubKey pubkey = ecdsaKey.GetPubKey();
     if (!pubkey.IsValid()) {
         return false;
@@ -5013,6 +5016,10 @@ bool MigrateLegacyMasternodeConfToWallet(CWallet* pwallet, const fs::path& legac
     if (!pwallet || !fs::exists(legacyPath)) {
         return true;
     }
+    if (fs::is_symlink(legacyPath) || !fs::is_regular_file(legacyPath)) {
+        LogPrintf("MigrateLegacyMasternodeConfToWallet: Refusing non-regular or symlink legacy file %s\n", legacyPath.string());
+        return false;
+    }
 
     RestrictLegacyFilePermissions(legacyPath);
 
@@ -5026,21 +5033,36 @@ bool MigrateLegacyMasternodeConfToWallet(CWallet* pwallet, const fs::path& legac
     unsigned int nSkipped = 0;
     bool fNeedsUnlockForKeys = false;
     int linenumber = 0;
+    std::vector<std::string> redactedLines;
 
     for (std::string line; std::getline(streamConfig, line);) {
+        std::string privKey;
+        struct LineCleaner {
+            std::string& s;
+            std::string& priv;
+            LineCleaner(std::string& sIn, std::string& privIn) : s(sIn), priv(privIn) {}
+            ~LineCleaner() {
+                if (!s.empty()) memory_cleanse(&s[0], s.size());
+                if (!priv.empty()) memory_cleanse(&priv[0], priv.size());
+            }
+        } lineCleaner(line, privKey);
+
         linenumber++;
         // Trim leading whitespace
         size_t firstNonWs = line.find_first_not_of(" \t\r\n");
         if (firstNonWs == std::string::npos || line[firstNonWs] == '#') {
+            redactedLines.push_back(line);
             continue;
         }
 
-        std::istringstream iss(line);
-        std::string alias, ip, privKey, txHash, outputIndex;
-        if (!(iss >> alias >> ip >> privKey >> txHash >> outputIndex)) {
-            LogPrintf("MigrateLegacyMasternodeConfToWallet: Skipping malformed line %d in %s\n", linenumber, legacyPath.string());
-            nSkipped++;
-            continue;
+        std::string alias, ip, txHash, outputIndex;
+        {
+            std::istringstream iss(line);
+            if (!(iss >> alias >> ip >> privKey >> txHash >> outputIndex)) {
+                LogPrintf("MigrateLegacyMasternodeConfToWallet: Skipping malformed line %d in %s\n", linenumber, legacyPath.string());
+                nSkipped++;
+                continue;
+            }
         }
 
         int port = 0;
@@ -5116,6 +5138,7 @@ bool MigrateLegacyMasternodeConfToWallet(CWallet* pwallet, const fs::path& legac
             if (!storedBlsHex.empty()) {
                 rec.strOperatorBlsPubKey = storedBlsHex;
             }
+            redactedLines.push_back(strprintf("# migrated: %s %s ***REDACTED*** %s %s", alias, ip, txHash, outputIndex));
         } else {
             fNeedsUnlockForKeys = true;
             LogPrintf("MigrateLegacyMasternodeConfToWallet: Wallet is locked; saved non-secret metadata for '%s' (%s) and deferring private key import until unlock.\n",
@@ -5156,7 +5179,20 @@ bool MigrateLegacyMasternodeConfToWallet(CWallet* pwallet, const fs::path& legac
         return false;
     }
     RestrictLegacyFilePermissions(migratedPath);
-    LogPrintf("MigrateLegacyMasternodeConfToWallet: Successfully migrated %u masternode entry(s) to wallet.dat ('mnmeta') and archived %s -> %s (chmod 0600).\n",
+    // Redact plaintext WIF keys from archived .migrated file while keeping 0600 marker
+    {
+        fs::ofstream redactedOut(migratedPath, std::ios::out | std::ios::trunc);
+        if (redactedOut.good()) {
+            redactedOut << "# Migrated to encrypted/protected wallet.dat; secret keys redacted.\n";
+            for (const std::string& rl : redactedLines) {
+                redactedOut << rl << "\n";
+            }
+            redactedOut.flush();
+            redactedOut.close();
+        }
+        RestrictLegacyFilePermissions(migratedPath);
+    }
+    LogPrintf("MigrateLegacyMasternodeConfToWallet: Successfully migrated %u masternode entry(s) to wallet.dat ('mnmeta') and archived %s -> %s (secrets redacted, chmod 0600).\n",
               nMigrated, legacyPath.string(), migratedPath.string());
     return true;
 }

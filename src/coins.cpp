@@ -13,6 +13,8 @@
 #include "util.h"
 
 #include <assert.h>
+#include <limits>
+#include <stdexcept>
 
 bool CCoinsView::GetCoin(const COutPoint& outpoint, Coin& coin) const { return false; }
 bool CCoinsView::HaveCoin(const COutPoint& outpoint) const { return false; }
@@ -232,8 +234,13 @@ CAmount CCoinsViewCache::GetValueIn(const CTransaction& tx) const
         return 0;
 
     CAmount nResult = 0;
-    for (unsigned int i = 0; i < tx.vin.size(); i++)
-        nResult += AccessCoin(tx.vin[i].prevout).out.nValue;
+    for (unsigned int i = 0; i < tx.vin.size(); i++) {
+        const CAmount nVal = AccessCoin(tx.vin[i].prevout).out.nValue;
+        if (nVal < 0 || nVal > std::numeric_limits<CAmount>::max() - nResult) {
+            throw std::runtime_error("CCoinsViewCache::GetValueIn() : value out of range");
+        }
+        nResult += nVal;
+    }
 
     return nResult;
 }

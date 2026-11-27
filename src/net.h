@@ -391,7 +391,7 @@ private:
     std::thread threadOpenConnections;
     std::thread threadMessageHandler;
 
-    bool stopping = false;
+    std::atomic<bool> stopping{false};
 };
 extern std::unique_ptr<CConnman> g_connman;
 void Discover(boost::thread_group& threadGroup);
@@ -609,6 +609,7 @@ protected:
     mapMsgCmdSize mapSendBytesPerMsgCmd;
     mapMsgCmdSize mapRecvBytesPerMsgCmd;
 
+    mutable RecursiveMutex cs_requestsFulfilled;
     std::vector<std::string> vecRequestsFulfilled; //keep track of what client has asked for
 
 public:
@@ -676,6 +677,8 @@ public:
     bool fSupportsCompactBlocks = false;
     bool fHighBandwidthCompactBlocks = false;
     bool fSentCmpct = false;
+    std::atomic<bool> fSentInitialAdamSolSync{false};
+    std::atomic<int64_t> nLastMempoolReq{0};
     double nAddrTokenBucket = 1.0;
     int64_t nLastAddrTokenUpdate = 0;
     CAmount minFeeFilter = 0;
@@ -693,6 +696,10 @@ public:
     bool fV2AutoDetect = false;
     bool fV2NeedsGarbageAAD = true;
     size_t v2DecoyPackets = 0;
+    size_t v2ConsecutiveDecoys = 0;
+    int64_t v2DecoyWindowStart = 0;
+    size_t v2DecoyWindowPackets = 0;
+    size_t v2DecoyWindowBytes = 0;
     V2RecvState v2RecvState = V2RecvState::KEY_EXCHANGE;
     std::unique_ptr<BIP324Cipher> v2Cipher;
     std::vector<uint8_t> v2RecvBuf;
@@ -784,22 +791,28 @@ public:
             LOCK(cs_inventory);
             if (inv.type == MSG_TX && filterInventoryKnown.contains(inv.hash))
                 return;
+            if (inv.type != MSG_BLOCK && vInventoryToSend.size() >= MAX_INV_SZ - 1024)
+                return;
+            if (vInventoryToSend.size() >= MAX_INV_SZ)
+                return;
             vInventoryToSend.push_back(inv);
         }
     }
 
     void AskFor(const CInv& inv);
 
-    bool HasFulfilledRequest(std::string strRequest)
+    bool HasFulfilledRequest(const std::string& strRequest)
     {
-        for (std::string& type : vecRequestsFulfilled) {
+        LOCK(cs_requestsFulfilled);
+        for (const std::string& type : vecRequestsFulfilled) {
             if (type == strRequest) return true;
         }
         return false;
     }
 
-    void ClearFulfilledRequest(std::string strRequest)
+    void ClearFulfilledRequest(const std::string& strRequest)
     {
+        LOCK(cs_requestsFulfilled);
         std::vector<std::string>::iterator it = vecRequestsFulfilled.begin();
         while (it != vecRequestsFulfilled.end()) {
             if ((*it) == strRequest) {
@@ -810,9 +823,12 @@ public:
         }
     }
 
-    void FulfilledRequest(std::string strRequest)
+    void FulfilledRequest(const std::string& strRequest)
     {
-        if (HasFulfilledRequest(strRequest)) return;
+        LOCK(cs_requestsFulfilled);
+        for (const std::string& type : vecRequestsFulfilled) {
+            if (type == strRequest) return;
+        }
         vecRequestsFulfilled.push_back(strRequest);
     }
 
@@ -820,6 +836,7 @@ public:
     void Subscribe(unsigned int nChannel, unsigned int nHops = 0);
     void CancelSubscribe(unsigned int nChannel);
     void CloseSocketDisconnect();
+    size_t QueueCompleteRecvMessages(size_t receiveFloodSize);
     bool DisconnectOldProtocol(int nVersionIn, int nVersionRequired, std::string strLastCommand = "");
 
     void copyStats(CNodeStats& stats);

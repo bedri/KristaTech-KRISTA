@@ -473,7 +473,7 @@ static bool CheckProRegTx(const CTransaction& tx,
         return state.DoS(10, false, REJECT_INVALID, "bad-protx-dup-owner");
     }
     if (prevList.HasOperator(ptxOut.blsPubKeyOperator) ||
-        IsBLSPubKeyPinnedToOther(ptxOut.pubKeyOwner, ptxOut.blsPubKeyOperator)) {
+        IsBLSPubKeyPinnedToOther(ptxOut.pubKeyOwner, ptxOut.blsPubKeyOperator, MakeActiveChainPinPredicate(pindexPrev))) {
         return state.DoS(10, false, REJECT_INVALID, "bad-protx-dup-operator");
     }
     return true;
@@ -580,8 +580,15 @@ static bool CheckProUpRegTx(const CTransaction& tx,
     if (!pmn) {
         return state.DoS(10, false, REJECT_INVALID, "bad-proupreg-missing-mn");
     }
+    if (IsHardeningV4Active(nNextHeight) && ptxOut.blsPubKeyOperator != pmn->state.blsPubKeyOperator) {
+        const int nLastOpKeyHeight = (pmn->state.nOperatorKeyHeight >= 0) ? pmn->state.nOperatorKeyHeight : pmn->state.nRegisteredHeight;
+        const int nCooldown = Params().GetConsensus().nProUpRegCooldownBlocks;
+        if (nLastOpKeyHeight >= 0 && nCooldown > 0 && (nNextHeight - nLastOpKeyHeight) < nCooldown) {
+            return state.DoS(10, false, REJECT_INVALID, "bad-proupreg-cooldown");
+        }
+    }
     if ((ptxOut.blsPubKeyOperator != pmn->state.blsPubKeyOperator && prevList.HasOperator(ptxOut.blsPubKeyOperator)) ||
-        IsBLSPubKeyPinnedToOther(pmn->state.pubKeyOwner, ptxOut.blsPubKeyOperator)) {
+        IsBLSPubKeyPinnedToOther(pmn->state.pubKeyOwner, ptxOut.blsPubKeyOperator, MakeActiveChainPinPredicate(pindexPrev))) {
         return state.DoS(10, false, REJECT_INVALID, "bad-proupreg-dup-operator");
     }
     const bool fSigOk = fHardeningV3
@@ -711,6 +718,7 @@ bool CDeterministicMNManager::ApplySpecialTxToList(const CTransaction& tx,
                 ? COutPoint(tx.GetHash(), ptx.collateralOutpoint.n)
                 : ptx.collateralOutpoint;
             mn.state.nRegisteredHeight = nHeight;
+            mn.state.nOperatorKeyHeight = nHeight;
             mn.state.addr = ptx.addr;
             mn.state.pubKeyOwner = ptx.pubKeyOwner;
             mn.state.blsPubKeyOperator = ptx.blsPubKeyOperator;
@@ -748,6 +756,9 @@ bool CDeterministicMNManager::ApplySpecialTxToList(const CTransaction& tx,
             const CDeterministicMN* pmn = mnList.GetMN(ptx.proTxHash);
             if (!pmn) return false;
             CDeterministicMNState st = pmn->state;
+            if (ptx.blsPubKeyOperator != st.blsPubKeyOperator) {
+                st.nOperatorKeyHeight = nHeight;
+            }
             st.blsPubKeyOperator = ptx.blsPubKeyOperator;
             st.keyIDVoting = ptx.keyIDVoting;
             st.scriptPayout = ptx.scriptPayout;
@@ -795,8 +806,9 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
         return true;
     }
 
-    // Compute sync mode and fallback primary coordinator check BEFORE acquiring `cs` (avoid cs -> cs_main lock order inversion).
+    // Compute sync mode, primary committee/coordinator, and LLMQ BEFORE acquiring `cs` (avoid cs -> cs_main lock order inversion).
     const bool fHardeningV3 = IsHardeningV3Active(pindex->nHeight);
+    const bool fHardeningV4 = IsHardeningV4Active(pindex->nHeight);
     const bool fSync = !fJustCheck && !pPreparedListOut && !IsInitialBlockDownload();
     uint256 pruneHash;
     if ((!fJustCheck || pPruneHashOut != nullptr) && pindex->nHeight > 2000) {
@@ -805,19 +817,28 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             pruneHash = pPrune->GetBlockHash();
         }
     }
+    std::vector<CPubKey> vExpectedPrimary;
     CPubKey missedPrimaryCoordKey;
-    if (fHardeningV3 && pindex->nHeight > 0 &&
+    if ((fHardeningV3 || fHardeningV4) && pindex->nHeight > 0 &&
         block.nVersion >= 11 && IsAdamActive(pindex->nHeight, Params().GetConsensus()) &&
-        pindex->pprev && !block.vAdamCoordinatorSig.empty()) {
+        pindex->pprev && (!block.vAdamCoordinatorSig.empty() || (fHardeningV4 && !block.vAdamMiners.empty()))) {
         const uint256 adamSeed = GetAdamSeed(pindex->pprev);
-        std::vector<CPubKey> vExpectedPrimary;
         CPubKey expectedPrimaryCoord;
         if (!adamSeed.IsNull() &&
             SelectAdamNodes(adamSeed, Params().GetConsensus(), vExpectedPrimary, expectedPrimaryCoord, pindex->nHeight, &view) &&
+            fHardeningV3 && !block.vAdamCoordinatorSig.empty() &&
             expectedPrimaryCoord.IsValid() &&
             !VerifyAdamCoordinatorSig(block, expectedPrimaryCoord, nullptr, pindex->nHeight, pindex->pprev)) {
             missedPrimaryCoordKey = expectedPrimaryCoord;
         }
+    }
+    llmq::CQuorum preLockQuorum;
+    if (pindex->nHeight > 0 &&
+        Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_FAIRNESS) &&
+        IsModelDActive(pindex->nHeight) &&
+        block.nVersion >= 12 &&
+        !block.vQuorumSig.empty()) {
+        preLockQuorum = llmq::GetActiveQuorum(pindex->nHeight, pindex->pprev, &view);
     }
 
     LOCK(cs);
@@ -875,6 +896,7 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             mn.proTxHash = tx.GetHash();
             mn.collateralOutpoint = resolvedCol;
             mn.state.nRegisteredHeight = pindex->nHeight;
+            mn.state.nOperatorKeyHeight = pindex->nHeight;
             mn.state.addr = ptx.addr;
             mn.state.pubKeyOwner = ptx.pubKeyOwner;
             mn.state.blsPubKeyOperator = ptx.blsPubKeyOperator;
@@ -904,6 +926,9 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             }
             const CDeterministicMN* pmn = newList.GetMN(ptx.proTxHash);
             CDeterministicMNState st = pmn->state;
+            if (ptx.blsPubKeyOperator != st.blsPubKeyOperator) {
+                st.nOperatorKeyHeight = pindex->nHeight;
+            }
             st.blsPubKeyOperator = ptx.blsPubKeyOperator;
             st.keyIDVoting = ptx.keyIDVoting;
             st.scriptPayout = ptx.scriptPayout;
@@ -949,6 +974,17 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
                 ApplyPoSePunishment(newList, dmn->proTxHash, 5, pindex->nHeight);
             }
         }
+        // M-4 (V4): penalize silent primary committee members displaced by standby substitution (+5 PoSe).
+        if (fHardeningV4 && vExpectedPrimary.size() == nCommitteeCount) {
+            for (size_t idx = 0; idx < nCommitteeCount; ++idx) {
+                if (block.vAdamMiners[idx] != vExpectedPrimary[idx]) {
+                    const CDeterministicMN* silentPrimaryDmn = newList.GetMNByOwner(vExpectedPrimary[idx]);
+                    if (silentPrimaryDmn && silentPrimaryDmn->state.IsValid()) {
+                        ApplyPoSePunishment(newList, silentPrimaryDmn->proTxHash, 5, pindex->nHeight);
+                    }
+                }
+            }
+        }
     }
 
     // 3b. Missed primary coordinator PoSe penalty when a fallback coordinator produced the block (M-4)
@@ -970,12 +1006,11 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
             CDataStream ss(block.vQuorumSig, SER_NETWORK, PROTOCOL_VERSION);
             ss >> qsig;
             if (ss.empty()) {
-                llmq::CQuorum quorum = llmq::GetActiveQuorum(pindex->nHeight, pindex->pprev, &view);
                 std::set<COutPoint> signedOutpoints;
                 for (const auto& sigPair : qsig.signatures) {
                     signedOutpoints.insert(sigPair.first);
                 }
-                for (const auto& member : quorum.members) {
+                for (const auto& member : preLockQuorum.members) {
                     const CDeterministicMN* dmn = newList.GetMNByOwner(member.pubKeyMasternode);
                     if (!dmn || !dmn->state.IsValid()) {
                         continue;
@@ -986,7 +1021,7 @@ bool CDeterministicMNManager::ProcessBlock(const CBlock& block,
                             st.nPoSePenalty = std::max(0, st.nPoSePenalty - 5);
                             newList.UpdateMN(dmn->proTxHash, st);
                         }
-                    } else {
+                    } else if (!fHardeningV4) {
                         ApplyPoSePunishment(newList, dmn->proTxHash, 5, pindex->nHeight);
                     }
                 }
@@ -1014,6 +1049,31 @@ bool CDeterministicMNManager::CommitBlockList(const uint256& blockHash, const CD
     const bool fSync = !IsInitialBlockDownload();
     LOCK(cs);
     return WriteListToDB(blockHash, list, fSync, pruneHash);
+}
+
+bool CDeterministicMNManager::PruneLists(const std::vector<uint256>& pruneHashes) {
+    if (pruneHashes.empty()) {
+        return true;
+    }
+    LOCK(cs);
+    if (!db) {
+        for (const uint256& h : pruneHashes) {
+            if (!h.IsNull() && h != tipBlockHash) {
+                mapListCache.erase(h);
+            }
+        }
+        return true;
+    }
+    CDBBatch batch;
+    bool fAny = false;
+    for (const uint256& h : pruneHashes) {
+        if (!h.IsNull() && h != tipBlockHash) {
+            mapListCache.erase(h);
+            batch.Erase(std::make_pair('L', h));
+            fAny = true;
+        }
+    }
+    return fAny ? db->WriteBatch(batch, false) : true;
 }
 
 bool CDeterministicMNManager::UndoBlock(const CBlock& block, const CBlockIndex* pindex) {

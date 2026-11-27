@@ -212,12 +212,30 @@ BOOST_AUTO_TEST_CASE(HardeningV3UpgradeMetadataTest)
     BOOST_CHECK_EQUAL(Params().GetConsensus().nPoseReviveCooldownBlocks, 12);
 }
 
+BOOST_AUTO_TEST_CASE(HardeningV4UpgradeMetadataTest)
+{
+    BOOST_CHECK_EQUAL(std::string(NetworkUpgradeInfo[Consensus::UPGRADE_HARDENING_V4].strName), "Hardening_v4");
+    BOOST_CHECK_EQUAL(DefaultActivation[Consensus::UPGRADE_HARDENING_V4], 1);
+
+    for (CBaseChainParams::Network net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET}) {
+        SelectParams(net);
+        BOOST_CHECK_EQUAL(Params().GetConsensus().vUpgrades[Consensus::UPGRADE_HARDENING_V4].nActivationHeight, 1);
+        BOOST_CHECK(!Params().GetConsensus().NetworkUpgradeActive(0, Consensus::UPGRADE_HARDENING_V4));
+        BOOST_CHECK(Params().GetConsensus().NetworkUpgradeActive(1, Consensus::UPGRADE_HARDENING_V4));
+        BOOST_CHECK_EQUAL(Params().GetConsensus().nProUpRegCooldownBlocks, 100);
+    }
+
+    SelectParams(CBaseChainParams::REGTEST);
+    BOOST_CHECK_EQUAL(DefaultActivation[Consensus::UPGRADE_HARDENING_V4], 1);
+    BOOST_CHECK_EQUAL(Params().GetConsensus().nProUpRegCooldownBlocks, 100);
+}
+
 BOOST_AUTO_TEST_CASE(OutOfOrderEpochProgressionTest)
 {
     const Consensus::Params& mainParams = Params(CBaseChainParams::MAIN).GetConsensus();
     BOOST_CHECK_EQUAL(CurrentEpoch(0, mainParams), (int)Consensus::BASE_NETWORK);
     BOOST_CHECK(NextActivationHeight(0, mainParams) == Optional<int>(1));
-    BOOST_CHECK_EQUAL(CurrentEpoch(1, mainParams), (int)Consensus::UPGRADE_HARDENING_V3);
+    BOOST_CHECK_EQUAL(CurrentEpoch(1, mainParams), (int)Consensus::UPGRADE_HARDENING_V4);
     BOOST_CHECK_EQUAL(mainParams.nAdamBootstrapLimit, 2500);
     BOOST_CHECK(NextActivationHeight(1, mainParams) == Optional<int>(200));
     BOOST_CHECK_EQUAL(CurrentEpoch(200, mainParams), (int)Consensus::UPGRADE_ADAM);

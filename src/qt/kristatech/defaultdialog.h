@@ -25,7 +25,7 @@ public:
     explicit DefaultDialog(QWidget *parent = nullptr);
     ~DefaultDialog();
 
-    void setText(const QString& title = "", const QString& message = "", const QString& okBtnText = "", const QString& cancelBtnText = "");
+    void setText(const QString& title = "", const QString& message = "", const QString& okBtnText = "", const QString& cancelBtnText = "", bool allowRichText = false);
     void setDanger(bool danger = true);
     QSize sizeHint() const override;
 
@@ -40,6 +40,7 @@ private:
     Ui::DefaultDialog *ui;
     QTextEdit* msgBrowser{nullptr};
     QString m_rawMessage;
+    bool m_allowRichText{false};
     QSize m_preferredSize{520, 300};
 };
 

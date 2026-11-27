@@ -20,6 +20,7 @@ private Q_SLOTS:
     void taprootAndPsbtUiTests();
     void wizardAndConsolidationTests();
     void visualDesignerLifecycleTests();
+    void securityUiHardeningTests();
 };
 
 #endif // BITCOIN_QT_TEST_URITESTS_H

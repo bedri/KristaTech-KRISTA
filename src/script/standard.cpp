@@ -128,9 +128,39 @@ static bool MatchContractStatus(const CScript& script) {
     return true;
 }
 
-bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+static bool ConsumeOptionalV4BlsPrefix(const CScript& script, CScript::const_iterator& pc, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsPoPOut) {
+    if (pBlsPubKeyOut) pBlsPubKeyOut->Reset();
+    if (pBlsPoPOut) pBlsPoPOut->Reset();
+
+    const CScript::const_iterator savedPc = pc;
+    opcodetype op1, op2, op3;
+    std::vector<unsigned char> vchBlsPk, vchBlsPoP;
+    if (script.GetOp(pc, op1, vchBlsPk) && op1 == 48 && vchBlsPk.size() == 48 &&
+        script.GetOp(pc, op2, vchBlsPoP) && op2 == OP_PUSHDATA1 && vchBlsPoP.size() == 96 &&
+        script.GetOp(pc, op3) && op3 == OP_2DROP) {
+        CBLSPubKey blsPk;
+        CBLSSignature blsPoP;
+        if (!blsPk.SetBuf(vchBlsPk.data(), vchBlsPk.size()) || !blsPk.IsValid()) {
+            return false;
+        }
+        if (!blsPoP.SetBuf(vchBlsPoP.data(), vchBlsPoP.size()) || !blsPoP.IsValid()) {
+            return false;
+        }
+        if (pBlsPubKeyOut) *pBlsPubKeyOut = blsPk;
+        if (pBlsPoPOut) *pBlsPoPOut = blsPoP;
+        return true;
+    }
+
+    pc = savedPc;
+    return true;
+}
+
+bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsPoPOut) {
+    if (pBlsPubKeyOut) pBlsPubKeyOut->Reset();
+    if (pBlsPoPOut) pBlsPoPOut->Reset();
     if (script.size() < 60) return false;
     CScript::const_iterator pc = script.begin();
+    if (!ConsumeOptionalV4BlsPrefix(script, pc, pBlsPubKeyOut, pBlsPoPOut)) return false;
     opcodetype op;
     std::vector<unsigned char> vchPubKey;
     std::vector<unsigned char> vchLockTime;
@@ -172,9 +202,12 @@ bool MatchCoinLockRegistration(const CScript& script, CPubKey& pubkeyOut, int64_
     return true;
 }
 
-bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut) {
+bool MatchPoWLockRegistration(const CScript& script, std::vector<unsigned char>& nonceOut, uint256& challengeOut, CPubKey& pubkeyOut, int64_t& lockTimeOut, CKeyID& pubkeyHashOut, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsPoPOut) {
+    if (pBlsPubKeyOut) pBlsPubKeyOut->Reset();
+    if (pBlsPoPOut) pBlsPoPOut->Reset();
     if (script.size() < 95) return false;
     CScript::const_iterator pc = script.begin();
+    if (!ConsumeOptionalV4BlsPrefix(script, pc, pBlsPubKeyOut, pBlsPoPOut)) return false;
     opcodetype op;
     std::vector<unsigned char> vchNonce;
     std::vector<unsigned char> vchChallenge;
@@ -450,8 +483,9 @@ bool ExtractDestinations(const CScript& scriptPubKey, txnouttype& typeRet, std::
     std::vector<valtype> vSolutions;
     if (!Solver(scriptPubKey, typeRet, vSolutions))
         return false;
-    if (typeRet == TX_NULL_DATA){
-        // This is data, not addresses
+    if (typeRet == TX_NULL_DATA || typeRet == TX_MESCAL_CONTRACT ||
+        typeRet == TX_CONTRACT_PUBLISH || typeRet == TX_CONTRACT_RUN || typeRet == TX_CONTRACT_STATUS) {
+        // Data / contract scripts do not map to spendable destinations
         return false;
     }
 

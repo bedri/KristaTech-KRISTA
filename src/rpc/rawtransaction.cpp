@@ -7,6 +7,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include "amount.h"
 #include "base58.h"
 #include "core_io.h"
 #include "init.h"
@@ -545,8 +546,14 @@ UniValue compilemescaltotaproot(const JSONRPCRequest& request)
 
     bool parity = false;
     CPubKey Q = P.CreateTapTweak(&leaf_hash, &parity);
+    if (!Q.IsValid()) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Failed to tweak Taproot output public key");
+    }
 
     CXOnlyPubKey Q_xonly(Q);
+    if (!Q_xonly.IsFullyValid()) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Tweaked Taproot output public key is invalid");
+    }
     WitnessV1Taproot dest(Q_xonly);
 
     CScript scriptPubKey = GetScriptForDestination(dest);
@@ -1097,9 +1104,11 @@ UniValue decodepsbt(const JSONRPCRequest& request)
     TxToUniv(psbt.tx, UINT256_ZERO, tx_univ);
     result.pushKV("tx", tx_univ);
 
+    const Consensus::Params& consensus = Params().GetConsensus();
     UniValue inputs(UniValue::VARR);
     CAmount total_in = 0;
     bool have_all_utxos = true;
+    bool fee_overflow = false;
     for (size_t i = 0; i < psbt.inputs.size(); ++i) {
         const PSBTInput& in = psbt.inputs[i];
         UniValue in_obj(UniValue::VOBJ);
@@ -1118,7 +1127,11 @@ UniValue decodepsbt(const JSONRPCRequest& request)
         }
         CTxOut utxo;
         if (psbt.GetInputUTXO(utxo, static_cast<int>(i))) {
-            total_in += utxo.nValue;
+            if (!consensus.MoneyRange(utxo.nValue) || total_in > consensus.nMaxMoneyOut - utxo.nValue) {
+                fee_overflow = true;
+            } else {
+                total_in += utxo.nValue;
+            }
         } else {
             have_all_utxos = false;
         }
@@ -1147,6 +1160,17 @@ UniValue decodepsbt(const JSONRPCRequest& request)
             ScriptPubKeyToJSON(in.redeem_script, rs, false);
             in_obj.pushKV("redeem_script", rs);
         }
+        if (!in.hd_keypaths.empty()) {
+            UniValue paths(UniValue::VARR);
+            for (const auto& kv : in.hd_keypaths) {
+                UniValue p(UniValue::VOBJ);
+                p.pushKV("pubkey", HexStr(kv.second.first));
+                p.pushKV("master_fingerprint", HexStr(kv.second.second.fingerprint, kv.second.second.fingerprint + 4));
+                p.pushKV("path", kv.second.second.pathToString());
+                paths.push_back(p);
+            }
+            in_obj.pushKV("bip32_derivs", paths);
+        }
         if (!in.final_script_sig.empty()) {
             UniValue fs(UniValue::VOBJ);
             fs.pushKV("asm", ScriptToAsmStr(in.final_script_sig));
@@ -1156,6 +1180,9 @@ UniValue decodepsbt(const JSONRPCRequest& request)
         if (!in.tap_key_sig.empty()) {
             in_obj.pushKV("taproot_key_path_sig", HexStr(in.tap_key_sig));
         }
+        if (!in.tap_internal_key.IsNull()) {
+            in_obj.pushKV("taproot_internal_key", HexStr(in.tap_internal_key.begin(), in.tap_internal_key.end()));
+        }
         inputs.push_back(in_obj);
     }
     result.pushKV("inputs", inputs);
@@ -1163,7 +1190,12 @@ UniValue decodepsbt(const JSONRPCRequest& request)
     UniValue outputs(UniValue::VARR);
     CAmount total_out = 0;
     for (size_t i = 0; i < psbt.outputs.size(); ++i) {
-        total_out += psbt.tx.vout[i].nValue;
+        const CAmount outVal = psbt.tx.vout[i].nValue;
+        if (!consensus.MoneyRange(outVal) || total_out > consensus.nMaxMoneyOut - outVal) {
+            fee_overflow = true;
+        } else {
+            total_out += outVal;
+        }
         const PSBTOutput& out = psbt.outputs[i];
         UniValue out_obj(UniValue::VOBJ);
         if (!out.redeem_script.empty()) {
@@ -1171,10 +1203,24 @@ UniValue decodepsbt(const JSONRPCRequest& request)
             ScriptPubKeyToJSON(out.redeem_script, rs, false);
             out_obj.pushKV("redeem_script", rs);
         }
+        if (!out.hd_keypaths.empty()) {
+            UniValue paths(UniValue::VARR);
+            for (const auto& kv : out.hd_keypaths) {
+                UniValue p(UniValue::VOBJ);
+                p.pushKV("pubkey", HexStr(kv.second.first));
+                p.pushKV("master_fingerprint", HexStr(kv.second.second.fingerprint, kv.second.second.fingerprint + 4));
+                p.pushKV("path", kv.second.second.pathToString());
+                paths.push_back(p);
+            }
+            out_obj.pushKV("bip32_derivs", paths);
+        }
+        if (!out.tap_internal_key.IsNull()) {
+            out_obj.pushKV("taproot_internal_key", HexStr(out.tap_internal_key.begin(), out.tap_internal_key.end()));
+        }
         outputs.push_back(out_obj);
     }
     result.pushKV("outputs", outputs);
-    if (have_all_utxos) {
+    if (have_all_utxos && !fee_overflow && consensus.MoneyRange(total_in) && consensus.MoneyRange(total_out) && total_in >= total_out) {
         result.pushKV("fee", ValueFromAmount(total_in - total_out));
     }
     return result;
@@ -1234,18 +1280,30 @@ UniValue combinepsbt(const JSONRPCRequest& request)
     if (txs.empty()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Parameter 'txs' cannot be empty");
     }
+    if (txs.size() > 64) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Too many PSBTs to combine (max 64)");
+    }
     PartiallySignedTransaction merged;
     for (unsigned int i = 0; i < txs.size(); ++i) {
+        if (!txs[i].isStr()) {
+            throw JSONRPCError(RPC_TYPE_ERROR, "PSBT array elements must be base64 strings");
+        }
         PartiallySignedTransaction psbt;
         std::string error;
         if (!DecodeBase64PSBT(psbt, txs[i].get_str(), error)) {
             throw JSONRPCError(RPC_DESERIALIZATION_ERROR, error);
         }
+        if (psbt.inputs.size() > 4096 || psbt.outputs.size() > 4096) {
+            throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "PSBT input/output count exceeds maximum (4096)");
+        }
         if (i == 0) {
             merged = psbt;
         } else if (!merged.Merge(psbt)) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "PSBTs not compatible (different transactions)");
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "PSBTs not compatible or conflicting input fields");
         }
+    }
+    if (!merged.IsSane()) {
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Combined PSBT is not sane (conflicting UTXO types)");
     }
     return EncodeBase64PSBT(merged);
 }
@@ -1358,7 +1416,8 @@ UniValue analyzepsbt(const JSONRPCRequest& request)
             in_obj.pushKV("next", "updater");
         } else if (!is_final) {
             all_final = false;
-            in_obj.pushKV("next", psbt.inputs[i].partial_sigs.empty() ? "signer" : "finalizer");
+            const bool hasSig = !psbt.inputs[i].partial_sigs.empty() || !psbt.inputs[i].tap_key_sig.empty();
+            in_obj.pushKV("next", hasSig ? "finalizer" : "signer");
         }
         inputs_arr.push_back(in_obj);
     }

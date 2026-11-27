@@ -126,6 +126,9 @@ enum SigVersion
 };
 
 uint256 SignatureHash(const CScript &scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
+bool ComputeTaprootSighash(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData& cache, uint256& hashOut, bool fStrictBip341 = true, const uint256* tapleaf_hash = nullptr, uint32_t codesep_pos = 0xffffffff);
+
+class TapscriptSignatureChecker;
 
 class BaseSignatureChecker
 {
@@ -171,7 +174,9 @@ private:
     const PrecomputedTransactionData* precomTxData;
 
 protected:
+    friend class TapscriptSignatureChecker;
     virtual bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const;
+    virtual bool VerifySchnorrSignature(const std::vector<unsigned char>& vchSig, const CXOnlyPubKey& pubkey, const uint256& sighash) const;
 
 public:
     TransactionSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn) : txTo(txToIn), nIn(nInIn), amount(amountIn), precomTxData(nullptr) {}
@@ -202,9 +207,13 @@ class TapscriptSignatureChecker : public TransactionSignatureChecker
 private:
     uint256 tapleaf_hash;
     mutable uint32_t codesep_pos;
+    const TransactionSignatureChecker* parentChecker;
+protected:
+    bool VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& vchPubKey, const uint256& sighash) const override;
+    bool VerifySchnorrSignature(const std::vector<unsigned char>& vchSig, const CXOnlyPubKey& pubkey, const uint256& sighash) const override;
 public:
-    TapscriptSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& cachedHashesIn, const uint256& tapleaf_hash_in, uint32_t codesep_pos_in)
-        : TransactionSignatureChecker(txToIn, nInIn, amountIn, cachedHashesIn), tapleaf_hash(tapleaf_hash_in), codesep_pos(codesep_pos_in) {}
+    TapscriptSignatureChecker(const CTransaction* txToIn, unsigned int nInIn, const CAmount& amountIn, const PrecomputedTransactionData& cachedHashesIn, const uint256& tapleaf_hash_in, uint32_t codesep_pos_in, const TransactionSignatureChecker* parentCheckerIn = nullptr)
+        : TransactionSignatureChecker(txToIn, nInIn, amountIn, cachedHashesIn), tapleaf_hash(tapleaf_hash_in), codesep_pos(codesep_pos_in), parentChecker(parentCheckerIn) {}
         
     const uint256* GetTapleafHash() const override { return &tapleaf_hash; }
     uint32_t GetCodesepPos() const override { return codesep_pos; }

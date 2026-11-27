@@ -16,8 +16,10 @@
 #include "crypto/bls.h"
 #include "adam.h"
 #include "chainparams.h"
+#include "consensus/merkle.h"
 #include "consensus/tx_verify.h"
 #include "consensus/validation.h"
+#include <limits>
 #include "kernel.h"
 #include "legacy/stakemodifier.h"
 #include "policy/policy.h"
@@ -533,6 +535,72 @@ BOOST_AUTO_TEST_CASE(phase2_m3_m7_l1_regression_test)
         std::string cmd = NetMsgType::SPORK;
         sporkManager.ProcessSpork(nullptr, cmd, ssSpk);
         BOOST_CHECK(!sporkManager.HaveSpork(p2pSpork105.GetHash()));
+    }
+
+    // 4. V4 Stage 1 regressions: C-1 out-of-order StakeModifier guard, H-3 PoW coinstake ban, H-1/M-6 overflow guards
+    {
+        SelectParams(CBaseChainParams::REGTEST);
+        BOOST_REQUIRE(pOrigTip != nullptr);
+
+        // C-1: SetNewStakeModifier must refuse computing V2 modifier when parent V2 modifier is missing
+        CBlockIndex unlinkedParent;
+        unlinkedParent.nHeight = 5;
+        unlinkedParent.pprev = pOrigTip;
+        uint256 unlinkedHash = GetRandHash();
+        unlinkedParent.phashBlock = &unlinkedHash;
+        unlinkedParent.vStakeModifier.clear();
+        unlinkedParent.nFlags = 0;
+
+        CBlockIndex unlinkedChild;
+        unlinkedChild.nHeight = 6;
+        unlinkedChild.pprev = &unlinkedParent;
+        uint256 childHash = GetRandHash();
+        unlinkedChild.phashBlock = &childHash;
+        unlinkedChild.SetNewStakeModifier(childHash);
+        BOOST_CHECK(!unlinkedChild.GeneratedStakeModifier());
+        BOOST_CHECK(unlinkedChild.GetStakeModifierV2().IsNull());
+
+        // Once parent receives its valid V2 modifier, child computes deterministically
+        unlinkedParent.SetNewStakeModifier(unlinkedHash);
+        BOOST_REQUIRE(unlinkedParent.GeneratedStakeModifier());
+        unlinkedChild.SetNewStakeModifier(childHash);
+        BOOST_CHECK(unlinkedChild.GeneratedStakeModifier());
+        BOOST_CHECK(!unlinkedChild.GetStakeModifierV2().IsNull());
+
+        // H-3: PoW block carrying an IsCoinStake() transaction at vtx[2] must be rejected with bad-cs-in-pow
+        CMutableTransaction cb;
+        cb.vin.push_back(CTxIn(COutPoint(), CScript() << 10 << OP_0));
+        cb.vout.push_back(CTxOut(50 * COIN, CScript() << OP_TRUE));
+        CMutableTransaction normalTx;
+        normalTx.vin.push_back(CTxIn(COutPoint(GetRandHash(), 0)));
+        normalTx.vout.push_back(CTxOut(10 * COIN, CScript() << OP_TRUE));
+        CMutableTransaction fakeCs;
+        fakeCs.vin.push_back(CTxIn(COutPoint(GetRandHash(), 1)));
+        fakeCs.vout.push_back(CTxOut(0, CScript())); // Empty vout[0] makes IsCoinStake() true
+        fakeCs.vout.push_back(CTxOut(20 * COIN, CScript() << OP_TRUE));
+        BOOST_REQUIRE(CTransaction(fakeCs).IsCoinStake());
+
+        CBlock powWithCs;
+        powWithCs.nVersion = 12;
+        powWithCs.hashPrevBlock = pOrigTip->GetBlockHash();
+        powWithCs.nTime = pOrigTip->nTime + 30;
+        powWithCs.nBits = pOrigTip->nBits;
+        powWithCs.vtx = {CTransaction(cb), CTransaction(normalTx), CTransaction(fakeCs)};
+        powWithCs.hashMerkleRoot = BlockMerkleRoot(powWithCs);
+        BOOST_REQUIRE(!powWithCs.IsProofOfStake());
+        CValidationState stPowCs;
+        BOOST_CHECK(!CheckBlock(powWithCs, stPowCs, false, true, false));
+        BOOST_CHECK_EQUAL(stPowCs.GetRejectReason(), "bad-cs-in-pow");
+
+        // H-1: Huge nTimeElapsed must not wrap nRelaxSteps negative inside GetAdamEffectiveThreshold
+        const int extremeThreshold = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(10000, 1000000000000LL, 8);
+        BOOST_CHECK_EQUAL(extremeThreshold, 8);
+
+        // M-6: CTransaction::GetValueOut() overflow protection throws std::runtime_error cleanly
+        CMutableTransaction overflowTx;
+        overflowTx.vout.push_back(CTxOut(std::numeric_limits<CAmount>::max() - 10, CScript() << OP_TRUE));
+        overflowTx.vout.push_back(CTxOut(20, CScript() << OP_TRUE));
+        BOOST_CHECK_THROW(CTransaction(overflowTx).GetValueOut(), std::runtime_error);
     }
 }
 

@@ -36,6 +36,12 @@ TxDetailDialog::TxDetailDialog(QWidget *parent, bool _isConfirmDialog, const QSt
     setCssProperty({ui->labelDividerID, ui->labelDividerOutputs, ui->labelDividerPrevtx, ui->labelDividerFeeSize, ui->labelDividerChange, ui->labelDividerConfs}, "container-divider");
     setCssProperty({ui->textAmount, ui->textSendLabel, ui->textInputs, ui->textFee, ui->textChange, ui->textId, ui->textSize, ui->textStatus, ui->textConfirmations, ui->textDate} , "text-body3-dialog");
 
+    for (QLabel* plainLbl : {ui->labelTitle, ui->labelWarning, ui->textAmount, ui->textSendLabel, ui->textSend,
+                             ui->textInputs, ui->textFee, ui->textChange, ui->textId, ui->textSize,
+                             ui->textStatus, ui->textConfirmations, ui->textDate}) {
+        if (plainLbl) plainLbl->setTextFormat(Qt::PlainText);
+    }
+
     setCssProperty(ui->pushCopy, "ic-copy-big");
     setCssProperty({ui->pushInputs, ui->pushOutputs}, "ic-arrow-down");
     setCssProperty(ui->btnEsc, "ic-close");
@@ -184,6 +190,8 @@ void TxDetailDialog::onInputsClicked()
                     QString hash = QString::fromStdString(in.prevout.hash.GetHex());
                     QLabel *label_txid = new QLabel(hash.left(18) + "..." + hash.right(18));
                     QLabel *label_txidn = new QLabel(QString::number(in.prevout.n));
+                    label_txid->setTextFormat(Qt::PlainText);
+                    label_txidn->setTextFormat(Qt::PlainText);
                     label_txidn->setAlignment(Qt::AlignCenter | Qt::AlignRight);
                     setCssProperty({label_txid, label_txidn}, "text-body2-dialog");
 
@@ -239,6 +247,8 @@ void TxDetailDialog::onOutputsClicked()
                     }
                     QLabel *label_address = new QLabel(labelRes);
                     QLabel *label_value = new QLabel(BitcoinUnits::formatWithUnit(nDisplayUnit, out.nValue, false, BitcoinUnits::separatorAlways));
+                    label_address->setTextFormat(Qt::PlainText);
+                    label_value->setTextFormat(Qt::PlainText);
                     label_value->setAlignment(Qt::AlignCenter | Qt::AlignRight);
                     setCssProperty({label_address, label_value}, "text-body2-dialog");
                     layoutGrid->addWidget(label_address,i,0);

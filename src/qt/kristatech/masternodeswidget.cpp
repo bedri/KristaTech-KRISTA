@@ -20,10 +20,12 @@
 #include "fs.h"
 #include "guiutil.h"
 #include "init.h"
+#include "main.h"
 #include "masternode-sync.h"
 #include "masternodeman.h"
 #include "netbase.h"
 #include "sync.h"
+#include "txmempool.h"
 #include "wallet/wallet.h"
 #include "askpassphrasedialog.h"
 #include "util.h"
@@ -1031,11 +1033,11 @@ void MasterNodesWidget::onInfoMNClicked()
             QString exportedMN = blsStr.empty()
                 ? QString("%1 %2\n").arg(cleanAlias, QString::fromStdString(wifStr))
                 : QString("%1 %2 %3\n").arg(cleanAlias, QString::fromStdString(wifStr), QString::fromStdString(blsStr));
-            GUIUtil::setClipboard(exportedMN);
+            GUIUtil::setSensitiveClipboard(exportedMN);
             if (!wifStr.empty()) memory_cleanse(&wifStr[0], wifStr.size());
             if (!blsStr.empty()) memory_cleanse(&blsStr[0], blsStr.size());
             exportedMN.fill(QChar('0'));
-            inform(tr("activemasternode.conf entry copied to clipboard."));
+            inform(tr("activemasternode.conf entry copied to clipboard (auto-clears in 60s)."));
         }
         opSk.Reset();
         mnKey = CKey();
@@ -1066,6 +1068,27 @@ void MasterNodesWidget::onDeleteMNClicked()
             isDip3OnChain = true;
         }
     }
+    bool isPendingProReg = false;
+    {
+        LOCK(mempool.cs);
+        for (const auto& entry : mempool.mapTx) {
+            std::vector<unsigned char> vchPayload;
+            bool fMalformed = false;
+            if (dip3::ExtractProTxPayload(entry.GetTx(), vchPayload, fMalformed) == dip3::PROTX_REG && !fMalformed) {
+                try {
+                    CDataStream ds(vchPayload, SER_NETWORK, PROTOCOL_VERSION);
+                    dip3::CProRegTx pendingPtx;
+                    ds >> pendingPtx;
+                    if (pendingPtx.collateralOutpoint == colOut) {
+                        isPendingProReg = true;
+                        break;
+                    }
+                } catch (...) {
+                }
+            }
+        }
+    }
+    const bool isDip3Protected = isDip3OnChain || isPendingProReg;
 
     if (!isInWalletMeta) {
         showThemedNotice(
@@ -1078,12 +1101,12 @@ void MasterNodesWidget::onDeleteMNClicked()
     }
 
     const QString shortTx = txId.length() > 16 ? (txId.left(8) + "..." + txId.right(8)) : txId;
-    const QString confirmMsg = isDip3OnChain
+    const QString confirmMsg = isDip3Protected
         ? tr("WARNING: You are about to remove a KTDIP3 Deterministic Masternode metadata entry from wallet.dat:\n\n"
              "• Alias: %1\n"
              "• Service: %2\n"
              "• Collateral: %3:%4\n\n"
-             "This Masternode is currently ACTIVE ON-CHAIN. Removing it here only deletes the local controller alias; "
+             "This Masternode is currently ACTIVE OR PENDING ON-CHAIN. Removing it here only deletes the local controller alias; "
              "the 4,200 KRISTA collateral UTXO will REMAIN LOCKED to prevent accidental spend, and the node will still appear on-chain as 'dip3-<protx>' until revoked via 'protx revoke'.\n\n"
              "Do you want to continue?")
             .arg(qAliasString, address, shortTx, outIndex)
@@ -1104,14 +1127,14 @@ void MasterNodesWidget::onDeleteMNClicked()
         return;
     }
 
-    // Unlock collateral ONLY if not an active on-chain KTDIP3 Masternode
-    if (!isDip3OnChain) {
+    // Unlock collateral ONLY if neither active on-chain nor pending PROTX_REG in mempool
+    if (!isDip3Protected) {
         COutPoint colOutUnlock(colOut);
         walletModel->unlockCoin(colOutUnlock);
     }
 
     // Refresh list state
-    if (isDip3OnChain) {
+    if (isDip3Protected) {
         mnModel->updateMNList();
     } else {
         QModelIndex sourceIdx = proxyModel ? proxyModel->mapToSource(index) : index;
@@ -1168,8 +1191,8 @@ void MasterNodesWidget::onCreateMNClicked()
                     tr("CLOSE")
                 );
                 if (openDialogWithOpaqueBackgroundY(copyDlg, window, 5, 7)) {
-                    GUIUtil::setClipboard(dialog->createdActiveMnLine);
-                    inform(tr("Copied activemasternode.conf line to clipboard."));
+                    GUIUtil::setSensitiveClipboard(dialog->createdActiveMnLine);
+                    inform(tr("Copied activemasternode.conf line to clipboard (auto-clears in 60s)."));
                 } else {
                     inform(dialog->returnStr);
                 }

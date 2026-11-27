@@ -15,10 +15,12 @@
 
 #include "init.h"
 #include "main.h"
+#include "crypto/sha256.h"
 #include "primitives/transaction.h"
 #include "protocol.h"
 #include "script/script.h"
 #include "script/standard.h"
+#include "support/cleanse.h"
 #include "util.h"
 #include "qt/kristatech/qtutils.h"
 
@@ -1130,10 +1132,67 @@ QString loadStyleSheet()
     return cached;
 }
 
+static uint64_t s_sensitiveClipToken = 0;
+static uint256 s_sensitiveClipHash;
+
+static uint256 HashClipboardUtf8(const QString& text)
+{
+    uint256 digest;
+    QByteArray utf8 = text.toUtf8();
+    CSHA256()
+        .Write(reinterpret_cast<const unsigned char*>(utf8.constData()), static_cast<size_t>(utf8.size()))
+        .Finalize(digest.begin());
+    if (!utf8.isEmpty()) {
+        memory_cleanse(utf8.data(), static_cast<size_t>(utf8.size()));
+    }
+    return digest;
+}
+
+static void ClearSensitiveClipboardIfMatching()
+{
+    QClipboard* cb = QApplication::clipboard();
+    if (!cb || s_sensitiveClipHash.IsNull()) return;
+    QString current = cb->text(QClipboard::Clipboard);
+    const uint256 currentHash = HashClipboardUtf8(current);
+    current.fill(QChar('0'));
+    if (currentHash == s_sensitiveClipHash) {
+        cb->clear(QClipboard::Clipboard);
+        s_sensitiveClipHash.SetNull();
+    }
+}
+
 void setClipboard(const QString& str)
 {
-    QApplication::clipboard()->setText(str, QClipboard::Clipboard);
-    QApplication::clipboard()->setText(str, QClipboard::Selection);
+    QClipboard* cb = QApplication::clipboard();
+    if (!cb) return;
+    cb->setText(str, QClipboard::Clipboard);
+    cb->setText(str, QClipboard::Selection);
+}
+
+void setSensitiveClipboard(const QString& str, int clearAfterMs)
+{
+    QClipboard* cb = QApplication::clipboard();
+    if (!cb) return;
+    cb->setText(str, QClipboard::Clipboard);
+
+    const uint64_t myToken = ++s_sensitiveClipToken;
+    s_sensitiveClipHash = HashClipboardUtf8(str);
+
+    if (qApp) {
+        static bool quitHookInstalled = false;
+        if (!quitHookInstalled) {
+            quitHookInstalled = true;
+            QObject::connect(qApp, &QCoreApplication::aboutToQuit, qApp, []() {
+                ClearSensitiveClipboardIfMatching();
+            });
+        }
+        const int delayMs = std::max(1, clearAfterMs);
+        QTimer::singleShot(delayMs, qApp, [myToken]() {
+            if (myToken == s_sensitiveClipToken) {
+                ClearSensitiveClipboardIfMatching();
+            }
+        });
+    }
 }
 
 fs::path qstringToBoostPath(const QString& path)
