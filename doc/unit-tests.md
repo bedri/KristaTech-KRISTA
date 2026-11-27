@@ -6,7 +6,7 @@ KristaTech Core includes a robust suite of tests to verify consensus changes, tr
 
 ## 1. C++ Unit Tests (`test_kristatech`)
 
-C++ unit tests target individual classes, consensus functions, and low-level algorithms. They are built using the **Boost Test Library**.
+C++ unit tests target individual classes, consensus functions, and low-level algorithms. They are built using the **Boost Test Library**. The compiled `src/test/test_kristatech` binary contains **61 test suites / 326 test cases**.
 
 ### Compilation
 Unit tests are compiled automatically during the build process unless explicitly disabled:
@@ -27,11 +27,22 @@ You can run the compiled binary directly from the `src` folder:
 ./src/test/test_kristatech
 ```
 
+### Key Consensus, Security & Hardening Suites
+In addition to core consensus suites (`adam_tests`, `mpa_tests`, `dip3_tests`, `mescal_tests`, `main_tests` including `bad-cs-in-pow`), the compiled binary includes expanded hardening and protocol coverage across:
+* `network_upgrades_tests` (`src/test/upgrades_tests.cpp`): Height-gated `UPGRADE_HARDENING_V1`–`V4` (`"Hardening_v4"` at Height `1`), `UPGRADE_FAIRNESS`, `UPGRADE_DIP3`, epoch progression, and `StakeMinDepthV2` consensus enforcement.
+* `DoS_tests` (`src/test/DoS_tests.cpp`): Peer banning, `CBlockHeader` ADAM deserialization size bounds, duplicate `VERACK` / pre-sync `ADAMSOL` guard, `HEADERS` pre-sync validation, and compact block `shorttxids` checks.
+* `bip324_tests` (`src/test/bip324_tests.cpp`): BIP324 v2 encrypted P2P AEAD roundtrip, AAD tamper rejection, rekeying, `ChaCha20Poly1305` error handling, and decoy flood disconnection.
+* `blockencodings_tests` (`src/test/blockencodings_tests.cpp`): Compact block serialization, prefill bounds/overflow validation, and `CBlockHeader` ADAM deserialization bounds.
+* `psbt_tests` (`src/test/psbt_tests.cpp`): BIP174 PSBT `non_witness_utxo` / `witness_utxo` enforcement, `PSBTInput::Merge` conflict rejection, `4096` input/output cap, `PSBT_IN_TAP_KEY_SIG` length enforcement, and Taproot / P2SH multisig signing and finalization.
+* `script_tests` (`src/test/script_tests.cpp`): `SCRIPT_VERIFY_TAPROOT_BIP341`, base `OP_CHECKSIG` `SCRIPT_VERIFY_NULLFAIL`, MESCAL destination extraction, and CLTV timelock solvability.
+* `rpc_tests` & `rpc_protx_tests` (`src/test/rpc_tests.cpp`): `IsAllowedHTTPRequestHost()` DNS-rebinding allowlist validation (`403 Forbidden`), `protx` integer argument parsing, RPC batch limit & range checks, and help port consistency.
+* `wallet_tests` (`src/wallet/test/wallet_tests.cpp`): Coin selection (`>600`-input largest-first fallback), locked miner registration coins, expired CLTV spendability, encrypted BLS storage & legacy `masternode.conf` migration (`0600` + `***REDACTED***` WIF redaction), and backup `0600` permissions.
+
 ### Running Specific Tests
 You can filter execution to a single test suite or specific test cases using the `--run_test` argument:
 ```bash
-# Run core consensus, KTDIP3, and MESCAL suites together
-./src/test/test_kristatech --run_test=adam_tests,mescal_tests,mpa_tests,dip3_tests,rpc_protx_tests
+# Run core consensus, KTDIP3, upgrade, and MESCAL suites together
+./src/test/test_kristatech --run_test=adam_tests,mescal_tests,mpa_tests,dip3_tests,network_upgrades_tests,psbt_tests,rpc_protx_tests
 
 # Run all tests in a specific suite (e.g., mpa_tests)
 ./src/test/test_kristatech --run_test=mpa_tests
@@ -45,7 +56,16 @@ Run `./src/test/test_kristatech --help` to see all available Boost.Test command-
 
 ## 2. C++ GUI Unit Tests (`test_kristatech-qt`)
 
-If the Qt GUI is compiled, a separate unit test binary for Qt widgets and interface logic is created.
+If the Qt GUI is compiled, a separate unit test binary (`src/qt/test/test_kristatech-qt`) for Qt widgets and interface logic is created, comprising **2 test classes / 9 test slots** (`URITests` with 8 slots + `PaymentServerTests` with 1 slot):
+* `URITests` (`src/qt/test/uritests.cpp`):
+  * `uriTests` & `transactionRecordTests`: `kristatech:` URI parsing and transaction record classification.
+  * `taprootAndPsbtUiTests`: Taproot (`kt1p...`) destination handling and PSBT UI flows.
+  * `wizardAndConsolidationTests`: Oversized UTXO handling (`TransactionTooLarge`), `>600`-input largest-first fallback, targeted UTXO consolidation preview, and `MNRow` `"Confirming (7/15)"` collateral confirmation progress display.
+  * `visualDesignerLifecycleTests`: `VisualDesignerDialog` block flow lifecycle, theme styling, and IF-condition validation.
+  * `securityUiHardeningTests`: Plain-text escaping in `DefaultDialog` and auto-expiring sensitive clipboard (`GUIUtil::setSensitiveClipboard`).
+  * `faqAndAboutUiTests`: `SettingsFaqWidget` (**Help & FAQ**, 14-card search/category filters/deep-link) and `SettingsAboutWidget` (**About KristaTech**, version & clipboard copy).
+  * `topBarMoreMenuAndPinOptionTests`: `TopBar` **`MORE ▾`** dropdown (`Masternodes`, `Smart Contracts`, `Network Stats` / `Stats`) and **Settings -> Display & Units -> `Pin advanced tabs to top bar`** preference toggle.
+* `PaymentServerTests` (`src/qt/test/paymentservertests.cpp`): Payment request handling (`paymentServerTests`).
 
 ### Running GUI Tests Manually
 ```bash

@@ -61,7 +61,7 @@ Where:
 ---
 
 #### D. Proof of Masternode (PoM - Reduced Fairness Uptime Bonus, `1.25x`)
-Active Masternodes verified 100% deterministically on-chain (via `evodb` KTDIP3 registration/coin height or legacy `IsMasternodeActiveAtHeight` within 2,880 blocks and `IsValidMasternodeCollateralAndAuth`) receive an uptime loyalty multiplier on their `4,200 KRISTA` collateral (`W_PoM`):
+Active Masternodes verified 100% deterministically on-chain (via `evodb` KTDIP3 registration height — starting strictly from `std::max(nRegisteredHeight, nPoSeRevivedHeight)` under `UPGRADE_HARDENING_V4` Height `1`, replacing pre-V4 `std::min(nRegisteredHeight, nCoinHeight)` — or legacy `IsMasternodeActiveAtHeight` within 2,880 blocks and `IsValidMasternodeCollateralAndAuth`) receive an uptime loyalty multiplier on their `4,200 KRISTA` collateral (`W_PoM`):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
@@ -76,7 +76,7 @@ Dual Mining couples PoS block validation with the ADAM cooperative PoW solver (r
    $$\text{kernelHash} < \left\lfloor \frac{W_{\text{total}}}{100} \right\rfloor \times \text{Target}$$
 
 2. The block header includes a quorum of valid, signed partial PoW solutions from elected ADAM miners.
-3. The PoS block is double-signed by the staker's key (`vchBlockSig`) and the elected ADAM coordinator's key (`vAdamCoordinatorSig`, plus the dynamic BFT LLMQ `vQuorumSig` — `3-of-5` baseline scaling `5 -> 9 -> 11 -> 15` via `GetTargetQuorumSize` — once `UPGRADE_MODELD` is active).
+3. The PoS block is double-signed by the staker's key (`vchBlockSig`) and the elected ADAM coordinator's key (`vAdamCoordinatorSig`, plus the dynamic BFT LLMQ `vQuorumSig` — `4-of-5`..`11-of-15` via `llmq::GetQuorumThreshold(N, h) = floor(2N/3) + 1` on `5 -> 9 -> 11 -> 15` quorums via `GetTargetQuorumSize` under `UPGRADE_HARDENING_V4` [Height `1`], replacing pre-V4 `3-of-5`..`8-of-15` — once `UPGRADE_MODELD` is active).
 
 ## Backward Compatibility
 * PoMPA weights and Dual Mining are activated conditionally upon block height:

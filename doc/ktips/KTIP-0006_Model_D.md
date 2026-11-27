@@ -15,7 +15,7 @@ During the bootstrap phase (prior to block 5,000 on Mainnet), the KRISTA network
 
 Model D addresses this by implementing a phased maturation model:
 1. **Bootstrap Phase**: Passive Masternode (`5%`) and LLMQ (`10%`) payments are set to `0%` prior to Model D to incentivize stakers and miners to accumulate the `4,200 KRISTA` collateral and set up masternode daemons (`100%` Miner on Classic PoW blocks `2..199`, transitioning at Block `200` under `IsAdamValidatorSplitActive` + `UPGRADE_FAIRNESS` to **`25%` Block Producer [`20%` Staker + `5%` Signing Coordinator in PoS] + `75%` Equal Active ADAM Validators across 11 seats** [`~6.818%`/seat] with `50/50` unclaimed Burn/Treasury). During this phase, quorum signature verification thresholds are bypassed ($T = 0$) to allow block production to proceed.
-2. **Maturation Phase (Balanced Model D)**: Once a critical mass of active masternodes is established, Model D activates advanced LLMQ topologies, expands the ADAM committee to **15 seats (`8 MN + 2 Coin-Lock + 3 PoW-Lock + 2 Free Entry 0 KRISTA`)** with a **`55%` Active MN Coordinator VRF floor**, enforces strict signature verification thresholds (`8`-of-`15` ADAM post-bootstrap), and sets the final split to **`5%` Passive MN + `10%` Signer-Only LLMQ (1-block lag) + `25%` Producer (`22%` Staker + `3%` Coordinator in PoS) + `60%` Equal Active Validators (`60% / 15 = 4.00%`/seat)**.
+2. **Maturation Phase (Balanced Model D)**: Once a critical mass of active masternodes is established, Model D activates advanced LLMQ topologies, expands the ADAM committee to **15 seats (`8 MN + 2 Coin-Lock + 3 PoW-Lock + 2 Free Entry 0 KRISTA`)** with a **`55%` Active MN Coordinator VRF floor**, enforces strict signature verification thresholds (`8`-of-`15` ADAM post-bootstrap — and under `UPGRADE_HARDENING_V4` Height `1`, enforces `8` immediately during bootstrap once active MNs `>= 8` — plus `2/3` BFT LLMQ threshold `floor(2N/3)+1 ∈ {4, 7, 8, 11}`), and sets the final split to **`5%` Passive MN + `10%` Signer-Only LLMQ (1-block lag) + `25%` Producer (`22%` Staker + `3%` Coordinator in PoS) + `60%` Equal Active Validators (`60% / 15 = 4.00%`/seat)**.
 
 ## Specification
 
@@ -60,16 +60,16 @@ Under Model D, the network organizes active, registered masternodes into Long-Li
 ---
 
 ### 3. Quorum Signature Verification Thresholds
-Blocks of Version 12 and above contain a quorum signature payload `vQuorumSig` validating the block header hash. The verification threshold ($T$) in `CQuorumSignature::Verify()` (`src/llmq.cpp`) is calculated as follows:
+Blocks of Version 12 and above contain a quorum signature payload `vQuorumSig` validating the block header hash. The verification threshold ($T$) in `CQuorumSignature::Verify()` via `llmq::GetQuorumThreshold(N, nHeight)` (`src/llmq.cpp`) is calculated as follows:
 
 * **Prior to Model D Activation (`!NetworkUpgradeActive(nHeight, UPGRADE_MODELD)` on Mainnet / Testnet)**:
   Quorum signature verification is bypassed ($T = 0$) to allow bootstrapping before active LLMQ quorums are required.
 * **Once Model D is Active (All Networks: Mainnet, Testnet, Regtest)**:
-  The threshold is set to a strict dynamic BFT majority ($\lfloor N / 2 \rfloor + 1$):
+  Under `UPGRADE_HARDENING_V4` (`"Hardening_v4"`, Height `1` across all networks), the threshold is set to a strict dynamic `2/3` BFT supermajority ($\lfloor 2N / 3 \rfloor + 1$):
   
-  $$T = \lfloor N / 2 \rfloor + 1 \in \{3, 5, 6, 8\}$$
+  $$T = \lfloor 2N / 3 \rfloor + 1 \in \{4, 7, 8, 11\}$$
   
-  Thus, a strict BFT majority (`3-of-5`, `5-of-9`, `6-of-11`, or `8-of-15` matching `GetTargetQuorumSize`) of quorum members must sign the block hash across all networks once Model D is active.
+  Thus, a strict `2/3` BFT supermajority (`4-of-5`, `7-of-9`, `8-of-11`, or `11-of-15` matching `GetTargetQuorumSize`) of quorum members must sign the block hash across all networks once Model D is active. *(Pre-V4 historical formula: $\lfloor N / 2 \rfloor + 1 \in \{3, 5, 6, 8\}$, i.e., `3-of-5`, `5-of-9`, `6-of-11`, `8-of-15`.)*
 
 ---
 
@@ -79,9 +79,9 @@ Model D enforces the final, sustainable economic split of the block reward. The 
 #### A. Proof-of-Work (PoW) Blocks
 For blocks mined via PoW (ADAM cooperative mining), the distributable block reward $R$ (after deducting the 7.0% Developer Treasury) is split as follows under Balanced Model D + `UPGRADE_FAIRNESS`:
 * **Passive Masternode Reward (5%)**: Distributed to one active Masternode deterministically selected by VRF seed modulo (`seed.GetUint64(0) % vActiveMns.size()` in `GetModelDPassiveMasternodePayee`).
-* **Signer-Only LLMQ Reward (10%, 1-Block Lag)**: Divided across the $N \in \{5, 9, 11, 15\}$ quorum slots (`10% / N`) and paid strictly with a **1-block lag** to the active LLMQ members who signed the **previous block** (`prevBlock.vQuorumSig`, with `-5/+5` deterministic PoSe scoring); unsigned quorum slots forfeit their share (`50%` Burn + `50%` Treasury).
+* **Signer-Only LLMQ Reward (10%, 1-Block Lag)**: Divided across the $N \in \{5, 9, 11, 15\}$ quorum slots (`10% / N`) and paid strictly with a **1-block lag** to the active LLMQ members who signed the **previous block** (`prevBlock.vQuorumSig`; under `UPGRADE_HARDENING_V4` `M-4` PoSe fairness, signing grants `-5` PoSe recovery while LLMQ non-signing no longer accrues `+5` PoSe penalty — pre-V4 `-5/+5` — whereas `+5` PoSe instead penalizes missed primary coordinators and silent primary ADAM committee members displaced by standby substitution); unsigned quorum slots forfeit their share (`50%` Burn + `50%` Treasury).
 * **Cooperative Participants (60% — Equal `1/15` = `4.00%` per Solved Seat)**: Divided **equally across all 15 committee seats (`8 MN + 2 Coin-Lock + 3 PoW-Lock + 2 Free Entry`)** (`60% / 15 = 4.00%` per solved seat with mandatory 33-byte compressed pubkey, regardless of MN, Coin-Lock, or Open-PoW track). Unsolved/empty seats receive **0%**, and their unclaimed shares (`nUnclaimedPartSplit`) are split **50% to the Automatic Protocol Burn (`nExpectedBurn = nUnclaimedPartSplit / 2`)** and **50% to the Developer Treasury (`nExpectedTreasury = nTreasurySplit + (nUnclaimedPartSplit - nExpectedBurn)`)**.
-* **Block Solver / Winner (25% + `nFees` — Full Rescue Reward)**: Paid in full to the winning PoBLS Coordinator (elected via proportional `4,200 : 250 : 10` VRF with **`55%` Active MN floor** under Model D) who proposed the block. When a silent primary validator seat is substituted by a legitimate same-track standby validator at $t \ge 60\text{s}$ (`vAdamMiners[i] != vExpectedMiners[i]`), the standby validator is paid its equal `4.00%` seat share directly out of the 60% Cooperative Participants Pool (`nPartSplitTotal`) without deducting any penalty from the Coordinator's 25% reward. Primary validators remain protected against opportunistic substitution by: (1) expiration of the primary Coordinator's exclusivity window at $t = 45\text{s}$ (before standby rotation opens at $t = 60\text{s}$), (2) deterministic same-track standby rank ordering (`vStandbyMiners`), and (3) LLMQ `qblockprop` anti-substitution vetoes when a primary validator's valid solution is already cached locally.
+* **Block Solver / Winner (25% + `nFees` — Full Rescue Reward)**: Paid in full to the winning PoBLS Coordinator (elected via proportional `4,200 : 250 : 10` VRF with **`55%` Active MN floor** under Model D) who proposed the block. When a silent primary validator seat is substituted by a legitimate same-track standby validator at $t \ge 60\text{s}$ (`vAdamMiners[i] != vExpectedMiners[i]`), the standby validator is paid its equal `4.00%` seat share directly out of the 60% Cooperative Participants Pool (`nPartSplitTotal`) without deducting any penalty from the Coordinator's 25% reward (while the displaced primary DIP3 Masternode accrues `+5` PoSe under `M-4`). Primary validators remain protected against opportunistic substitution and omission by: (1) expiration of the primary Coordinator's exclusivity window at $t = 45\text{s}$ (aligned with `llmq::QUORUM_EQUIVOCATION_GUARD_SECS = 45`, before standby rotation opens at $t = 60\text{s}$), (2) deterministic same-track standby rank ordering (`vStandbyMiners`), and (3) LLMQ `qblockprop` anti-substitution vetoes (`t >= 60s`) plus R35-1 `5s` primary omission vetoes (`mapAdamSolutionFirstSeen >= 5s`) when a primary validator's valid solution is already cached locally.
 
 #### B. Proof-of-Stake (PoS) Blocks
 For blocks mined via PoS (dual staking + ADAM cooperative validation), the distributable block reward $R$ is split symmetrically as follows under Balanced Model D + `UPGRADE_FAIRNESS`:
@@ -104,8 +104,8 @@ $$\text{nRegPeriod}_{\text{Model D (Testnet / Regtest)}} = 100 \text{ blocks}$$
 Miners must regularly renew their registration on the blockchain by submitting a miner registration transaction.
 
 ## Backward Compatibility
-* Model D rules are triggered dynamically when block height reaches `UPGRADE_MODELD` (while Version 12 block header serialization activates at `UPGRADE_POMBL`: block `4800` on Mainnet, `400` on Testnet, `300` on Regtest).
-* Dynamic BFT LLMQ `vQuorumSig` verification (`3-of-5` up to `8-of-15`) and Model D reward splits are bypassed for blocks below `UPGRADE_MODELD`, preserving bootstrap behavior.
+* Model D rules are triggered dynamically when block height reaches `UPGRADE_MODELD` (while Version 12 block header serialization activates at `UPGRADE_POMBL`: block `4800` on Mainnet, `400` on Testnet, `300` on Regtest, and `UPGRADE_HARDENING_V4` activates at height `1` across all networks — immediately enforcing Model D ADAM threshold `8` during bootstrap on Mainnet / Regtest once `nActiveMasternodes >= 8`, falling back to `5` only while `< 8`, or `3` on Testnet).
+* Dynamic `2/3` BFT LLMQ `vQuorumSig` verification (`4-of-5` up to `11-of-15` via `floor(2N/3)+1` under `UPGRADE_HARDENING_V4`; pre-V4 `3-of-5` up to `8-of-15`) and Model D reward splits are bypassed for blocks below `UPGRADE_MODELD`, preserving bootstrap behavior.
 
 ## Reference Implementation
 * Upgrade activation flags and heights: `src/chainparams.cpp`.

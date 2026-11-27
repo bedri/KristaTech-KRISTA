@@ -50,7 +50,7 @@ A `basic` block represents a primitive script operator or static value wrapper. 
 ```
 
 #### Supported Roles & Opcodes
-* `hash160`: Performs SHA256 followed by RIPEMD160. Maps to `<val> OP_HASH160` by default, `OP_HASH160 <20-byte-hash> OP_EQUAL` when `"mode": "htlc-equal"`, or `OP_HASH160 <20-byte-hash> OP_EQUALVERIFY` when `"mode": "hash-equalverify"` (Pattern 4b inline hash-lock assertion; or input `"name"`/`"type"` is `"hash160"` with a 20-byte hex value).
+* `hash160`: Performs SHA256 followed by RIPEMD160. Maps to `<val> OP_HASH160` by default (with raw input capped at `MAX_SCRIPT_ELEMENT_SIZE` = `520` bytes under `UPGRADE_HARDENING_V4`), `OP_HASH160 <20-byte-hash> OP_EQUAL` when `"mode": "htlc-equal"`, or `OP_HASH160 <20-byte-hash> OP_EQUALVERIFY` when `"mode": "hash-equalverify"` (Pattern 4b inline hash-lock assertion; or input `"name"`/`"type"` is `"hash160"` with a 20-byte hex value).
 * `check-signature-verification`: Verifies a signature against a public key. Maps to `<pubkey> OP_CHECKSIGVERIFY` by default (`"verify": true`), or `<pubkey> OP_CHECKSIG` when `"verify": false`.
 * `equalverify-checksig`: Verifies that a public key hash matches the input, then verifies the signature. Maps to `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG`.
 * `number`: Pushes a numerical constant onto the stack. Maps to standard script integers (e.g. `OP_1`, `OP_2` or byte arrays).
@@ -596,7 +596,7 @@ The compiler must parse the top-level `"actions"` array sequentially:
 
 ### 5.2. Validation Rules
 Before emitting CScript bytecode, `CMescal::Compile` enforces the following safety checks:
-* **Compiler Complexity & Size Bounds (`src/script/mescal.cpp`)**: Input JSON specifications are capped at **`1,000,000` bytes (`1 MB`)**, maximum conditional nesting depth is bounded at **`MAX_MESCAL_CONDITION_DEPTH = 32`**, compiled action execution steps are capped at **`2048`**, and `lock-time` inputs are validated against unsigned 32-bit bounds (`0..4294967295`).
+* **Compiler Complexity & Size Bounds (`src/script/mescal.cpp`)**: Input JSON specifications are capped at **`1,000,000` bytes (`1 MB`)**, maximum conditional nesting depth is bounded at **`MAX_MESCAL_CONDITION_DEPTH = 32`**, compiled action execution steps are capped at **`2048`**, `lock-time` inputs are validated against unsigned 32-bit bounds (`0..4294967295`), `hash160` raw data inputs are capped at **`MAX_SCRIPT_ELEMENT_SIZE` (`520` bytes)**, `pow-miner` requires `1..520`-byte nonces, 32-byte challenges, and 33-byte compressed public keys (as does `coin-lock-miner`), and `CMescal::Decompile` supports `stack-input` inside `if-condition` expressions while rejecting `OP_NOTIF` and duplicate `OP_ELSE` branches.
 * **Stack Depth Limit**: Verify that the generated opcodes do not exceed the blockchain’s maximum stack depth limit (usually 1000 items).
 * **Disabled Opcodes**: Prevent injection of prohibited opcodes (e.g. `OP_CAT` or `OP_LSHIFT`) which are disabled on the consensus layer to prevent memory exhaustion.
 * **Time Lock Assertions**: Ensure that any `lock-time` actions place the locktime opcode (`OP_CHECKLOCKTIMEVERIFY`) before signature checking to avoid transaction malleability issues.
@@ -638,7 +638,7 @@ To spend a UTXO locked at a Taproot address via the script-path (using the compi
    In the spending input's `scriptSig`, construct the byte array:
    `[witness_stack_items...] + [leafScript] + [controlBlock]`
    
-   *Note: In the KristaTech VM interpreter, the scriptSig for a Taproot script-path spend receives the contract execution arguments first, followed by the leaf script push, followed by the control block push. Inside `SIGVERSION_TAPSCRIPT` leaf scripts, `OP_CHECKSIG` / `OP_CHECKSIGVERIFY` / `OP_CHECKMULTISIG` support both 32-byte x-only BIP340 Schnorr public keys and standard 33/65-byte MESCAL ECDSA public keys (automatically routed to `SIGVERSION_BASE` DER ECDSA verification).*
+   *Note: In the KristaTech VM interpreter, the `scriptSig` for a Taproot script-path spend receives the contract execution arguments first, followed by the leaf script push, followed by the control block push. Under `UPGRADE_HARDENING_V4` (Height `1`, enforcing `SCRIPT_VERIFY_TAPROOT_BIP341`), `ComputeTapBranchHash` lexicographically sorts Taproot Merkle branches via `std::memcmp`, and inside `SIGVERSION_TAPSCRIPT` leaf scripts, `OP_CHECKSIG` / `OP_CHECKSIGVERIFY` / `OP_CHECKMULTISIG` support both 32-byte x-only BIP340 Schnorr public keys (`VerifySchnorrSignature` with `'S'`-domain sigcache) and 33/65-byte MESCAL ECDSA public keys — both compute the **BIP341 Tapscript sighash (`SignatureHashTaproot(..., SIGVERSION_TAPSCRIPT, ...)`)** requiring `m_spent_outputs_ready` (precomputed spent outputs; no longer routed to `SIGVERSION_BASE`). In addition, base `OP_CHECKSIG` enforces `SCRIPT_VERIFY_NULLFAIL`.*
 
 #### Spending ScriptSig Construction Example (Python)
 ```python
@@ -656,9 +656,9 @@ script_sig = witness_stack + bytes([len(leaf_script)]) + leaf_script + bytes([le
 
 ---
 
-## 7. Qt Wallet SMART CONTRACTS Studio (`VisualDesignerDialog` & YAML Editor)
+## 7. Qt Wallet Smart Contracts Studio (`VisualDesignerDialog` & YAML Editor)
 
-KristaTech-Qt includes a full graphical smart contract suite under the **SMART CONTRACTS** TopBar tab (`src/qt/kristatech/smartcontractwidget.cpp`):
+KristaTech-Qt includes a full graphical smart contract suite under **`MORE ▾ -> Smart Contracts`** in the TopBar by default (or directly via the **SMART CONTRACTS** TopBar tab when **Settings -> Display & Units -> `Pin advanced tabs to top bar`** is enabled; `src/qt/kristatech/smartcontractwidget.cpp`):
 * **Guided Templates & Custom Contract Builder**: Create standard contracts (TimeLock, HTLC, Multisig, Escrow) or assemble custom action pipelines interactively.
 * **Three-Pane Visual Designer (`Open Visual Designer` / `VisualDesignerDialog`)**: Launches a visual drag-and-drop studio arranged into three synchronized panes (**Block Library | Canvas | Block Inspector**) supporting both Light and Dark wallet themes.
 * **Developer Mode (`Developer Mode (Edit YAML)`) with Live Syntax Highlighting**: Toggle directly into live YAML editing backed by `YamlSyntaxHighlighter`, live structural YAML validation prior to publishing, and one-click file export (**Save YAML Spec (`.yaml`)**, **Save JSON Spec (`.json`)**, or **Export Both (`.yaml` & `.json`) to Folder...**).

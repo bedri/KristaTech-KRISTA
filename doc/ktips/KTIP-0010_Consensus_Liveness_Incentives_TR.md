@@ -46,7 +46,7 @@ $\Delta t = \text{block.nTime} - \text{pindexPrev->GetBlockTime()}$ geçen blok 
 ---
 
 ### 3. Zamana Bağlı Eşik Gevşetme ($t \ge 120\text{ sn}$)
-Yedek devri başladıktan sonra komite hâlâ temel $T_0 = \text{GetAdamThreshold}(H)$ eşiğine ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nElapsedSecs, nActiveMasternodes)` (`src/consensus/params.h`) fonksiyonu $\Delta t = 120\text{ sn}$'den itibaren her `60 saniyede` bir eşiği `1` düşürür:
+Yedek devri başladıktan sonra komite hâlâ temel $T_0 = \text{GetAdamThreshold}(H, nActiveMasternodes)$ eşiğine (Dengeli Model D + `UPGRADE_HARDENING_V4` Yükseklik `1` altında Mainnet / Regtest üzerinde `nActiveMasternodes >= 8` olduğunda bootstrap süresince dahi `8`'dir; yalnızca aktif MN `< 8` iken `5`'e veya Testnet'te `3`'e düşer) ulaşamazsa, `GetAdamEffectiveThreshold(nHeight, nElapsedSecs, nActiveMasternodes)` (`src/consensus/params.h`) fonksiyonu $\Delta t = 120\text{ sn}$'den itibaren her `60 saniyede` bir eşiği `1` düşürür:
 
 $$
 T_{\text{eff}}(H, \Delta t) = \max\left(\min(T_0, T_{\min}), T_0 - \left(\left\lfloor \frac{\Delta t - 120}{60} \right\rfloor + 1\right)\right) \quad (\Delta t \ge 120\text{ sn})
@@ -71,7 +71,7 @@ Burada alt sınır $T_{\min}$:
    \end{cases}
    $$
 
-   Zorunlu 33 baytlık sıkıştırılmış pubkey ile geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \lbrace 0, \dots, M - 1 \rbrace$ koltuğu (Model D'de `0..14`, öncesinde `0..10`) kulvar ayrımı olmadan eşit `nPartPaymentPerSeat[i]` ödülü alır (Dönem 0'da Model D altında `15/15` çözümlemede `0` satoshi artıkla `0,6324 KRISTA`/koltuk); kurtarma Koordinatörü ise tam **%25** (`PoS'ta Model D'de %22 Staker + %3 Koordinatör`, Model D öncesinde `%20 Staker + %5 Koordinatör`) ödülünü korur.
+   Zorunlu 33 baytlık sıkıştırılmış pubkey ile geçerli ve boş olmayan çözüm sunan (`!block.vAdamSolutions[i].empty()`, birincil veya $\Delta t \ge 60\text{ sn}$ aynı kulvar yedek doğrulayıcısı) her $i \in \lbrace 0, \dots, M - 1 \rbrace$ koltuğu (Model D'de `0..14`, öncesinde `0..10`) kulvar ayrımı olmadan eşit `nPartPaymentPerSeat[i]` ödülü alır (Dönem 0'da Model D altında `15/15` çözümlemede `0` satoshi artıkla `0,6324 KRISTA`/koltuk); kurtarma Koordinatörü ise birincil Koordinatör münhasırlığı $\Delta t = 45\text{ sn}$'de dolduğu ve LLMQ `qblockprop` üzerinde ikame ve `5 sn` birincil dışlama vetolarını uyguladığı için tam **%25** (`PoS'ta Model D'de %22 Staker + %3 Koordinatör`, Model D öncesinde `%20 Staker + %5 Koordinatör`) ödülünü korur.
 2. **Çözülmeyen Koltuklar ve Sahipsiz Paylar**:
    Boş bırakılan her yer tutucu koltuk (`block.vAdamSolutions[i].empty()`) **%0** alır ve sahipsiz kalan koltuk payı `nUnclaimedPartSplit` tutarına eklenir.
 3. **%50 Otomatik Protokol Yakımı ve %50 Geliştirici Hazinesi Bölüşümü**:
@@ -83,12 +83,15 @@ Burada alt sınır $T_{\min}$:
 
 ---
 
-### 5. LLMQ `qblockprop` İkame Vetosu ve `ActiveProposalGuard`
-1. **LLMQ `qblockprop` İkame Vetosu (`src/main.cpp`)**:
+### 5. LLMQ `qblockprop` İkame / `5 sn` Dışlama Vetosu, `M-4` PoSe Adaleti ve `ActiveProposalGuard`
+1. **LLMQ `qblockprop` İkame ve R35-1 `5 sn` Birincil Dışlama Vetosu (`src/net_processing.cpp`)**:
    - Yalnızca LLMQ üyesinin aktif zincir ucu `msg.block.hashPrevBlock` ile eşleştiğinde (`pProposalView != nullptr`) çalıştırılır.
    - $\Delta t \ge 60\text{ sn}$ sonrasında önerilen blok $i$. koltuğu değiştirmişse (`msg.block.vAdamMiners[i] != vExpectedMiners[i]`) ve LLMQ üyesinin `mapAdamSolutionsCache` önbelleğinde asıl sahip `vExpectedMiners[i]`'ye ait geçerli çözüm zaten mevcutsa, LLMQ üyesi öneriyi veto eder.
-   - Boş bırakılan birincil koltuklar (`msg.block.vAdamMiners[i] == vExpectedMiners[i]`) asla veto edilmez; böylece ağda yolda olan çözümler hızlı blokları geciktirmez.
-2. **Düğüm Genelinde Ebeveyn Başına Tek Blok Koruması (`src/miner.cpp` içindeki `ActiveProposalGuard`)**:
+   - **R35-1 `5 sn` Birincil Dışlama Vetosu (`mapAdamSolutionFirstSeen`)**: Önerilen blok beklenen bir birincil koltuğu boş bırakmışsa (`msg.block.vAdamMiners[i] == vExpectedMiners[i] && msg.block.vAdamSolutions[i].empty()`), LLMQ üyesinin `mapAdamSolutionsCache` önbelleğinde `vExpectedMiners[i]` için geçerli bir çözüm mevcutsa ve `mapAdamSolutionFirstSeen` içinde ilk görülme zamanından bu yana **`>= 5 sn`** geçmişse (`nowVeto - itFirstSeen->second >= 5`) öneri veto edilir (`5 sn`'den daha yeni görülen çözümler ağ yayılımının hızlı blokları geciktirmemesi için tolere edilir). *(V4 öncesi tarihsel davranış: boş bırakılan birincil koltuklar daha önce hiç veto edilmezdi.)*
+2. **`M-4` PoSe Adaleti (`UPGRADE_HARDENING_V4`, `src/evo/deterministicmns.cpp` içinde Yükseklik `1`)**:
+   - Yedek ikamesiyle yeri doldurulan sessiz birincil ADAM komitesi üyeleri (`block.vAdamMiners[i] != vExpectedMiners[i]`) **`+5` PoSe** cezası alır (slotunu kaçıran birincil Koordinatörün `+5` PoSe cezası yanında).
+   - LLMQ kurul imzalaması `-5` PoSe iyileşmesi sağlamayı sürdürürken, LLMQ imzalamama artık `+5` PoSe cezası doğurmaz (V4 öncesi `-5/+5` LLMQ imzasızlık cezası kaldırılmıştır).
+3. **Düğüm Genelinde Ebeveyn Başına Tek Blok Koruması (`src/miner.cpp` içindeki `ActiveProposalGuard`)**:
    - Tüm blok sürümlerinde (`v11` ve `v12`) `(parentHash, coordKey)` başına devam eden (`mapInFlightParentCoord`) ve tamamlanan (`mapProducedParentCoord`) blok önerilerini yıkıcı olmayan FIFO/yaş tahliyesiyle (`PruneParentCoordMap`) takip ederek bir düğümün aynı ebeveyn üzerinde hem PoW hem PoS bloğu üretmesini engeller.
 
 ## Geriye Dönük Uyumluluk
@@ -98,4 +101,4 @@ Burada alt sınır $T_{\min}$:
 * Yedek koltuk devri ve kulvar doğrulaması: `src/adam.cpp` içindeki `ResolveAdamCommitteeForTime` ve `ValidateAdamCommitteeForTime`.
 * Zamana bağlı eşik gevşetme: `src/consensus/params.h` içindeki `GetAdamEffectiveThreshold`.
 * Eşit emek ödemeleri ve %50 otomatik protokol yakımı / %50 hazine bölüşümü: `src/masternode-payments.cpp` içindeki `FillBlockPayee` ve `IsBlockPayeeValid`.
-* LLMQ ikame vetosu ve tekil blok öneri koruması: `src/main.cpp` ve `src/miner.cpp`.
+* LLMQ ikame ve `5 sn` dışlama vetosu, `M-4` PoSe adaleti ve tekil blok öneri koruması: `src/net_processing.cpp`, `src/evo/deterministicmns.cpp`, `src/main.cpp` ve `src/miner.cpp`.

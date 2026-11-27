@@ -61,7 +61,7 @@ Burada:
 ---
 
 #### D. Proof of Masternode (PoM - `UPGRADE_FAIRNESS` Altında Azaltılmış Sadakat Bonusu, `1,25x`)
-Zincir üstünde `%100` deterministik olarak doğrulanan aktif Masternode'lar (`evodb` KTDIP3 kayıt/coin yüksekliği veya eski `IsMasternodeActiveAtHeight` 2.880 blok penceresi ve `IsValidMasternodeCollateralAndAuth`) `4.200 KRISTA` teminatları için bir kesintisiz çalışma (uptime) çarpanı alır (`W_PoM`):
+Zincir üstünde `%100` deterministik olarak doğrulanan aktif Masternode'lar (`evodb` KTDIP3 kayıt yüksekliği — `UPGRADE_HARDENING_V4` Yükseklik `1` altında V4 öncesi `std::min(nRegisteredHeight, nCoinHeight)` yerine katı biçimde `std::max(nRegisteredHeight, nPoSeRevivedHeight)` üzerinden başlar — veya eski `IsMasternodeActiveAtHeight` 2.880 blok penceresi ve `IsValidMasternodeCollateralAndAuth`) `4.200 KRISTA` teminatları için bir kesintisiz çalışma (uptime) çarpanı alır (`W_PoM`):
 
 $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{active}}}{T_{\text{MAX}}}, 1.0\right)\right)$$
 
@@ -76,7 +76,7 @@ $$W_{\text{PoM}} = C \times \left(1 + \alpha \cdot \min\left(\frac{t_{\text{acti
    $$\text{kernelHash} < \left\lfloor \frac{W_{\text{total}}}{100} \right\rfloor \times \text{Target}$$
 
 2. Blok başlığı, seçilen ADAM madencilerinden gelen geçerli, imzalanmış kısmi PoW çözümlerinin bir kuorumunu (quorum) içeriyorsa.
-3. PoS bloğu, stake edenin anahtarı (`vchBlockSig`) ve seçilen ADAM koordinatörünün anahtarı (`vAdamCoordinatorSig`, ayrıca `UPGRADE_MODELD` aktifleştiğinde `GetTargetQuorumSize` ile `5 -> 9 -> 11 -> 15` ölçeklenen dinamik BFT LLMQ `vQuorumSig` imzası) ile imzalanmışsa.
+3. PoS bloğu, stake edenin anahtarı (`vchBlockSig`) ve seçilen ADAM koordinatörünün anahtarı (`vAdamCoordinatorSig`, ayrıca `UPGRADE_MODELD` aktifleştiğinde `GetTargetQuorumSize` ile `5 -> 9 -> 11 -> 15` ölçeklenen ve `UPGRADE_HARDENING_V4` [Yükseklik `1`] altında `llmq::GetQuorumThreshold(N, h) = floor(2N/3) + 1` ile `5'te 4`..`15'te 11` [V4 öncesi `5'te 3`..`15'te 8`] eşiği aranan dinamik BFT LLMQ `vQuorumSig` imzası) ile imzalanmışsa.
 
 ## Geriye Dönük Uyumluluk
 * PoMPA ağırlıkları ve Çift Madencilik, blok yüksekliğine bağlı olarak koşullu şekilde etkinleştirilir:

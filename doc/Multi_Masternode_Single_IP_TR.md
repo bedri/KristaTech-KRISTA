@@ -21,11 +21,15 @@ KristaTech'in dayandığı **DECENOMY** çekirdeği ise, tek bir çalışan `kri
 ## 2. Kontrolcü Depolaması (`wallet.dat`) ve Sıcak Düğüm Yapılandırması
 
 ### A. Soğuk Cüzdan (Controller / Host) — `wallet.dat` (`mnmeta` + `protx`)
-Soğuk kontrolcü meta verileri (takma adlar, `IP:port`, 15 onay bekleyen taslaklar ve şifreli operatör anahtarları) doğrudan şifreli `wallet.dat` veritabanında (`mnmeta`) tutulur. Artık elle `masternode.conf` düzenlemeye gerek yoktur (mevcut eski `masternode.conf` dosyaları ilk açılışta otomatik olarak `wallet.dat`'a aktarılıp `0600` izinli `masternode.conf.migrated` olarak arşivlenir):
+Soğuk kontrolcü meta verileri (takma adlar, `IP:port`, 15 onay bekleyen taslaklar ve şifreli operatör anahtarları) doğrudan şifreli `wallet.dat` veritabanında (`mnmeta`) tutulur. Artık elle `masternode.conf` düzenlemeye gerek yoktur (mevcut eski `masternode.conf` dosyaları ilk açılışta otomatik olarak `wallet.dat`'a aktarılıp düz metin WIF özel anahtarları `***REDACTED***` olarak sansürlenmiş ve `0600` izinli `masternode.conf.migrated` olarak arşivlenir):
 
 ```bash
-# Aynı VPS IP'sini paylaşan birden fazla düğümü zincir üstüne kaydedin (veya GUI Create Masternode Controller kullanın)
-protx register <MN1_TXID> 1 203.0.113.10:27999 <MN1_OWNER_ADDR> <MN1_BLS_PUB> <MN1_VOTE_ADDR> 0 <MN1_PAYOUT_ADDR>
+# Sıcak düğümde operatör BLS anahtar çifti & Proof-of-Possession üretin (Blok 1'den itibaren ProRegTx v2 için blsPoP zorunludur):
+# protx bls_generate  -> {"secret": "...", "public": "<MN1_BLS_PUB>", "pop": "<MN1_BLS_POP>"}
+# Aynı VPS IP'sini paylaşan birden fazla düğümü zincir üstüne kaydedin:
+# - GUI Sihirbazı 3. Adım: Operator BLS Public Key alanına <MN1_BLS_PUB>:<MN1_BLS_POP> yapıştırın
+# - CLI/RPC: <MN1_BLS_PUB> değerini 5. argüman, <MN1_BLS_POP> değerini 9. argüman olarak geçin (operatör anahtarı wallet.dat içindeyse isteğe bağlıdır)
+protx register <MN1_TXID> 1 203.0.113.10:27999 <MN1_OWNER_ADDR> <MN1_BLS_PUB> <MN1_VOTE_ADDR> 0 <MN1_PAYOUT_ADDR> <MN1_BLS_POP>
 protx set_alias <MN1_TXID>:1 mn1_203
 protx wallet_list
 ```

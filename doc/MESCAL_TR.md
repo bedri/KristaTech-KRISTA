@@ -50,7 +50,7 @@ Bir `basic` bloğu, ilkel bir betik operatörünü veya statik değer sarmalayı
 ```
 
 #### Desteklenen Rol ve Opcode'lar
-* `hash160`: Önce SHA256, ardından RIPEMD160 uygular. Varsayılan olarak `<val> OP_HASH160`, `"mode": "htlc-equal"` (veya girdi `"name"`/`"type"` alanı `"hash160"` ve değeri 20 baytlık hex) olduğunda `OP_HASH160 <20-byte-hash> OP_EQUAL`, ya da `"mode": "hash-equalverify"` (Pattern 4b satır içi hash-kilit doğrulaması) verildiğinde `OP_HASH160 <20-byte-hash> OP_EQUALVERIFY` ile eşleşir.
+* `hash160`: Önce SHA256, ardından RIPEMD160 uygular. Varsayılan olarak `<val> OP_HASH160` (`UPGRADE_HARDENING_V4` kapsamında ham girdi `MAX_SCRIPT_ELEMENT_SIZE` = `520` bayt ile sınırlandırılmıştır), `"mode": "htlc-equal"` (veya girdi `"name"`/`"type"` alanı `"hash160"` ve değeri 20 baytlık hex) olduğunda `OP_HASH160 <20-byte-hash> OP_EQUAL`, ya da `"mode": "hash-equalverify"` (Pattern 4b satır içi hash-kilit doğrulaması) verildiğinde `OP_HASH160 <20-byte-hash> OP_EQUALVERIFY` ile eşleşir.
 * `check-signature-verification`: Bir imzayı açık anahtara (public key) karşı doğrular. Varsayılan olarak `<pubkey> OP_CHECKSIGVERIFY` (`"verify": true`), `"verify": false` belirtildiğinde ise `<pubkey> OP_CHECKSIG` ile eşleşir.
 * `equalverify-checksig`: Açık anahtar hash'inin (public key hash) girdiyle eşleştiğini doğrular, ardından imzayı doğrular. `OP_DUP OP_HASH160 <pubkeyhash> OP_EQUALVERIFY OP_CHECKSIG` ile eşleşir.
 * `number`: Yığına sayısal bir sabit yerleştirir. Standart betik tam sayıları (örneğin `OP_1`, `OP_2` veya bayt dizileri) ile eşleşir.
@@ -596,7 +596,7 @@ Derleyici, en üst düzeydeki `"actions"` dizisini sırayla ayrıştırmalıdır
 
 ### 5.2. Doğrulama Kuralları
 CScript bayt kodunu (bytecode) üretmeden önce `CMescal::Compile` aşağıdaki güvenlik kontrollerini zorunlu kılar:
-* **Derleyici Karmaşıklık ve Boyut Sınırları (`src/script/mescal.cpp`)**: Girdi JSON belirtimleri **`1.000.000` bayt (`1 MB`)**, iç içe koşul derinliği **`MAX_MESCAL_CONDITION_DEPTH = 32`**, derlenen eylem adımı sayısı **`2048`** ile sınırlandırılır ve `lock-time` girdileri işaretsiz 32-bit aralığında (`0..4294967295`) doğrulanır.
+* **Derleyici Karmaşıklık ve Boyut Sınırları (`src/script/mescal.cpp`)**: Girdi JSON belirtimleri **`1.000.000` bayt (`1 MB`)**, iç içe koşul derinliği **`MAX_MESCAL_CONDITION_DEPTH = 32`**, derlenen eylem adımı sayısı **`2048`** ile sınırlandırılır; `lock-time` girdileri işaretsiz 32-bit aralığında (`0..4294967295`) doğrulanır; `hash160` ham veri girdileri **`MAX_SCRIPT_ELEMENT_SIZE` (`520` bayt)** ile sınırlandırılır; `pow-miner` için `1..520` baytlık nonce, 32 baytlık challenge ve (`coin-lock-miner` dahil) 33 baytlık sıkıştırılmış açık anahtar zorunludur; ayrıca `CMescal::Decompile`, `if-condition` ifadelerinde `stack-input` rolünü desteklerken `OP_NOTIF` ve yinelenen `OP_ELSE` dallarını reddeder.
 * **Yığın Derinliği Sınırı (Stack Depth Limit)**: Üretilen opcode'ların blokzincirin maksimum yığın derinliği sınırını (genellikle 1000 öge) aşmadığını doğrulayın.
 * **Devre Dışı Bırakılmış Opcode'lar**: Bellek tükenmesini (memory exhaustion) önlemek için mutabakat katmanında (consensus layer) devre dışı bırakılmış yasaklı opcode'ların (örneğin `OP_CAT` veya `OP_LSHIFT`) enjekte edilmesini önleyin.
 * **Zaman Kilidi Kontrolleri**: İşlem bükülebilirliği (transaction malleability) sorunlarını önlemek için, herhangi bir `lock-time` eyleminin, zaman kilidi opcode'unu (`OP_CHECKLOCKTIMEVERIFY`) imza kontrolünden önce yerleştirdiğinden emin olun.
@@ -638,7 +638,7 @@ Bir Taproot adresinde kilitli olan bir UTXO'yu script-path aracılığıyla (der
    Harcama girdisinin `scriptSig` alanında şu bayt dizisini oluşturun:
    `[witness_stack_items...] + [leafScript] + [controlBlock]`
    
-   *Not: KristaTech VM yorumlayıcısında, bir Taproot script-path harcaması için scriptSig, önce sözleşme yürütme argümanlarını alır, ardından leaf script itilmesini (push) ve ardından kontrol bloğunun (control block) itilmesini takip eder. `SIGVERSION_TAPSCRIPT` yaprak betikleri içerisinde `OP_CHECKSIG` / `OP_CHECKSIGVERIFY` / `OP_CHECKMULTISIG` hem 32 baytlık x-only BIP340 Schnorr açık anahtarlarını hem de standart 33/65 baytlık MESCAL ECDSA açık anahtarlarını (`SIGVERSION_BASE` DER ECDSA doğrulamasına otomatik yönlendirilerek) destekler.*
+   *Not: KristaTech VM yorumlayıcısında, bir Taproot script-path harcaması için `scriptSig`, önce sözleşme yürütme argümanlarını alır, ardından leaf script itilmesini (push) ve ardından kontrol bloğunun (control block) itilmesini takip eder. `UPGRADE_HARDENING_V4` (Blok `1`, `SCRIPT_VERIFY_TAPROOT_BIP341` zorunlu) kapsamında `ComputeTapBranchHash`, Taproot Merkle dallarını BIP341'e uygun biçimde `std::memcmp` ile sözlüksel (lexicographical) olarak sıralar ve `SIGVERSION_TAPSCRIPT` yaprak betikleri içerisinde `OP_CHECKSIG` / `OP_CHECKSIGVERIFY` / `OP_CHECKMULTISIG` hem 32 baytlık x-only BIP340 Schnorr açık anahtarlarını (`'S'` etki alanlı sigcache kullanan `VerifySchnorrSignature`) hem de 33/65 baytlık MESCAL ECDSA açık anahtarlarını destekler — her iki anahtar türü de `m_spent_outputs_ready` (önceden hesaplanmış harcanan çıktılar) gerektiren **BIP341 Tapscript sighash (`SignatureHashTaproot(..., SIGVERSION_TAPSCRIPT, ...)`)** hesaplar (artık `SIGVERSION_BASE` doğrulamasına yönlendirilmez). Ayrıca taban `OP_CHECKSIG` üzerinde `SCRIPT_VERIFY_NULLFAIL` uygulanır.*
 
 #### scriptSig Harcama Yapısı Örneği (Python)
 ```python
@@ -656,9 +656,9 @@ script_sig = witness_stack + bytes([len(leaf_script)]) + leaf_script + bytes([le
 
 ---
 
-## 7. Qt Cüzdan SMART CONTRACTS Stüdyosu (`VisualDesignerDialog` ve YAML Düzenleyicisi)
+## 7. Qt Cüzdan Smart Contracts Stüdyosu (`VisualDesignerDialog` ve YAML Düzenleyicisi)
 
-KristaTech-Qt, TopBar'daki **SMART CONTRACTS** sekmesi altında eksiksiz bir görsel akıllı sözleşme stüdyosu sunar (`src/qt/kristatech/smartcontractwidget.cpp`):
+KristaTech-Qt, varsayılan olarak TopBar'daki **`MORE ▾ -> Smart Contracts`** menüsü altında (veya **Settings -> Display & Units -> `Pin advanced tabs to top bar`** seçeneği etkinleştirildiğinde doğrudan üst çubuktaki **SMART CONTRACTS** sekmesinde) eksiksiz bir görsel akıllı sözleşme stüdyosu sunar (`src/qt/kristatech/smartcontractwidget.cpp`):
 * **Hazır Şablonlar ve Özel Sözleşme Oluşturucu**: TimeLock, HTLC, Multisig ve Escrow şablonları oluşturun veya özel eylem zincirlerini adım adım birleştirin.
 * **Üç Panelli Görsel Tasarımcı (`Open Visual Designer` / `VisualDesignerDialog`)**: Açık ve Koyu (Light/Dark) cüzdan temalarına tam uyumlu **Block Library | Canvas | Block Inspector** üç panelli sürükle-bırak tasarım stüdyosunu açar.
 * **Canlı Söz Dizimi Renklendirmeli Geliştirici Modu (`Developer Mode (Edit YAML)`)**: `YamlSyntaxHighlighter` ile canlı YAML renklendirmesi, yayınlama öncesi sözdizimi doğrulaması ve tek tıkla dosya dışa aktarım (**Save YAML Spec (`.yaml`)**, **Save JSON Spec (`.json`)** veya **Export Both (`.yaml` & `.json`) to Folder...**) desteği sağlar.

@@ -40,7 +40,7 @@ PoBLS konsensüsüne katılmak için:
 
    $$\text{sig}_{\text{auth}} = \text{Sign}_{\text{ECDSA}}(\text{Hash}(P_{\text{BLS}}), s_{\text{ECDSA}})$$
 
-   Ayrıca düğümün ilk geçerli zincir üstü katılımında $(P_{\text{ECDSA}} \mapsto P_{\text{BLS}})$ eşleşmesi LevelDB üzerinde kalıcı olarak sabitlenir (`PinBLSPubKey` / `GetPinnedBLSPubKey`); böylece sonradan BLS anahtar rotasyonu veya VRF/bilet öğütme (grinding) saldırıları engellenir.
+   Ayrıca düğümün ilk geçerli zincir üstü katılımında $(P_{\text{ECDSA}} \mapsto P_{\text{BLS}})$ eşleşmesi LevelDB üzerinde sabitlenir (`PinBLSPubKey` / `GetPinnedBLSPubKey`); böylece sonradan BLS anahtar rotasyonu veya VRF/bilet öğütme (grinding) saldırıları engellenir. `UPGRADE_HARDENING_V4` (Yükseklik `1`) kapsamında `PinnedBLSEntry`, `nHeight` yanında `blockHash` bilgisini de saklar ve `MakeActiveChainPinPredicate` (`PinActivePredicate`) aracılığıyla çatala duyarlı (fork-aware) değerlendirilir; böylece kopmuş/eski çatal dallarındaki sabitlemeler aktif zincirle çakışmaz. Ayrıca V4 altında Coin-Lock, Fonlu PoW-Lock ve Zero-Coin kayıt çıktıları da `<blsPubKey(48B)> <blsPoP(96B)> OP_2DROP` ile zincir üstünde sabitlenir (`VerifyAdamOrDip3Signature` bire bir bağlamı zorunlu kılar).
 
 ---
 
@@ -80,7 +80,7 @@ graph TD
 
    Burada $H_2(M)$, mesajı G2 grubu üzerindeki bir noktaya eşleyen hash-to-curve fonksiyonudur ve $e$ ise bilineer eşleme (bilinear pairing) operatörüdür.
 
-Her iki kontrol de başarıyla tamamlanırsa (ve daha önce sabitlenmişse $P_{\text{BLS}}$ değeri `GetPinnedBLSPubKey` kaydıyla eşleşirse), hibrit imza geçerlidir.
+Her iki kontrol de başarıyla tamamlanırsa (ve daha önce sabitlenmişse $P_{\text{BLS}}$ değeri aktif dal üzerindeki `GetPinnedBLSPubKey(..., MakeActiveChainPinPredicate(...))` kaydıyla / V4 kayıt havuzu sabitlemesiyle eşleşirse), hibrit imza geçerlidir.
 
 ---
 
@@ -89,7 +89,7 @@ Her geçerli ADAM kısmi çözümü bir `CBLSSignedData` yükü $(P_{\text{BLS},
 
 $$T_i = \text{SHA256D}\left(P_{\text{BLS}, i} \mathbin{\Vert} \text{sig}_{\text{BLS}, i} \mathbin{\Vert} H\right)$$
 
-Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`) değerine karşı `ComputePoBLSXORDistance` fonksiyonu $D_i = |T_i \oplus T_{\text{target}}|$ metrik mesafesini hesaplar ve `RankValidatorsByPoBLSDistance` fonksiyonu deterministik yedek koordinatör rotasyonu (`GetAdamFallbackCoordinatorForSlot`) için seçilmiş doğrulayıcıları artan $D_i$ mesafesine göre sıralar.
+Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`) değerine karşı `ComputePoBLSXORDistance` fonksiyonu $D_i = |T_i \oplus T_{\text{target}}|$ metrik mesafesini hesaplar ve `RankValidatorsByPoBLSDistance` fonksiyonu deterministik yedek koordinatör rotasyonu (`GetAdamFallbackCoordinatorForSlot`) için seçilmiş doğrulayıcıları (`UPGRADE_HARDENING_V4` altında `ADAM_VRF_KEY_MATURITY = 100` blok olgunlaşmış anahtarlara öncelik vererek) artan $D_i$ mesafesine göre sıralar.
 
 ## Geriye Dönük Uyumluluk
 * PoBLS imzaları, blok yüksekliği `200`'den itibaren başlayan tüm Sürüm 11 ve Sürüm 12 bloklarındaki VRF kanıtları (`vAdamVRFProof`), Koordinatör imzaları (`vAdamCoordinatorSig`) ve madenci kısmi çözümleri (`vAdamSolutions`) için zorunludur.
@@ -99,4 +99,4 @@ Blok hedefi $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)
 ## Referans Uygulama
 * Türetme, anahtar sabitleme (pinning) ve hibrit imza rutinleri: `src/crypto/bls.h` ve `src/crypto/bls.cpp`.
 * VRF kanıtı serileştirme, PoBLS bilet XOR sıralaması ve doğrulama (`VerifyAdamOrDip3Signature`): `src/adam.h` ve `src/adam.cpp`.
-* Dinamik BFT LLMQ (`5 -> 9 -> 11 -> 15` ölçekli, `5'te 3`'ten `15'te 8`'e) BLS12-381 imza birleştirme: `src/llmq.h` ve `src/llmq.cpp`.
+* Dinamik BFT LLMQ (`5 -> 9 -> 11 -> 15` ölçekli, `UPGRADE_HARDENING_V4` [Yükseklik `1`] altında `llmq::GetQuorumThreshold(N, h) = floor(2N/3) + 1` ile `5'te 4`'ten `15'te 11`'e; V4 öncesi `5'te 3`'ten `15'te 8`'e) BLS12-381 imza birleştirme: `src/llmq.h` ve `src/llmq.cpp`.

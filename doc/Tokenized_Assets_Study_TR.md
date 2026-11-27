@@ -105,7 +105,7 @@ Bu yaklaşımda, karmaşık akıllı sözleşmeler ve token mantığı, kesinlik
 Yönetilebilir geliştirme riski ile maksimum etkiyi sağlamak amacıyla iki aşamalı bir uygulama planı öneriyoruz:
 
 ### Aşama 1: Kısa Vadeli (L1 MESCAL Varlık Scriptleri)
-1. **SMART CONTRACTS** sekmesindeki **3 Panelli Açık/Koyu Görsel Akıllı Sözleşme Tasarımcısı** (`VisualDesignerDialog`) içinde standart bir **Token Şablonu** (Token Template) tanımlayın.
+1. Varsayılan olarak **`MORE ▾ -> Smart Contracts`** menüsü altında (veya **Settings -> Display & Units -> `Pin advanced tabs to top bar`** etkinleştirildiğinde doğrudan üst çubuktaki **`SMART CONTRACTS`** sekmesinde) yer alan Akıllı Sözleşmeler stüdyosundaki **3 Panelli Açık/Koyu Görsel Akıllı Sözleşme Tasarımcısı** (`VisualDesignerDialog`) içinde standart bir **Token Şablonu** (Token Template) tanımlayın.
 2. Şablon, fiziksel/tokenlaştırılmış varlıkları temsil eden coinleri kilitleyen script yapılarına sahip UTXO'lar üretir.
 3. Varlık sahipliği transferlerini, uyumluluğu ve kurtarma yollarını yönetmek için mevcut Emanet (Escrow) ve Arabulucu (Mediator) iş akışlarını kullanın.
 

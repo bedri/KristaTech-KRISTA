@@ -105,7 +105,7 @@ In this approach, complex smart contracts and token logic run on a separate laye
 To deliver the maximum impact with manageable development risk, we recommend a two-phase implementation plan:
 
 ### Phase 1: Short-Term (L1 MESCAL Asset Scripts)
-1. Define a standard **Token Template** within the Smart Contracts studio (**3-pane Light/Dark Visual Smart Contract Designer**, `VisualDesignerDialog`, in `SMART CONTRACTS`).
+1. Define a standard **Token Template** within the Smart Contracts studio (**3-pane Light/Dark Visual Smart Contract Designer**, `VisualDesignerDialog`, via **`MORE ▾ -> Smart Contracts`** by default or the pinned **`SMART CONTRACTS`** top-bar tab when **Settings -> Display & Units -> `Pin advanced tabs to top bar`** is enabled).
 2. The template generates UTXOs with script structures that lock coins representing physical/tokenized assets.
 3. Use the existing Escrow and Mediator workflows to govern asset ownership transfers, compliance, and recovery paths.
 

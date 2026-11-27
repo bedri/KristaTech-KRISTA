@@ -40,7 +40,7 @@ To participate in PoBLS consensus:
 
    $$\text{sig}_{\text{auth}} = \text{Sign}_{\text{ECDSA}}(\text{Hash}(P_{\text{BLS}}), s_{\text{ECDSA}})$$
 
-   Furthermore, upon first valid on-chain participation, the mapping $(P_{\text{ECDSA}} \mapsto P_{\text{BLS}})$ is permanently pinned in LevelDB (`PinBLSPubKey` / `GetPinnedBLSPubKey`), preventing post-hoc BLS key rotation or VRF/ticket grinding.
+   Furthermore, upon first valid on-chain participation, the mapping $(P_{\text{ECDSA}} \mapsto P_{\text{BLS}})$ is pinned in LevelDB (`PinBLSPubKey` / `GetPinnedBLSPubKey`), preventing post-hoc BLS key rotation or VRF/ticket grinding. Under `UPGRADE_HARDENING_V4` (Height `1`), `PinnedBLSEntry` records `blockHash` alongside `nHeight` and evaluates `MakeActiveChainPinPredicate` (`PinActivePredicate`) so pins from disconnected/stale fork branches never block or conflict with the active chain, while Coin-Lock, Funded PoW-Lock, and Zero-Coin registrations also pin `<blsPubKey(48B)> <blsPoP(96B)> OP_2DROP` on-chain (`VerifyAdamOrDip3Signature` enforces exact binding).
 
 ---
 
@@ -80,7 +80,7 @@ graph TD
 
    Where $H_2(M)$ is the hash-to-curve function mapping the message to a point on the G2 group, and $e$ is the bilinear pairing operator.
 
-If both checks pass (and $P_{\text{BLS}}$ matches the pinned key in `GetPinnedBLSPubKey` if already pinned), the hybrid signature is valid.
+If both checks pass (and $P_{\text{BLS}}$ matches the active-branch pinned key in `GetPinnedBLSPubKey(..., MakeActiveChainPinPredicate(...))` / V4 registration pool binding if already pinned), the hybrid signature is valid.
 
 ---
 
@@ -89,7 +89,7 @@ Each valid ADAM partial solution embeds a `CBLSSignedData` payload $(P_{\text{BL
 
 $$T_i = \text{SHA256D}\left(P_{\text{BLS}, i} \mathbin{\Vert} \text{sig}_{\text{BLS}, i} \mathbin{\Vert} H\right)$$
 
-Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`), `ComputePoBLSXORDistance` computes the metric distance $D_i = |T_i \oplus T_{\text{target}}|$, and `RankValidatorsByPoBLSDistance` orders elected validators in ascending order of $D_i$ for deterministic fallback coordinator rotation (`GetAdamFallbackCoordinatorForSlot`).
+Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \mathbin{\Vert} H)$ (`ComputePoBLSTarget`), `ComputePoBLSXORDistance` computes the metric distance $D_i = |T_i \oplus T_{\text{target}}|$, and `RankValidatorsByPoBLSDistance` orders elected validators (prioritizing keys matured for `ADAM_VRF_KEY_MATURITY = 100` blocks ahead of newer keys under `UPGRADE_HARDENING_V4`) in ascending order of $D_i$ for deterministic fallback coordinator rotation (`GetAdamFallbackCoordinatorForSlot`).
 
 ## Backward Compatibility
 * PoBLS signatures are mandatory for VRF proofs (`vAdamVRFProof`), Coordinator signatures (`vAdamCoordinatorSig`), and miner partial solutions (`vAdamSolutions`) in all Version 11 and Version 12 blocks (starting at block height `200`).
@@ -99,4 +99,4 @@ Against the block target $T_{\text{target}} = \text{SHA256D}(\text{Seed}_H \math
 ## Reference Implementation
 * Derivation, key pinning, and hybrid signature routines: `src/crypto/bls.h` and `src/crypto/bls.cpp`.
 * VRF proof serialization, PoBLS ticket XOR ranking, and verification (`VerifyAdamOrDip3Signature`): `src/adam.h` and `src/adam.cpp`.
-* Dynamic BFT LLMQ (`5 -> 9 -> 11 -> 15` scaling, `3-of-5` up to `8-of-15`) BLS12-381 signature aggregation: `src/llmq.h` and `src/llmq.cpp`.
+* Dynamic BFT LLMQ (`5 -> 9 -> 11 -> 15` scaling, `4-of-5` up to `11-of-15` via `llmq::GetQuorumThreshold(N, h) = floor(2N/3) + 1` under `UPGRADE_HARDENING_V4` [Height `1`]; pre-V4 `3-of-5` up to `8-of-15`) BLS12-381 signature aggregation: `src/llmq.h` and `src/llmq.cpp`.

@@ -63,6 +63,7 @@ KristaTech Core runs on specialized consensus mechanisms designed for decentrali
 - **KRISTA vs DASH Comparison**: [English](KRISTA%20vs%20DASH.md) or [Turkish (TR)](KRISTA%20vs%20DASH_TR.md)
 - **Tokenized Assets Study**: [English](Tokenized_Assets_Study.md) or [Turkish (TR)](Tokenized_Assets_Study_TR.md)
 - **Ideas for a New Proof Algorithm**: [English](IDEAS%20FOR%20A%20NEW%20PROOF%20ALGORITHM.md) or [Turkish (TR)](IDEAS%20FOR%20A%20NEW%20PROOF%20ALGORITHM_TR.md)
+- **Exchange & Swap Integration Guide**: [Exchange Integration Guide](Exchange_Integration.md)
 
 KristaTech Improvement Proposals (KTIPs)
 ---------------------
@@ -78,7 +79,7 @@ KristaTech Improvement Proposals (KTIPs)
 - **KTIP-0010 (On-Chain Pings, Standby Handover, Relaxed Quorum & Equal-Work Incentives)**: [English](ktips/KTIP-0010_Consensus_Liveness_Incentives.md) or [Turkish (TR)](ktips/KTIP-0010_Consensus_Liveness_Incentives_TR.md)
 - **KTIP-0011 (Sentry Relay Topology, Future Blocks Queue & LLMQ Treasury Governance)**: [English](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury.md) or [Turkish (TR)](ktips/KTIP-0011_Sentry_FutureBlocks_Treasury_TR.md)
 - **KTIP-0012 (Taproot/CSV/BIP68 Consensus, P2P/RPC DoS Hardening, BIP324, HeadersSyncState & PSBT)**: [English](ktips/KTIP-0012_Security_BIP324_HeadersSync_PSBT.md) or [Turkish (TR)](ktips/KTIP-0012_Security_BIP324_HeadersSync_PSBT_TR.md)
-- **KTIP-0013 (Trustless Shared Masternodes — Draft)**: [English](ktips/KTIP-0013_Trustless_Shared_Masternodes.md) or [Turkish (TR)](ktips/KTIP-0013_Trustless_Shared_Masternodes_TR.md)
+- **KTIP-0013 (Trustless Shared Masternodes — Deferred — Post-Maturity Roadmap)**: [English](ktips/KTIP-0013_Trustless_Shared_Masternodes.md) or [Turkish (TR)](ktips/KTIP-0013_Trustless_Shared_Masternodes_TR.md)
 - **KTIP-0014 (Deterministic On-Chain Masternodes — KTDIP3)**: [English](ktips/KTIP-0014_Deterministic_Masternodes.md) or [Turkish (TR)](ktips/KTIP-0014_Deterministic_Masternodes_TR.md)
 
 Mainnet vs Testnet Parameter Comparison
@@ -89,6 +90,7 @@ To ensure consistency across network configurations, the differences between Mai
 | --- | --- | --- |
 | **P2P Port** | 27999 | 27989 |
 | **RPC Port** | 27979 | 27919 |
+| **Protocol Version (`PROTOCOL_VERSION` / `MIN_PEER_PROTO_VERSION`)** | `70983` | `70983` |
 | **Base58 Address Prefix** | `KT...` (starts with KT) | `kt...` (starts with kt) |
 | **Bech32 Address HRP** | `kt...` | `tk...` |
 | **Target Block Spacing** | 30 seconds | 30 seconds |
@@ -96,16 +98,23 @@ To ensure consistency across network configurations, the differences between Mai
 | **Block Size Limit** | 8 MB | 8 MB |
 | **Compact Blocks** | BIP152 Activated (MSG_CMPCT_BLOCK = 20) | BIP152 Activated (MSG_CMPCT_BLOCK = 20) |
 | **Bootstrap Limit (nAdamBootstrapLimit)** | 2,500 blocks (under `UPGRADE_FAIRNESS`; legacy 44,850) | 100,000 blocks |
-| **Threshold Bootstrap Limit (nAdamThresholdBootstrapLimit)** | 50,000 blocks | 100,000 blocks |
+| **Threshold Bootstrap Limit (nAdamThresholdBootstrapLimit)** | 50,000 blocks (Model D + `UPGRADE_HARDENING_V4` enforces threshold `8` immediately once `>= 8` active MNs exist) | 100,000 blocks |
 | **Dual-Track Quota Height (nAdamDualTrackHeight)** | block 200 (`UPGRADE_ADAM`) | block 200 (`UPGRADE_ADAM`) |
+| **VRF Key Maturity (`ADAM_VRF_KEY_MATURITY`)** | 100 blocks | 100 blocks |
+| **Operator BLS Rotation Cooldown (`nProUpRegCooldownBlocks`)** | 100 blocks (`bad-proupreg-cooldown`) | 100 blocks (`bad-proupreg-cooldown`) |
+| **LLMQ BFT Quorum Threshold (`llmq::GetQuorumThreshold`)** | `floor(2N/3) + 1`: `4-of-5`, `7-of-9`, `8-of-11`, `11-of-15` (`UPGRADE_HARDENING_V4`; pre-V4 `3-of-5..8-of-15`) | `floor(2N/3) + 1`: `4-of-5`, `7-of-9`, `8-of-11`, `11-of-15` (`UPGRADE_HARDENING_V4`; pre-V4 `3-of-5..8-of-15`) |
 | **Coinbase Maturity** | 100 blocks | 15 blocks |
 | **Stake Min Age** | 1 hour (3600 seconds) | 0 seconds |
 | **Stake Min Depth** | 100 blocks | 30 blocks |
 | **Stake Min Depth V2 (`UPGRADE_STAKE_MIN_DEPTH_V2`)** | 600 blocks (from block 5,001) | 30 blocks (from block 5,001) |
 | **Developer Fund Address** | `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` | `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` |
 | **Treasury Governance Spend Height (`nTreasuryGovernanceStartHeight`)** | block 5,000 (7% allocation active from block 2) | block 200 (7% allocation active from block 2) |
+| **UPGRADE_HARDENING_V1 Activation** | block 1 | block 1 (and block 1 Regtest) |
+| **UPGRADE_HARDENING_V2 Activation** | block 1 | block 1 (and block 1 Regtest) |
 | **UPGRADE_DIP3 Activation (KTDIP3, Hot/Cold BLS & Payouts)** | block 1 | block 1 |
 | **UPGRADE_FAIRNESS Activation (Equal Work → Equal Pay & Fair PoS/PoL)** | block 1 | block 1 (and block 1 Regtest) |
+| **UPGRADE_HARDENING_V3 Activation (`"Hardening_v3"`)** | block 1 | block 1 (and block 1 Regtest) |
+| **UPGRADE_HARDENING_V4 Activation (`"Hardening_v4"`)** | block 1 | block 1 (and block 1 Regtest) |
 | **Coordinator V4 Capital Weights (`ADAM_FAIR_COORD_V4`, `4200:250:10`, 75% MN Floor Pre-Model D)** | block 1 (until block 4,999) | block 1 (until block 499) |
 | **Coordinator V5 Capital Weights (`ADAM_FAIR_COORD_V5`, `4200:250:10`, 55% MN Floor)** | block 5,000 (`UPGRADE_MODELD`) | block 500 (`UPGRADE_MODELD`) |
 | **Permanent 0-KRISTA Free Entry (`nAdamOpenEntryHeight`: 1 seat Pre-Model D / 2 seats Model D)** | block 2,500 | block 1 |

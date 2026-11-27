@@ -13,7 +13,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | **Blok Süresi** | ~2.5 dakika | 30 saniye |
 | **ASIC Direnci** | Yok (X11 ASIC'leri ağa hakimdir) | Mimari Düzeyde Tam Koruma (Permütasyonlu Hashing Zinciri) |
 | **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **4200 KRISTA** (Ağ genelinde sabit) |
-| **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine (veya `UPGRADE_DIP3` altında KTDIP3 `blsPubKeyOperator` anahtarına) bağlı Birleştirilmiş BLS12-381 (`blst`) Dinamik BFT Kurul İmzası (`CQuorumSignature`, `3-of-5` -> `8-of-15`) |
+| **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine (veya `UPGRADE_DIP3` altında KTDIP3 `blsPubKeyOperator` anahtarına) bağlı Birleştirilmiş BLS12-381 (`blst`) Dinamik 2/3 BFT Kurul İmzası (`CQuorumSignature`, `UPGRADE_HARDENING_V4` altında `4-of-5`..`11-of-15`) |
 | **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | **%7,0 `DeveloperFund`** (Dinamik BFT LLMQ + Spork Çift İmzalı) |
 | **Akıllı Sözleşmeler** | Yok (Yalnızca Platform katmanında veri şemaları) | **MESCAL** (JSON formatlı Güvenli Sözleşme Dili) |
 | **Yönetişim Kilidi** | Yok (Oylama kazananı doğrudan harcar) | Enforce start height + Spork ve LLMQ Çift Yetkilendirmesi |
@@ -29,7 +29,7 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 * **KRISTA:** Rekabetçi madencilik yerine **ADAM (A Decentralized Approach Model)** algoritmasını ve **Proof-of-Stake (PoS)** modelini entegre eder. Her blok yüksekliğinde, deterministik VRF/PoBLS seçimiyle zincir üstü aktif masternode ve kayıtlı doğrulayıcı havuzundan **Dengeli Model D altında 15 Çift Kulvarlı komite doğrulayıcısı (`8 Aktif MN + 2 Coin-Lock + 3 Fonlu PoW-Lock + 2 Ücretsiz Giriş 0 KRISTA`; Model D öncesinde `11` koltuk `7+1+3`)** ve **1 PoBLS Koordinatörü** seçilir.
   * Seçilen madenciler hafif paralel bulmacaları çözer.
   * Nihai blok başlığı hash'i, seçilen tüm madencilerin işlem çıktılarının ardışık zincirlenmesiyle hesaplanır (Stateless Hashing Chain).
-  * ADAM PoW blokları Koordinatör imzası (`vAdamCoordinatorSig`) ve Dinamik BFT LLMQ Kurul İmzası (`UPGRADE_MODELD` sonrasında `vQuorumSig`, `3-of-5` -> `8-of-15` ölçekli) ile kilitlenirken, İşbirlikçi PoS blokları üçlü yetkilendirme (`vchBlockSig` + `vAdamCoordinatorSig` + `vQuorumSig`) taşır.
+  * ADAM PoW blokları Koordinatör imzası (`vAdamCoordinatorSig`) ve Dinamik 2/3 BFT LLMQ Kurul İmzası (`UPGRADE_MODELD` sonrasında ve `UPGRADE_HARDENING_V4` Blok `1` altında `floor(2N/3) + 1` ile `vQuorumSig`, `4-of-5`..`11-of-15` ölçekli — V4 öncesi `3-of-5..8-of-15` eşiklerinin yerini almıştır) ile kilitlenirken, İşbirlikçi PoS blokları üçlü yetkilendirme (`vchBlockSig` + `vAdamCoordinatorSig` + `vQuorumSig`) taşır.
 
 ### 2. Madencilik Merkeziyetsizliği ve ASIC Direnci
 * **Dash Core:** X11 hashing dizilimi statiktir. Dash'in ekonomik değeri yükseldikçe üreticiler özel ASIC çipleri geliştirmiş ve ağdaki hash gücü endüstriyel madencilik tesislerinde merkezileşmiştir.

@@ -1,6 +1,6 @@
 # KristaTech (KRISTA) — Exchange & Atomic Swap Integration Guide
 
-**Target Node Version:** `v1.5.9.0+` (including `UPGRADE_HARDENING_V3`, active at Block `1`)  
+**Target Node Version:** `v1.5.9.0` (`PROTOCOL_VERSION = 70983`, `MIN_PEER_PROTO_VERSION = 70983`; including `UPGRADE_HARDENING_V4` / `"Hardening_v4"`, active at Block `1` across Mainnet, Testnet, and Regtest)  
 **Scope:** Centralized Exchange (CEX) Custody/Daemon Integration & Non-Custodial Atomic Swap / DEX Integration (`Komodo DeFi Framework` & `BasicSwap DEX`)
 
 ---
@@ -30,7 +30,7 @@
 
 | Upgrade / Milestone | Activation Height | Impact on Exchanges / Integrators |
 |---|---|---|
-| `UPGRADE_HARDENING_V1`, `V2`, `V3`, `UPGRADE_DIP3`, `UPGRADE_FAIRNESS` | `1` | Strict DER ECDSA (`DERSIG`), strict `SIGHASH_DEFAULT = 0` BIP341 Taproot checks, KTDIP3 v2 BLS masternodes |
+| `UPGRADE_HARDENING_V1`, `V2`, `V3`, `V4`, `UPGRADE_DIP3`, `UPGRADE_FAIRNESS` | `1` | Strict DER ECDSA (`DERSIG`), `SCRIPT_VERIFY_TAPROOT_BIP341` (lexicographical `ComputeTapBranchHash` `memcmp`, strict `SIGHASH_DEFAULT = 0`, BIP341 Tapscript sighash for 33/65-byte ECDSA keys, Schnorr sigcache, base `SCRIPT_VERIFY_NULLFAIL`), `bad-cs-in-pow` PoW CoinStake ban, KTDIP3 v2 BLS masternodes (`100`-block `ProUpRegTx` cooldown), LLMQ 2/3 BFT supermajority (`4-of-5`..`11-of-15`) |
 | `UPGRADE_POS`, `UPGRADE_BIP65`, `UPGRADE_TIME_PROTOCOL_V2`, `UPGRADE_ADAM` | `200` | PoS blocks + `OP_CHECKLOCKTIMEVERIFY` (`BIP65`) + ADAM cooperative PoW committee |
 | `UPGRADE_POMBL` | `4,800` | BLS LLMQ quorums active |
 | `UPGRADE_MODELD` | `5,000` | Full Model D block reward distribution active |
@@ -94,8 +94,10 @@ Coins sent to these addresses are permanently removed from spendable supply (`Is
    - `MAX_STANDARD_TX_SIZE` is `150,000` bytes; exchanges consolidating large numbers of small deposits must keep each raw transaction strictly under `150,000` bytes (and consider `<= 100,000` bytes for conservative margin).
 
 2. **Taproot (`kt1p...`) Withdrawals & Deposits:**
-   - Under `UPGRADE_HARDENING_V3` (`Height >= 1`), `TX_WITNESS_V1_TAPROOT` verifies strict BIP340/BIP341 sighashes (`SIGHASH_DEFAULT = 0`), delivered in `scriptSig` (because KRISTA does not serialize a separate SegWit witness field).
+   - Under `UPGRADE_HARDENING_V4` (`Height >= 1`), `TX_WITNESS_V1_TAPROOT` enforces `SCRIPT_VERIFY_TAPROOT_BIP341`: strict BIP340/BIP341 sighashes (`SIGHASH_DEFAULT = 0`), lexicographical `ComputeTapBranchHash` (`std::memcmp`) Merkle branch sorting, Schnorr sigcache (`VerifySchnorrSignature`, `'S'` domain), and `SCRIPT_VERIFY_NULLFAIL` on base `OP_CHECKSIG`, delivered in `scriptSig` (because KRISTA does not serialize a separate SegWit witness field). Inside `SIGVERSION_TAPSCRIPT` leaf scripts, 33/65-byte ECDSA keys also compute the **BIP341 Tapscript sighash (`SignatureHashTaproot(..., SIGVERSION_TAPSCRIPT, ...)`)** requiring `m_spent_outputs_ready` (no longer routed to `SIGVERSION_BASE`).
    - **CEX Best Practice:** Issue **P2PKH (`KT...`)** deposit addresses and store hot/cold custody in **P2PKH (`KT...`)** or **P2SH multisig (`7...`)**. Support **withdrawals** to both `KT...`, `7...`, and `kt1p...` by validating destination addresses with `validateaddress` (`isvalid == true`) and constructing/signing withdrawals via `kristatechd` RPC or BIP174 PSBT (`createpsbt` / `utxoupdatepsbt` / `combinepsbt` / `finalizepsbt`).
+3. **BIP174 PSBT Hardening:**
+   - PSBT serialization, deserialization, and RPC handlers (`createpsbt`, `combinepsbt`, `finalizepsbt`, etc.) enforce a hard **`4096` input/output cap**, reject mixing `witness_utxo` and `non_witness_utxo` or conflicting UTXO metadata in `PSBTInput::Merge`, enforce `64`- or `65`-byte `PSBT_IN_TAP_KEY_SIG` lengths, and support hardened Taproot key-path and P2SH multisig partial signing/finalization.
 
 ---
 
@@ -146,6 +148,8 @@ maxtxfee=1.0
 ```
 
 > **Note:** Legacy Bitcoin `account` RPCs (`getaccount`, `getaccountaddress`, `listaccounts`, `sendfrom`) are deprecated and disabled by default. Use address labels (`getnewaddress "<label>"`, `getaddressesbylabel`, `listsinceblock`, `listunspent`) and `sendtoaddress` / `sendmany` / `createrawtransaction` / PSBT workflows.
+
+> **HTTP `Host` Header Allowlist (DNS-Rebinding Protection):** `IsAllowedHTTPRequestHost()` (`src/httpserver.cpp`) returns `403 Forbidden` for untrusted HTTP `Host` headers outside `localhost`, numeric IPv4/IPv6 literals, or explicitly configured `-rpcbind` hostnames. If your exchange accesses RPC/REST behind a reverse proxy or internal hostname, ensure the forwarded `Host` header matches an explicit `-rpcbind=<hostname>` entry or connects via numeric IP / `localhost`.
 
 ### 5.3 Confirmation & Reorg Policy Recommendations
 
@@ -243,7 +247,7 @@ Standard `mm2` `coins` JSON historically expects single-byte `pubtype` / `p2shty
 
 Before approaching Tier-2/Tier-3 CEXs or submitting PRs to DEX coin registries:
 
-1. **Zero Chain Resets:** Commit to permanent, uninterrupted Mainnet continuity post-`UPGRADE_HARDENING_V3`.
+1. **Zero Chain Resets:** Commit to permanent, uninterrupted Mainnet continuity post-`UPGRADE_HARDENING_V4`.
 2. **Reproducible Release Artifacts:** Publish signed GitHub Releases (`v1.5.9.x`+) with Linux x86_64 binaries (`kristatechd`, `kristatech-cli`, `kristatech-tx`), `SHA256SUMS`, and an official `Dockerfile`.
 3. **Redundant Public Infrastructure:**
    - Maintain 4 stable DNS Seed full nodes (`seed1`–`seed4`).

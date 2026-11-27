@@ -89,4 +89,4 @@ Only supports JSON as output format.
 
 Risks
 -------------
-Running a web browser on the same node with a REST enabled kristatechd can be a risk. Accessing prepared XSS websites could read out tx/block data of your node by placing links like `<script src="http://127.0.0.1:27979/rest/tx/1234567890.json">` which might break the nodes privacy.
+`kristatechd` enforces HTTP `Host` header allowlist validation (`IsAllowedHTTPRequestHost()` in `src/httpserver.cpp`), returning `403 Forbidden` for untrusted `Host` headers outside `localhost`, numeric IPv4/IPv6 literals, or explicitly configured `-rpcbind` hostnames to defend against browser DNS-rebinding attacks. However, direct localhost access still presents risks: running a web browser on the same node with a REST-enabled `kristatechd` allows prepared XSS websites to read tx/block data by placing links like `<script src="http://127.0.0.1:27979/rest/tx/1234567890.json">`, which might break the node's privacy.

@@ -47,7 +47,7 @@
      Where $\alpha = 0.25$ under `UPGRADE_FAIRNESS` (yielding up to `1.25x` / `+25%` uptime loyalty weight, vs historical pre-Fairness $\alpha = 1.0$ / `2x`) and $T_{\text{MAX}}$ (`nMasternodeUptimeLimit`) is **100,000 blocks** on Mainnet (**10,000 blocks** on Testnet/Regtest).
 
 2) LLMQ Quorum Signatures:
-   The consensus leverages a deterministic dynamic Long-Living Masternode Quorum (LLMQ) using a **Hybrid BLS12-381 + secp256k1** signature architecture (`CBLSSignedData` and `CQuorumSignature::AggregateBLSSignatures`, scaling dynamically via `GetTargetQuorumSize` from `5` to `9`, `11`, or `15` members by active Masternode count). Members are selected deterministically using the rolling VRF seed and sign block headers (populating `vQuorumSig` with a strict dynamic $\lfloor N/2 \rfloor + 1$ BFT majority — `3-of-5`, `5-of-9`, `6-of-11`, or `8-of-15` — in version 12 blocks once Model D is active).
+   The consensus leverages a deterministic dynamic Long-Living Masternode Quorum (LLMQ) using a **Hybrid BLS12-381 + secp256k1** signature architecture (`CBLSSignedData` and `CQuorumSignature::AggregateBLSSignatures`, scaling dynamically via `GetTargetQuorumSize` from `5` to `9`, `11`, or `15` members by active Masternode count). Members are selected deterministically using the rolling VRF seed and sign block headers (populating `vQuorumSig` with a strict dynamic $\lfloor 2N/3 \rfloor + 1$ BFT supermajority via `llmq::GetQuorumThreshold(N, h)` under `UPGRADE_HARDENING_V4` Height `1` — `4-of-5`, `7-of-9`, `8-of-11`, or `11-of-15`, superseding pre-V4 $\lfloor N/2 \rfloor + 1$ `3-of-5..8-of-15` — in version 12 blocks once Model D is active).
 
 **General Procedure/Approach (ADAM + MPA)**
 

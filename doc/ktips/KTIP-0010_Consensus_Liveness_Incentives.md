@@ -46,7 +46,7 @@ Let $\Delta t = \text{block.nTime} - \text{pindexPrev->GetBlockTime()}$ be the e
 ---
 
 ### 3. Time-Relaxed Quorum Threshold ($t \ge 120\text{s}$)
-If the committee still cannot reach the baseline threshold $T_0 = \text{GetAdamThreshold}(H)$ after standby handover begins, `GetAdamEffectiveThreshold(nHeight, nElapsedSecs, nActiveMasternodes)` (`src/consensus/params.h`) relaxes the threshold by `1` every `60 seconds` starting at $\Delta t = 120\text{s}$:
+If the committee still cannot reach the baseline threshold $T_0 = \text{GetAdamThreshold}(H, nActiveMasternodes)$ (which under Balanced Model D + `UPGRADE_HARDENING_V4` Height `1` already enforces `8` during bootstrap on Mainnet / Regtest once `nActiveMasternodes >= 8`, falling back to `5` only while active MNs `< 8`, or `3` on Testnet) after standby handover begins, `GetAdamEffectiveThreshold(nHeight, nElapsedSecs, nActiveMasternodes)` (`src/consensus/params.h`) relaxes the threshold by `1` every `60 seconds` starting at $\Delta t = 120\text{s}$:
 
 $$
 T_{\text{eff}}(H, \Delta t) = \max\left(\min(T_0, T_{\min}), T_0 - \left(\left\lfloor \frac{\Delta t - 120}{60} \right\rfloor + 1\right)\right) \quad (\Delta t \ge 120\text{s})
@@ -71,7 +71,7 @@ Under `UPGRADE_FAIRNESS` (Height `1`) & Balanced Model D (`FillBlockPayee` and `
    \end{cases}
    $$
 
-   Every seat $i \in \lbrace 0, \dots, M - 1 \rbrace$ (`0..14` under Model D, `0..10` Pre-Model D) with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, mandatory 33-byte compressed pubkey, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]` (`0.6324 KRISTA` in Period 0 under Model D with `0` satoshi remainder when `15/15` solve) regardless of MN, Coin-Lock, or Open-PoW track, while the rescue Coordinator retains its full **25%** share (**22%** Staker + **3%** Coordinator in PoS under Model D; **20%** Staker + **5%** Coordinator Pre-Model D) since primary Coordinator exclusivity expires at $\Delta t = 45\text{s}$ and LLMQ enforces the `qblockprop` anti-substitution veto.
+   Every seat $i \in \lbrace 0, \dots, M - 1 \rbrace$ (`0..14` under Model D, `0..10` Pre-Model D) with a non-empty valid solution (`!block.vAdamSolutions[i].empty()`, mandatory 33-byte compressed pubkey, whether primary or legitimate same-track standby at $\Delta t \ge 60\text{s}$) receives `nPartPaymentPerSeat[i]` (`0.6324 KRISTA` in Period 0 under Model D with `0` satoshi remainder when `15/15` solve) regardless of MN, Coin-Lock, or Open-PoW track, while the rescue Coordinator retains its full **25%** share (**22%** Staker + **3%** Coordinator in PoS under Model D; **20%** Staker + **5%** Coordinator Pre-Model D) since primary Coordinator exclusivity expires at $\Delta t = 45\text{s}$ and LLMQ enforces the `qblockprop` anti-substitution and `5s` primary omission vetoes.
 2. **Unsolved Seats & Unclaimed Shares**:
    Every empty placeholder seat (`block.vAdamSolutions[i].empty()`) receives **0%**, and its unclaimed seat share is added to `nUnclaimedPartSplit`.
 3. **50/50 Automatic Protocol Burn & Developer Treasury Split**:
@@ -83,12 +83,15 @@ Under `UPGRADE_FAIRNESS` (Height `1`) & Balanced Model D (`FillBlockPayee` and `
 
 ---
 
-### 5. LLMQ `qblockprop` Anti-Substitution Veto & `ActiveProposalGuard`
-1. **LLMQ `qblockprop` Anti-Substitution Veto (`src/main.cpp`)**:
+### 5. LLMQ `qblockprop` Anti-Substitution / `5s` Omission Veto, `M-4` PoSe Fairness & `ActiveProposalGuard`
+1. **LLMQ `qblockprop` Anti-Substitution & R35-1 `5s` Primary Omission Veto (`src/net_processing.cpp`)**:
    - Evaluated only when the LLMQ member's active chain tip matches `msg.block.hashPrevBlock` (`pProposalView != nullptr`).
    - At $\Delta t \ge 60\text{s}$, if a proposal substitutes seat $i$ (`msg.block.vAdamMiners[i] != vExpectedMiners[i]`) and the LLMQ member already holds a valid cached solution from `vExpectedMiners[i]` in `mapAdamSolutionsCache`, the LLMQ member vetoes the proposal.
-   - Empty primary seats (`msg.block.vAdamMiners[i] == vExpectedMiners[i]`) are never vetoed so in-flight P2P solutions never delay fast blocks.
-2. **Node-Wide Single-Block-Per-Parent Guard (`ActiveProposalGuard` in `src/miner.cpp`)**:
+   - **R35-1 `5s` Primary Omission Veto (`mapAdamSolutionFirstSeen`)**: If a proposal leaves an expected primary seat empty (`msg.block.vAdamMiners[i] == vExpectedMiners[i] && msg.block.vAdamSolutions[i].empty()`), LLMQ members veto the proposal whenever they hold a valid cached solution for `vExpectedMiners[i]` in `mapAdamSolutionsCache` whose first-seen timestamp in `mapAdamSolutionFirstSeen` is **`>= 5s`** old (`nowVeto - itFirstSeen->second >= 5`; solutions seen `< 5s` ago are tolerated so in-flight P2P propagation never stalls fast blocks). *(Pre-V4 historical behavior: empty primary seats were previously never vetoed.)*
+2. **`M-4` PoSe Fairness (`UPGRADE_HARDENING_V4`, Height `1` in `src/evo/deterministicmns.cpp`)**:
+   - Silent primary ADAM committee members displaced by standby substitution (`block.vAdamMiners[i] != vExpectedMiners[i]`) accrue **`+5` PoSe** (alongside `+5` PoSe when a primary Coordinator misses its slot).
+   - LLMQ quorum signing grants `-5` PoSe recovery, while LLMQ non-signing no longer accrues `+5` PoSe punishment (replacing pre-V4 `-5/+5` LLMQ omission penalties).
+3. **Node-Wide Single-Block-Per-Parent Guard (`ActiveProposalGuard` in `src/miner.cpp`)**:
    - Tracks in-flight (`mapInFlightParentCoord`) and completed (`mapProducedParentCoord`) block proposals per `(parentHash, coordKey)` across all block versions (`v11` and `v12`) with non-destructive FIFO/age eviction (`PruneParentCoordMap`), preventing any node from producing both a PoW and PoS block on the same parent.
 
 ## Backward Compatibility
@@ -98,4 +101,4 @@ Under `UPGRADE_FAIRNESS` (Height `1`) & Balanced Model D (`FillBlockPayee` and `
 * Standby handover & track validation: `ResolveAdamCommitteeForTime` and `ValidateAdamCommitteeForTime` in `src/adam.cpp`.
 * Time-relaxed threshold: `GetAdamEffectiveThreshold` in `src/consensus/params.h`.
 * Equal-work payouts & 50% automatic protocol burn / 50% treasury split: `FillBlockPayee` and `IsBlockPayeeValid` in `src/masternode-payments.cpp`.
-* LLMQ substitution veto & single-proposal guard: `src/main.cpp` and `src/miner.cpp`.
+* LLMQ anti-substitution & `5s` omission veto, `M-4` PoSe fairness, & single-proposal guard: `src/net_processing.cpp`, `src/evo/deterministicmns.cpp`, `src/main.cpp`, and `src/miner.cpp`.

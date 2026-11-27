@@ -21,11 +21,15 @@ The **DECENOMY** core, which KristaTech is based on, natively supports running *
 ## 2. Controller Storage (`wallet.dat`) & Hot Configuration Files
 
 ### A. Cold Wallet (Controller / Host) — Inside `wallet.dat` (`mnmeta` + `protx`)
-Cold controller metadata (aliases, `IP:port`, 15-confirmation pending drafts, and encrypted operator keys) is stored natively inside encrypted `wallet.dat` (`mnmeta` records). No manual `masternode.conf` editing is needed (existing `masternode.conf` files are automatically migrated once into `wallet.dat` and archived as `masternode.conf.migrated` with `0600` permissions):
+Cold controller metadata (aliases, `IP:port`, 15-confirmation pending drafts, and encrypted operator keys) is stored natively inside encrypted `wallet.dat` (`mnmeta` records). No manual `masternode.conf` editing is needed (existing `masternode.conf` files are automatically migrated once into `wallet.dat` and archived as `masternode.conf.migrated` with `0600` permissions and plaintext WIF keys redacted as `***REDACTED***`):
 
 ```bash
-# Register multiple nodes sharing one VPS IP directly on-chain (or via GUI Create Masternode Controller)
-protx register <MN1_TXID> 1 203.0.113.10:27999 <MN1_OWNER_ADDR> <MN1_BLS_PUB> <MN1_VOTE_ADDR> 0 <MN1_PAYOUT_ADDR>
+# Generate Hot operator BLS keypair & Proof-of-Possession (blsPoP required for ProRegTx v2 from Height 1):
+# protx bls_generate  -> {"secret": "...", "public": "<MN1_BLS_PUB>", "pop": "<MN1_BLS_POP>"}
+# Register multiple nodes sharing one VPS IP directly on-chain:
+# - GUI Wizard Step 3: paste <MN1_BLS_PUB>:<MN1_BLS_POP> into Operator BLS Public Key
+# - CLI/RPC: pass <MN1_BLS_PUB> as arg 5 and <MN1_BLS_POP> as arg 9 (optional if operator key is local in wallet.dat)
+protx register <MN1_TXID> 1 203.0.113.10:27999 <MN1_OWNER_ADDR> <MN1_BLS_PUB> <MN1_VOTE_ADDR> 0 <MN1_PAYOUT_ADDR> <MN1_BLS_POP>
 protx set_alias <MN1_TXID>:1 mn1_203
 protx wallet_list
 ```

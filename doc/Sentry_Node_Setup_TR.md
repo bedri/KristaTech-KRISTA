@@ -64,7 +64,7 @@ masternode=1
 ```
 
 > [!NOTE]
-> Masternode anahtarları, tek IP üzerinde çoklu masternode (multi-masternode) desteği için `activemasternode.conf` üzerinden yönetilir (`kristatech.conf` içine `masternodeprivkey` yazılmaz). KRISTA konsensüsü aktif Masternode'ları **KTDIP3** (`UPGRADE_DIP3`, Mainnet & Testnet Blok `1`'den itibaren aktif; `evodb`, harcanmamış `4.200 KRISTA` teminatlı `ProRegTx` ve saf operatör `blsPubKeyOperator` konsensüs imzası) üzerinden %100 zincir üstü deterministik olarak takip ettiğinden, gizli Masternode'unuz gerçek IP adresini hiç ifşa etmeden dışa doğru Sentry bağlantısı üzerinden ADAM komitelerine, PoS ortak imzalamaya ve dinamik BFT LLMQ kurullarına (`5 -> 9 -> 11 -> 15`) kesintisiz katılır.
+> Masternode anahtarları, tek IP üzerinde çoklu masternode (multi-masternode) desteği için `activemasternode.conf` üzerinden yönetilir (`kristatech.conf` içine `masternodeprivkey` yazılmaz). KRISTA konsensüsü aktif Masternode'ları **KTDIP3** (`UPGRADE_DIP3`, Mainnet & Testnet Blok `1`'den itibaren aktif; `evodb`, harcanmamış `4.200 KRISTA` teminatlı `ProRegTx` ve saf operatör `blsPubKeyOperator` konsensüs imzası) üzerinden %100 zincir üstü deterministik olarak takip ettiğinden, gizli Masternode'unuz gerçek IP adresini hiç ifşa etmeden dışa doğru Sentry bağlantısı üzerinden ADAM komitelerine, PoS ortak imzalamaya ve dinamik 2/3 BFT LLMQ kurullarına (`UPGRADE_HARDENING_V4` Blok `1` altında `5 -> 9 -> 11 -> 15` üye ölçeğinde `4-of-5`..`11-of-15`, V4 öncesi `3-of-5..8-of-15` eşiklerinin yerini almıştır) kesintisiz katılır.
 
 Düğümü başlatın:
 ```bash
