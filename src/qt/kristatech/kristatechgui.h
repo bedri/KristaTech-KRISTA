@@ -67,6 +67,7 @@ Q_SIGNALS:
     void windowResizeEvent(QResizeEvent* event);
 public Q_SLOTS:
     void changeTheme(bool isLightTheme);
+    void setPinAdvancedTabs(bool pin);
     void goToDashboard();
     void goToSend();
     void goToSendWithAddress(const QString& address, const QString& label = QString());

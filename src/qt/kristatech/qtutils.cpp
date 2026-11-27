@@ -289,6 +289,17 @@ void setTheme(bool isLight)
     settings->setValue("lightTheme", isLight);
 }
 
+bool isPinAdvancedTabs()
+{
+    return getSettings()->value("bPinAdvancedTabs", false).toBool();
+}
+
+void setPinAdvancedTabs(bool pin)
+{
+    QSettings* settings = getSettings();
+    settings->setValue("bPinAdvancedTabs", pin);
+}
+
 
 // Style
 

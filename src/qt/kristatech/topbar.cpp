@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <set>
 
+#include <QAction>
 #include <QApplication>
 #include <QFontMetrics>
 #include <QKeyEvent>
@@ -64,7 +65,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     connect(imgLogo, &QPushButton::clicked, this, &TopBar::onDashboardClicked);
     ui->horizontalLayout_4->insertWidget(0, imgLogo, 0, Qt::AlignVCenter);
 
-    // Create 8-tab single-line navigation layout & buttons
+    // Create top navigation layout & buttons
     QHBoxLayout* navLayout = new QHBoxLayout();
     navLayout->setSpacing(2);
     navLayout->setContentsMargins(0, 0, 4, 0);
@@ -77,7 +78,19 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     btnMaster = new QToolButton(this);
     btnAddresses = new QToolButton(this);
     btnStats = new QToolButton(this);
+    btnMore = new QToolButton(this);
     btnSettings = new QToolButton(this);
+
+    btnDashboard->setObjectName("btnNavDashboard");
+    btnSend->setObjectName("btnNavSend");
+    btnReceive->setObjectName("btnNavReceive");
+    btnMinerHub->setObjectName("btnNavMinerHub");
+    btnSmartContract->setObjectName("btnNavSmartContract");
+    btnMaster->setObjectName("btnNavMaster");
+    btnAddresses->setObjectName("btnNavAddresses");
+    btnStats->setObjectName("btnNavStats");
+    btnMore->setObjectName("btnNavMore");
+    btnSettings->setObjectName("btnNavSettings");
 
     navBtns = {
         btnDashboard,
@@ -88,6 +101,7 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         btnMaster,
         btnAddresses,
         btnStats,
+        btnMore,
         btnSettings
     };
 
@@ -103,6 +117,8 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     btnAddresses->setToolTip(tr("Saved Contacts & Address Book"));
     btnStats->setText(tr("STATS"));
     btnStats->setToolTip(tr("Wallet, Rewards, Consensus & Network Statistics"));
+    btnMore->setText(tr("MORE %1").arg(QString::fromUtf8("\xE2\x96\xBE")));
+    btnMore->setToolTip(tr("Masternodes, Smart Contracts, and Network Stats"));
     btnSettings->setText(tr("SETTINGS"));
 
     for (QToolButton* btn : navBtns) {
@@ -116,6 +132,15 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         navLayout->addWidget(btn, 0, Qt::AlignVCenter);
     }
 
+    moreMenu = new QMenu(this);
+    moreMenu->setObjectName("topBarMoreMenu");
+    actMoreMaster = moreMenu->addAction(tr("Masternodes (4,200 KRISTA)"));
+    actMoreMaster->setObjectName("actMoreMasternodes");
+    actMoreSmartContract = moreMenu->addAction(tr("Smart Contracts (Time-Lock && Multi-Sig)"));
+    actMoreSmartContract->setObjectName("actMoreSmartContracts");
+    actMoreStats = moreMenu->addAction(tr("Network Stats (Charts && Rewards)"));
+    actMoreStats->setObjectName("actMoreStats");
+
     connect(btnDashboard, &QToolButton::clicked, this, &TopBar::onDashboardClicked);
     connect(btnSend, &QToolButton::clicked, this, &TopBar::onSendClicked);
     connect(btnReceive, &QToolButton::clicked, this, &TopBar::onReceiveClicked);
@@ -124,11 +149,17 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     connect(btnMaster, &QToolButton::clicked, this, &TopBar::onMasterClicked);
     connect(btnAddresses, &QToolButton::clicked, this, &TopBar::onAddressesClicked);
     connect(btnStats, &QToolButton::clicked, this, &TopBar::onStatsClicked);
+    connect(btnMore, &QToolButton::clicked, this, &TopBar::onMoreClicked);
     connect(btnSettings, &QToolButton::clicked, this, &TopBar::onSettingsClicked);
 
+    connect(actMoreMaster, &QAction::triggered, this, &TopBar::onMasterClicked);
+    connect(actMoreSmartContract, &QAction::triggered, this, &TopBar::onSmartContractClicked);
+    connect(actMoreStats, &QAction::triggered, this, &TopBar::onStatsClicked);
+
     ui->horizontalLayout_4->insertLayout(1, navLayout);
-    onNavSelected(btnDashboard);
-    updateNavButtonWidths();
+    updateMoreMenuStyle();
+    m_activeTabName = QStringLiteral("dash");
+    setAdvancedTabsPinned(isPinAdvancedTabs());
 
     /* Containers */
     ui->containerTop->setContentsMargins(6, 4, 6, 4);
@@ -248,12 +279,12 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
         btnSyncStatusBox->setFocusPolicy(Qt::NoFocus);
         btnSyncStatusBox->setCursor(Qt::PointingHandCursor);
         btnSyncStatusBox->installEventFilter(this);
-        connect(btnSyncStatusBox, &QPushButton::clicked, [this]() { window->goToSettingsInfo(); });
+        connect(btnSyncStatusBox, &QPushButton::clicked, [this]() { if (window) window->goToSettingsInfo(); });
         const int syncIdx = ui->horizontalLayout_4->indexOf(ui->layoutSync);
         ui->horizontalLayout_4->insertWidget(syncIdx >= 0 ? syncIdx : 0, btnSyncStatusBox, 0, Qt::AlignVCenter);
 
         // Persistent, hover-driven Sync Info popup anchored below btnSyncStatusBox (closes on mouseout, never times out while hovered)
-        syncInfoPopup = new QFrame(window);
+        syncInfoPopup = new QFrame(window ? static_cast<QWidget*>(window) : static_cast<QWidget*>(this));
         syncInfoPopup->setObjectName("syncInfoPopup");
         syncInfoPopup->setFrameShape(QFrame::StyledPanel);
         syncInfoPopup->installEventFilter(this);
@@ -335,9 +366,9 @@ TopBar::TopBar(KRISTATECHGUI* _mainWindow, QWidget* parent) : PWidget(_mainWindo
     connect(ui->pushButtonMasternodes, &ExpandableButton::Mouse_Pressed, this, &TopBar::onBtnMasternodesClicked);
     connect(ui->pushButtonSync, &ExpandableButton::Mouse_HoverLeave, this, &TopBar::refreshProgressBarSize);
     connect(ui->pushButtonSync, &ExpandableButton::Mouse_Hover, this, &TopBar::refreshProgressBarSize);
-    connect(ui->pushButtonSync, &ExpandableButton::Mouse_Pressed, [this]() { window->goToSettingsInfo(); });
-    connect(ui->pushButtonConsole, &ExpandableButton::Mouse_Pressed, [this]() { window->goToDebugConsole(); });
-    connect(ui->pushButtonConnection, &ExpandableButton::Mouse_Pressed, [this]() { window->showPeers(); });
+    connect(ui->pushButtonSync, &ExpandableButton::Mouse_Pressed, [this]() { if (window) window->goToSettingsInfo(); });
+    connect(ui->pushButtonConsole, &ExpandableButton::Mouse_Pressed, [this]() { if (window) window->goToDebugConsole(); });
+    connect(ui->pushButtonConnection, &ExpandableButton::Mouse_Pressed, [this]() { if (window) window->showPeers(); });
 
     refreshStatus();
 }
@@ -1211,10 +1242,100 @@ void TopBar::onError(QString error, int type)
     }
 }
 
+bool TopBar::isAdvancedTabName(const QString& name)
+{
+    return name == QLatin1String("smartcontract")
+        || name == QLatin1String("master")
+        || name == QLatin1String("stats");
+}
+
+void TopBar::setAdvancedTabsPinned(bool pinned)
+{
+    m_advancedTabsPinned = pinned;
+    if (btnSmartContract) btnSmartContract->setVisible(pinned);
+    if (btnMaster) btnMaster->setVisible(pinned);
+    if (btnStats) btnStats->setVisible(pinned);
+    if (btnMore) btnMore->setVisible(!pinned);
+    selectTab(m_activeTabName);
+}
+
+void TopBar::updateMoreMenuStyle()
+{
+    if (!moreMenu) return;
+    const bool light = isLightTheme();
+    moreMenu->setStyleSheet(QString(
+        "QMenu { background-color: %1; color: %2; border: 1px solid #7695CD; border-radius: 6px; padding: 4px; }"
+        "QMenu::item { padding: 8px 20px 8px 14px; border-radius: 4px; font-size: 13px; }"
+        "QMenu::item:selected { background-color: %3; color: %4; font-weight: bold; }"
+        "QMenu::separator { height: 1px; background-color: %5; margin: 4px 8px; }"
+    ).arg(light ? "#FFFFFF" : "#131B2E",
+          light ? "#1C2B45" : "#E2E8F0",
+          light ? "rgba(245, 137, 124, 0.18)" : "rgba(245, 137, 124, 0.22)",
+          light ? "#1C2B45" : "#FFFFFF",
+          light ? "#E2E8F0" : "#4E6178"));
+
+    QFont measureFont = moreMenu->font();
+    measureFont.setPixelSize(13);
+    measureFont.setBold(true);
+    const QFontMetrics fm(measureFont);
+    const QString checkPrefix = QString::fromUtf8("\xE2\x9C\x93 ");
+    int maxTextWidth = 0;
+    for (QAction* act : moreMenu->actions()) {
+        if (act && !act->isSeparator()) {
+            QString displayLabel = act->text();
+            displayLabel.replace(QLatin1String("&&"), QLatin1String("&"));
+            if (!displayLabel.startsWith(checkPrefix)) {
+                displayLabel.prepend(checkPrefix);
+            }
+            maxTextWidth = std::max(maxTextWidth, fm.boundingRect(displayLabel).width());
+        }
+    }
+    moreMenu->setMinimumWidth(maxTextWidth + 52);
+}
+
+void TopBar::updateMoreMenuState()
+{
+    const QString checkPrefix = QString::fromUtf8("\xE2\x9C\x93 ");
+    auto applyItemState = [&](QAction* act, const QString& baseText, bool active) {
+        if (!act) return;
+        act->setText(active ? (checkPrefix + baseText) : baseText);
+        QFont f = act->font();
+        f.setBold(active);
+        act->setFont(f);
+    };
+
+    const bool masterActive = (m_activeTabName == QLatin1String("master"));
+    const bool contractActive = (m_activeTabName == QLatin1String("smartcontract"));
+    const bool statsActive = (m_activeTabName == QLatin1String("stats"));
+
+    applyItemState(actMoreMaster, tr("Masternodes (4,200 KRISTA)"), masterActive);
+    applyItemState(actMoreSmartContract, tr("Smart Contracts (Time-Lock && Multi-Sig)"), contractActive);
+    applyItemState(actMoreStats, tr("Network Stats (Charts && Rewards)"), statsActive);
+
+    if (btnMore) {
+        const QString emDash = QString::fromUtf8("\xE2\x80\x94");
+        if (masterActive) {
+            btnMore->setToolTip(tr("More %1 Masternodes active").arg(emDash));
+        } else if (contractActive) {
+            btnMore->setToolTip(tr("More %1 Smart Contracts active").arg(emDash));
+        } else if (statsActive) {
+            btnMore->setToolTip(tr("More %1 Network Stats active").arg(emDash));
+        } else {
+            btnMore->setToolTip(tr("Masternodes, Smart Contracts, and Network Stats"));
+        }
+    }
+}
+
 void TopBar::selectTab(QString name)
 {
+    if (!name.isEmpty()) {
+        m_activeTabName = name;
+    }
+
     QToolButton* target = nullptr;
-    if (name == "dash") target = btnDashboard;
+    if (!m_advancedTabsPinned && isAdvancedTabName(name)) {
+        target = btnMore;
+    } else if (name == "dash") target = btnDashboard;
     else if (name == "send") target = btnSend;
     else if (name == "receive") target = btnReceive;
     else if (name == "minerhub") target = btnMinerHub;
@@ -1224,56 +1345,66 @@ void TopBar::selectTab(QString name)
     else if (name == "stats") target = btnStats;
     else if (name == "settings") target = btnSettings;
 
-    if (target) {
-        onNavSelected(target);
-    } else {
-        onNavSelected(nullptr);
-    }
+    updateMoreMenuState();
+    onNavSelected(target);
 }
 
 void TopBar::onDashboardClicked() {
-    window->goToDashboard();
-    onNavSelected(btnDashboard);
+    if (window) window->goToDashboard();
+    selectTab(QStringLiteral("dash"));
 }
 
 void TopBar::onSendClicked() {
-    window->goToSend();
-    onNavSelected(btnSend);
+    if (window) window->goToSend();
+    selectTab(QStringLiteral("send"));
 }
 
 void TopBar::onReceiveClicked() {
-    window->goToReceive();
-    onNavSelected(btnReceive);
+    if (window) window->goToReceive();
+    selectTab(QStringLiteral("receive"));
 }
 
 void TopBar::onMinerHubClicked() {
-    window->goToMinerHub();
-    onNavSelected(btnMinerHub);
+    if (window) window->goToMinerHub();
+    selectTab(QStringLiteral("minerhub"));
 }
 
 void TopBar::onSmartContractClicked() {
-    window->goToSmartContract();
-    onNavSelected(btnSmartContract);
+    if (window) window->goToSmartContract();
+    selectTab(QStringLiteral("smartcontract"));
 }
 
 void TopBar::onMasterClicked() {
-    window->goToMasterNodes();
-    onNavSelected(btnMaster);
+    if (window) window->goToMasterNodes();
+    selectTab(QStringLiteral("master"));
 }
 
 void TopBar::onAddressesClicked() {
-    window->goToAddresses();
-    onNavSelected(btnAddresses);
+    if (window) window->goToAddresses();
+    selectTab(QStringLiteral("address"));
 }
 
 void TopBar::onStatsClicked() {
-    window->goToStats();
-    onNavSelected(btnStats);
+    if (window) window->goToStats();
+    selectTab(QStringLiteral("stats"));
+}
+
+void TopBar::onMoreClicked()
+{
+    if (!btnMore || !moreMenu) return;
+    const bool keepChecked = (!m_advancedTabsPinned && isAdvancedTabName(m_activeTabName));
+    btnMore->setChecked(keepChecked);
+
+    updateMoreMenuState();
+    updateMoreMenuStyle();
+    moreMenu->exec(btnMore->mapToGlobal(QPoint(0, btnMore->height() + 4)));
+
+    btnMore->setChecked(!m_advancedTabsPinned && isAdvancedTabName(m_activeTabName));
 }
 
 void TopBar::onSettingsClicked() {
-    window->goToSettings();
-    onNavSelected(btnSettings);
+    if (window) window->goToSettings();
+    selectTab(QStringLiteral("settings"));
 }
 
 void TopBar::updateNavButtonWidths()
@@ -1298,6 +1429,7 @@ void TopBar::updateNavButtonWidths()
 void TopBar::changeTheme(bool isLightTheme, QString& theme)
 {
     updateTopBalancePillStyle();
+    updateMoreMenuStyle();
     onNavSelected(nullptr);
     if (ui->pushButtonTheme) {
         if (isLightTheme) {
@@ -1346,6 +1478,7 @@ void TopBar::onNavSelected(QToolButton* active)
         btnMaster,
         btnAddresses,
         btnStats,
+        btnMore,
         btnSettings
     });
     updateNavButtonWidths();
@@ -1404,7 +1537,7 @@ bool TopBar::eventFilter(QObject* obj, QEvent* event)
         QMouseEvent* mouseEvent = static_cast<QMouseEvent*>(event);
         if (mouseEvent->button() == Qt::LeftButton) {
             if (obj == lblSyncPopupText) {
-                window->goToSettingsInfo();
+                if (window) window->goToSettingsInfo();
                 return true;
             }
             if (obj == ui->widgetMasternodesSummary) {

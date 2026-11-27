@@ -716,6 +716,13 @@ void KRISTATECHGUI::changeTheme(bool isLightTheme)
     this->update();
 }
 
+void KRISTATECHGUI::setPinAdvancedTabs(bool pin)
+{
+    if (topBar) {
+        topBar->setAdvancedTabsPinned(pin);
+    }
+}
+
 void KRISTATECHGUI::resizeEvent(QResizeEvent* event)
 {
     // Parent..

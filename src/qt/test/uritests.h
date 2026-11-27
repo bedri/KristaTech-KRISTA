@@ -22,6 +22,7 @@ private Q_SLOTS:
     void visualDesignerLifecycleTests();
     void securityUiHardeningTests();
     void faqAndAboutUiTests();
+    void topBarMoreMenuAndPinOptionTests();
 };
 
 #endif // BITCOIN_QT_TEST_URITESTS_H

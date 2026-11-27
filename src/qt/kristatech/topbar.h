@@ -18,6 +18,8 @@
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QToolButton>
 
+class QAction;
+class QMenu;
 class KRISTATECHGUI;
 class WalletModel;
 class ClientModel;
@@ -48,6 +50,8 @@ public:
     void onError(QString error, int type) override;
     void unlockWallet();
     void selectTab(QString name);
+    void setAdvancedTabsPinned(bool pinned);
+    bool isAdvancedTabsPinned() const { return m_advancedTabsPinned; }
 
 public Q_SLOTS:
     void updateBalances(const interfaces::WalletBalances& newBalance);
@@ -91,6 +95,7 @@ private Q_SLOTS:
     void onMasterClicked();
     void onAddressesClicked();
     void onStatsClicked();
+    void onMoreClicked();
     void onSettingsClicked();
 
 private:
@@ -115,10 +120,20 @@ private:
     QToolButton* btnMaster = nullptr;
     QToolButton* btnAddresses = nullptr;
     QToolButton* btnStats = nullptr;
+    QToolButton* btnMore = nullptr;
     QToolButton* btnSettings = nullptr;
     QList<QToolButton*> navBtns;
+    QMenu* moreMenu = nullptr;
+    QAction* actMoreMaster = nullptr;
+    QAction* actMoreSmartContract = nullptr;
+    QAction* actMoreStats = nullptr;
+    bool m_advancedTabsPinned = false;
+    QString m_activeTabName = QStringLiteral("dash");
+    static bool isAdvancedTabName(const QString& name);
     void onNavSelected(QToolButton* active);
     void updateNavButtonWidths();
+    void updateMoreMenuStyle();
+    void updateMoreMenuState();
     void updateTopBalancePillStyle();
 
     int nDisplayUnit = -1;

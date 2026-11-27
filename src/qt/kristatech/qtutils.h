@@ -65,6 +65,8 @@ void setupSettings(QSettings* settings);
 
 bool isLightTheme();
 void setTheme(bool isLight);
+bool isPinAdvancedTabs();
+void setPinAdvancedTabs(bool pin);
 
 #include <QStringList>
 

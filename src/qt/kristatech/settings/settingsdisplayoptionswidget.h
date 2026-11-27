@@ -11,6 +11,7 @@
 #include <QDataWidgetMapper>
 #include "qt/kristatech/pwidget.h"
 
+class QCheckBox;
 class QComboBox;
 
 namespace Ui {
@@ -44,6 +45,7 @@ private:
     Ui::SettingsDisplayOptionsWidget *ui;
     QWidget* modernRoot = nullptr;
     QComboBox* comboBoxTheme = nullptr;
+    QCheckBox* checkPinAdvancedTabs = nullptr;
     void applyTheme(bool isLight);
 };
 

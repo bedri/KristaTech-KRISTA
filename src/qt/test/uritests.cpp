@@ -28,24 +28,30 @@
 #include "qt/kristatech/mnrow.h"
 #include "qt/kristatech/qtutils.h"
 #include "qt/kristatech/settings/settingsaboutwidget.h"
+#include "qt/kristatech/settings/settingsdisplayoptionswidget.h"
 #include "qt/kristatech/settings/settingsfaqwidget.h"
+#include "qt/kristatech/topbar.h"
 #include "qt/kristatech/visualdesignerdialog.h"
 #include "optionsmodel.h"
 #include <univalue.h>
 
+#include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QClipboard>
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QFontDatabase>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QStackedWidget>
 #include <QTableWidget>
 #include <QTest>
 #include <QTextEdit>
+#include <QToolButton>
 #include <QUrl>
 
 void URITests::uriTests()
@@ -1097,5 +1103,124 @@ void URITests::faqAndAboutUiTests()
             QVERIFY(copied.contains(QStringLiteral("Copyright (C) 2020-")));
             clipboard->clear(QClipboard::Clipboard);
         }
+    }
+}
+
+void URITests::topBarMoreMenuAndPinOptionTests()
+{
+    if (qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        SelectParams(CBaseChainParams::MAIN);
+
+        struct SettingsRestorer {
+            bool origPinned;
+            bool origLight;
+            SettingsRestorer(bool pinned, bool light) : origPinned(pinned), origLight(light) {}
+            ~SettingsRestorer() {
+                setPinAdvancedTabs(origPinned);
+                setTheme(origLight);
+            }
+        } guard(isPinAdvancedTabs(), isLightTheme());
+
+        setPinAdvancedTabs(false);
+        setTheme(true);
+
+        TopBar topBar(nullptr, nullptr);
+
+        QToolButton* btnDash = topBar.findChild<QToolButton*>(QStringLiteral("btnNavDashboard"));
+        QToolButton* btnMiner = topBar.findChild<QToolButton*>(QStringLiteral("btnNavMinerHub"));
+        QToolButton* btnContract = topBar.findChild<QToolButton*>(QStringLiteral("btnNavSmartContract"));
+        QToolButton* btnMaster = topBar.findChild<QToolButton*>(QStringLiteral("btnNavMaster"));
+        QToolButton* btnStats = topBar.findChild<QToolButton*>(QStringLiteral("btnNavStats"));
+        QToolButton* btnMore = topBar.findChild<QToolButton*>(QStringLiteral("btnNavMore"));
+        QToolButton* btnSettings = topBar.findChild<QToolButton*>(QStringLiteral("btnNavSettings"));
+        QVERIFY(btnDash && btnMiner && btnContract && btnMaster && btnStats && btnMore && btnSettings);
+
+        // Default unpinned layout keeps Miner Hub + More visible and hides the 3 advanced tabs
+        QVERIFY(!topBar.isAdvancedTabsPinned());
+        QVERIFY(!btnDash->isHidden());
+        QVERIFY(!btnMiner->isHidden());
+        QVERIFY(!btnMore->isHidden());
+        QVERIFY(!btnSettings->isHidden());
+        QVERIFY(btnContract->isHidden());
+        QVERIFY(btnMaster->isHidden());
+        QVERIFY(btnStats->isHidden());
+        QVERIFY(btnDash->isChecked());
+        QVERIFY(!btnMore->isChecked());
+
+        QMenu* moreMenu = topBar.findChild<QMenu*>(QStringLiteral("topBarMoreMenu"));
+        QVERIFY(moreMenu != nullptr);
+        QAction* actMaster = moreMenu->findChild<QAction*>(QStringLiteral("actMoreMasternodes"));
+        QAction* actContract = moreMenu->findChild<QAction*>(QStringLiteral("actMoreSmartContracts"));
+        QAction* actStats = moreMenu->findChild<QAction*>(QStringLiteral("actMoreStats"));
+        QVERIFY(actMaster && actContract && actStats);
+        QVERIFY(actContract->text().contains(QStringLiteral("&&")));
+        QVERIFY(actStats->text().contains(QStringLiteral("&&")));
+
+        const QString checkPrefix = QString::fromUtf8("\xE2\x9C\x93 ");
+
+        // Selecting an advanced tab via selectTab highlights MORE ▾ and marks its menu item
+        topBar.selectTab(QStringLiteral("master"));
+        QVERIFY(btnMore->isChecked());
+        QVERIFY(!btnDash->isChecked());
+        QVERIFY(actMaster->text().startsWith(checkPrefix));
+        QVERIFY(!actContract->text().startsWith(checkPrefix));
+        QVERIFY(!actStats->text().startsWith(checkPrefix));
+
+        // Triggering an action inside MORE ▾ selects that view and moves the checkmark
+        actStats->trigger();
+        QVERIFY(btnMore->isChecked());
+        QVERIFY(actStats->text().startsWith(checkPrefix));
+        QVERIFY(!actMaster->text().startsWith(checkPrefix));
+
+        // Pinning advanced tabs shows all 9 classic tabs, hides MORE ▾, and preserves active highlight
+        topBar.setAdvancedTabsPinned(true);
+        QVERIFY(topBar.isAdvancedTabsPinned());
+        QVERIFY(btnMore->isHidden());
+        QVERIFY(!btnContract->isHidden());
+        QVERIFY(!btnMaster->isHidden());
+        QVERIFY(!btnStats->isHidden());
+        QVERIFY(btnStats->isChecked());
+
+        // Unpinning restores MORE ▾ and highlights MORE ▾ while an advanced view is active
+        topBar.setAdvancedTabsPinned(false);
+        QVERIFY(!btnMore->isHidden());
+        QVERIFY(btnContract->isHidden());
+        QVERIFY(btnMaster->isHidden());
+        QVERIFY(btnStats->isHidden());
+        QVERIFY(btnMore->isChecked());
+
+        // Switching back to a primary tab clears the MORE highlight and menu checkmark
+        topBar.selectTab(QStringLiteral("dash"));
+        QVERIFY(btnDash->isChecked());
+        QVERIFY(!btnMore->isChecked());
+        QVERIFY(!actMaster->text().startsWith(checkPrefix));
+        QVERIFY(!actContract->text().startsWith(checkPrefix));
+        QVERIFY(!actStats->text().startsWith(checkPrefix));
+
+        // Theme updates restyle the More menu without losing state
+        QString dummyTheme;
+        setTheme(false);
+        QVERIFY(QMetaObject::invokeMethod(&topBar, "changeTheme", Qt::DirectConnection,
+                                          Q_ARG(bool, false), Q_ARG(QString&, dummyTheme)));
+        const QString darkMenuCss = moreMenu->styleSheet();
+        setTheme(true);
+        QVERIFY(QMetaObject::invokeMethod(&topBar, "changeTheme", Qt::DirectConnection,
+                                          Q_ARG(bool, true), Q_ARG(QString&, dummyTheme)));
+        const QString lightMenuCss = moreMenu->styleSheet();
+        QVERIFY(!darkMenuCss.isEmpty());
+        QVERIFY(!lightMenuCss.isEmpty());
+        QVERIFY(darkMenuCss != lightMenuCss);
+
+        // Display & Units preference toggle updates persisted QSettings immediately
+        SettingsDisplayOptionsWidget displayOpts(nullptr, nullptr);
+        QCheckBox* checkPin = displayOpts.findChild<QCheckBox*>(QStringLiteral("checkPinAdvancedTabs"));
+        QVERIFY(checkPin != nullptr);
+        QVERIFY(!checkPin->isChecked());
+        QVERIFY(!isPinAdvancedTabs());
+
+        checkPin->setChecked(true);
+        QVERIFY(isPinAdvancedTabs());
+        checkPin->setChecked(false);
+        QVERIFY(!isPinAdvancedTabs());
     }
 }

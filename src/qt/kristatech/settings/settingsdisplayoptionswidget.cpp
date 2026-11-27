@@ -6,6 +6,7 @@
 
 #include "qt/kristatech/settings/settingsdisplayoptionswidget.h"
 #include "qt/kristatech/settings/forms/ui_settingsdisplayoptionswidget.h"
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
 #include <QHBoxLayout>
@@ -39,7 +40,7 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
         this,
         ui->verticalLayout,
         tr("Display & Units"),
-        tr("Customize interface theme, language, KRISTA display units, and balance decimal precision."),
+        tr("Customize interface theme, navigation bar, language, KRISTA display units, and balance decimal precision."),
         scrollLayout,
         headerRight,
         rootLayout);
@@ -74,6 +75,23 @@ SettingsDisplayOptionsWidget::SettingsDisplayOptionsWidget(KRISTATECHGUI* _windo
         if (light != isLightTheme()) {
             setTheme(light);
             if (window) window->changeTheme(light);
+        }
+    });
+
+    checkPinAdvancedTabs = new QCheckBox(cardFmt);
+    checkPinAdvancedTabs->setObjectName("checkPinAdvancedTabs");
+    checkPinAdvancedTabs->setChecked(isPinAdvancedTabs());
+    addSettingsCheckRow(
+        cardFmt,
+        fmtBody,
+        checkPinAdvancedTabs,
+        tr("Pin advanced tabs to top bar"),
+        tr("Show Smart Contracts, Masternodes, and Stats directly in the top navigation bar instead of inside the More menu (applies immediately)."),
+        true);
+    connect(checkPinAdvancedTabs, &QCheckBox::toggled, this, [this](bool checked) {
+        if (checked != isPinAdvancedTabs()) {
+            setPinAdvancedTabs(checked);
+            if (window) window->setPinAdvancedTabs(checked);
         }
     });
 
@@ -188,6 +206,14 @@ void SettingsDisplayOptionsWidget::onResetClicked()
             QSignalBlocker blockTheme(comboBoxTheme);
             comboBoxTheme->setCurrentIndex(0);
         }
+        if (isPinAdvancedTabs()) {
+            setPinAdvancedTabs(false);
+        }
+        if (checkPinAdvancedTabs) {
+            QSignalBlocker blockPin(checkPinAdvancedTabs);
+            checkPinAdvancedTabs->setChecked(false);
+        }
+        if (window) window->setPinAdvancedTabs(false);
         ui->comboBoxUnit->setCurrentIndex(optionsModel->getDisplayUnit());
         syncLanguageFromModel();
         inform(tr("Options reset succeed"));
