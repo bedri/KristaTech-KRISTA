@@ -1,5 +1,5 @@
 // Copyright (c) 2019-2020 The PIVX developers
-// Copyright (c) 2021-2022 The DECENOMY Core Developers
+// Copyright (c) 2020-2026 The DECENOMY Core Developers
 // Copyright (c) 2026 The KristaTech Core Developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
@@ -101,8 +101,8 @@ SettingsWidget::SettingsWidget(KRISTATECHGUI* parent) :
     ui->pushButtonHelp4->setText(tr("Block Explorer") + QString::fromUtf8(" \xE2\x86\x97"));
     ui->pushButtonHelp4->setToolTip(QStringLiteral("https://explorer.kristalteknoloji.com"));
 
-    // Add FAQ / Protocol Guide button inside Help & Ecosystem
-    btnFaqGuide = new QPushButton(tr("FAQ && Protocol Guide"), ui->helpButtonsWidget);
+    // Add Help & FAQ button inside Help & Ecosystem
+    btnFaqGuide = new QPushButton(tr("Help && FAQ"), ui->helpButtonsWidget);
     btnFaqGuide->setMinimumHeight(38);
     btnFaqGuide->setMaximumHeight(38);
     btnFaqGuide->setFocusPolicy(Qt::TabFocus);
@@ -461,6 +461,16 @@ void SettingsWidget::showFaq(int section)
         settingsFaqWidget->setSection(section);
     }
     onFaqClicked();
+}
+
+void SettingsWidget::showBackupWallet()
+{
+    onBackupWalletClicked();
+}
+
+void SettingsWidget::showWalletRepair()
+{
+    onWalletRepairClicked();
 }
 
 void SettingsWidget::onFaqClicked()

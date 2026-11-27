@@ -1,6 +1,6 @@
 // Copyright (c) 2009-2014 The Bitcoin developers
 // Copyright (c) 2017-2019 The PIVX developers
-// Copyright (c) 2021-2022 The DECENOMY Core Developers
+// Copyright (c) 2020-2026 The DECENOMY Core Developers
 // Copyright (c) 2026 The KristaTech Core Developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
@@ -27,6 +27,8 @@
 #include "qt/kristatech/masternodewizarddialog.h"
 #include "qt/kristatech/mnrow.h"
 #include "qt/kristatech/qtutils.h"
+#include "qt/kristatech/settings/settingsaboutwidget.h"
+#include "qt/kristatech/settings/settingsfaqwidget.h"
 #include "qt/kristatech/visualdesignerdialog.h"
 #include "optionsmodel.h"
 #include <univalue.h>
@@ -1001,6 +1003,98 @@ void URITests::securityUiHardeningTests()
             clipboard->setText(QStringLiteral("other_public_text"), QClipboard::Clipboard);
             QTest::qWait(120);
             QCOMPARE(clipboard->text(QClipboard::Clipboard), QStringLiteral("other_public_text"));
+            clipboard->clear(QClipboard::Clipboard);
+        }
+    }
+}
+
+void URITests::faqAndAboutUiTests()
+{
+    if (qobject_cast<QApplication*>(QCoreApplication::instance())) {
+        SelectParams(CBaseChainParams::MAIN);
+
+        SettingsFaqWidget faq(nullptr, nullptr);
+        QVERIFY(faq.styleSheet().isEmpty());
+        for (int i = 1; i <= 14; ++i) {
+            QVERIFY(faq.findChild<QWidget*>(QString("faqCard_%1").arg(i)) != nullptr);
+        }
+        QPushButton* tocBtn2 = faq.findChild<QPushButton*>(QStringLiteral("faqTocBtn_2"));
+        QVERIFY(tocBtn2 != nullptr);
+        QVERIFY(tocBtn2->text().contains(QStringLiteral("&&")));
+
+        QWidget* details1 = faq.findChild<QWidget*>(QStringLiteral("faqDetails_1"));
+        QWidget* details2 = faq.findChild<QWidget*>(QStringLiteral("faqDetails_2"));
+        QWidget* tech1 = faq.findChild<QWidget*>(QStringLiteral("faqTechContainer_1"));
+        QPushButton* hdrBtn2 = faq.findChild<QPushButton*>(QStringLiteral("faqHeaderBtn_2"));
+        QVERIFY(details1 != nullptr && details2 != nullptr && tech1 != nullptr && hdrBtn2 != nullptr);
+        QVERIFY(!details1->isHidden());
+        QVERIFY(details2->isHidden());
+        QVERIFY(tech1->isHidden());
+
+        // Accordion toggle click on card 2
+        hdrBtn2->click();
+        QVERIFY(!details2->isHidden());
+        hdrBtn2->click();
+        QVERIFY(details2->isHidden());
+
+        // Search inside technical details auto-opens both card body and technical drawer
+        QLineEdit* searchEdit = faq.findChild<QLineEdit*>(QStringLiteral("faqSearchEdit"));
+        QVERIFY(searchEdit != nullptr);
+        searchEdit->setText(QStringLiteral("protx"));
+
+        QWidget* card1 = faq.findChild<QWidget*>(QStringLiteral("faqCard_1"));
+        QWidget* card14 = faq.findChild<QWidget*>(QStringLiteral("faqCard_14"));
+        QWidget* details14 = faq.findChild<QWidget*>(QStringLiteral("faqDetails_14"));
+        QWidget* tech14 = faq.findChild<QWidget*>(QStringLiteral("faqTechContainer_14"));
+        QPushButton* techBtn14 = faq.findChild<QPushButton*>(QStringLiteral("faqTechBtn_14"));
+        QVERIFY(card1 != nullptr && card14 != nullptr && details14 != nullptr && tech14 != nullptr && techBtn14 != nullptr);
+        QVERIFY(card1->isHidden());
+        QVERIFY(!card14->isHidden());
+        QVERIFY(!details14->isHidden());
+        QVERIFY(!tech14->isHidden());
+        QVERIFY(techBtn14->isChecked());
+
+        // Category pill filter & setSection deep-link
+        searchEdit->clear();
+        QPushButton* basicsFilter = faq.findChild<QPushButton*>(QStringLiteral("faqFilter_basics"));
+        QPushButton* allFilter = faq.findChild<QPushButton*>(QStringLiteral("faqFilter_all"));
+        QWidget* card6 = faq.findChild<QWidget*>(QStringLiteral("faqCard_6"));
+        QVERIFY(basicsFilter != nullptr && allFilter != nullptr && card6 != nullptr);
+        basicsFilter->click();
+        QVERIFY(!card1->isHidden());
+        QVERIFY(card6->isHidden());
+        allFilter->click();
+        QVERIFY(!card6->isHidden());
+
+        faq.setSection(4);
+        QWidget* card4 = faq.findChild<QWidget*>(QStringLiteral("faqCard_4"));
+        QWidget* details4 = faq.findChild<QWidget*>(QStringLiteral("faqDetails_4"));
+        QVERIFY(card4 != nullptr && details4 != nullptr);
+        QVERIFY(!card4->isHidden());
+        QVERIFY(!details4->isHidden());
+
+        QString faqTheme;
+        faq.changeTheme(true, faqTheme);
+        faq.changeTheme(false, faqTheme);
+
+        // About widget structure, theme switching, and Copy Info button
+        SettingsAboutWidget about(nullptr, nullptr);
+        QVERIFY(about.findChild<QWidget*>(QStringLiteral("aboutHeroCard")) != nullptr);
+        QVERIFY(about.findChild<QWidget*>(QStringLiteral("aboutLicenseCard")) != nullptr);
+        QPushButton* copyBtn = about.findChild<QPushButton*>(QStringLiteral("aboutCopyInfoBtn"));
+        QVERIFY(copyBtn != nullptr);
+
+        QString aboutTheme;
+        about.changeTheme(true, aboutTheme);
+        about.changeTheme(false, aboutTheme);
+
+        if (QClipboard* clipboard = QApplication::clipboard()) {
+            clipboard->clear(QClipboard::Clipboard);
+            copyBtn->click();
+            const QString copied = clipboard->text(QClipboard::Clipboard);
+            QVERIFY(copied.contains(QStringLiteral("Protocol")));
+            QVERIFY(copied.contains(QStringLiteral("MIT")));
+            QVERIFY(copied.contains(QStringLiteral("Copyright (C) 2020-")));
             clipboard->clear(QClipboard::Clipboard);
         }
     }

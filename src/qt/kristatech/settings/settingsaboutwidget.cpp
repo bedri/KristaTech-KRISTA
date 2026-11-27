@@ -4,113 +4,369 @@
 
 #include "qt/kristatech/settings/settingsaboutwidget.h"
 
+#include "chainparams.h"
 #include "clientversion.h"
+#include "guiutil.h"
 #include "init.h"
+#include "qt/kristatech/kristatechgui.h"
 #include "qt/kristatech/qtutils.h"
 #include "version.h"
 
-#include <QApplication>
-#include <QClipboard>
+#include <QDesktopServices>
+#include <QFrame>
 #include <QHBoxLayout>
 #include <QImage>
 #include <QLabel>
 #include <QPixmap>
 #include <QPushButton>
 #include <QRegExp>
-#include <QScrollArea>
+#include <QUrl>
 #include <QVBoxLayout>
+#include <functional>
+
+namespace {
+
+QString formatNetworkDisplayName()
+{
+    const std::string net = Params().NetworkIDString();
+    if (net == "main") return QStringLiteral("Mainnet");
+    if (net == "test") return QStringLiteral("Testnet");
+    if (net == "regtest") return QStringLiteral("Regtest");
+    if (net.empty()) return QStringLiteral("Mainnet");
+    QString out = QString::fromStdString(net);
+    out[0] = out[0].toUpper();
+    return out;
+}
+
+void addCompactRuntimeRow(QWidget* card,
+                          QVBoxLayout* cardBody,
+                          const QString& keyText,
+                          const QString& valueText,
+                          bool monoStyle,
+                          bool addDividerBefore)
+{
+    if (!card || !cardBody) return;
+    if (addDividerBefore) {
+        cardBody->addWidget(createSettingsDivider(card));
+    }
+
+    QWidget* row = new QWidget(card);
+    QHBoxLayout* h = new QHBoxLayout(row);
+    h->setContentsMargins(0, addDividerBefore ? 9 : 2, 0, 9);
+    h->setSpacing(12);
+
+    QLabel* lblKey = new QLabel(keyText, row);
+    lblKey->setProperty("settingsInfoKey", true);
+    lblKey->setFixedWidth(124);
+    h->addWidget(lblKey, 0, Qt::AlignTop);
+
+    QLabel* lblVal = new QLabel(valueText, row);
+    lblVal->setProperty(monoStyle ? "settingsInfoMono" : "settingsInfoVal", true);
+    lblVal->setTextFormat(Qt::PlainText);
+    lblVal->setWordWrap(true);
+    lblVal->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    lblVal->setCursor(Qt::IBeamCursor);
+    h->addWidget(lblVal, 1, Qt::AlignVCenter);
+
+    cardBody->addWidget(row);
+}
+
+} // namespace
 
 SettingsAboutWidget::SettingsAboutWidget(KRISTATECHGUI* _window, QWidget* parent) :
     PWidget(_window, parent)
 {
-    QVBoxLayout* mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(14);
+    QVBoxLayout* hostLayout = new QVBoxLayout(this);
+    hostLayout->setContentsMargins(0, 0, 0, 0);
+    hostLayout->setSpacing(0);
 
-    // Header row: Logo wordmark + version badge + Copy Version button
-    QHBoxLayout* headerLayout = new QHBoxLayout();
-    headerLayout->setContentsMargins(4, 0, 4, 0);
-    headerLayout->setSpacing(12);
+    QVBoxLayout* scrollLayout = nullptr;
+    QHBoxLayout* headerRight = nullptr;
+    QVBoxLayout* rootLayout = nullptr;
+    modernRoot = createSettingsPageShell(
+        this,
+        hostLayout,
+        tr("About KristaTech"),
+        tr("Software version, network details, helpful links, and open-source licenses."),
+        scrollLayout,
+        headerRight,
+        rootLayout);
 
-    logoLabel = new QLabel(this);
-    logoLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-
-    QVBoxLayout* titleCol = new QVBoxLayout();
-    titleCol->setContentsMargins(0, 0, 0, 0);
-    titleCol->setSpacing(4);
-
-    titleLabel = new QLabel(tr("About KristaTech"), this);
-    setCssProperty(titleLabel, "text-title-faq");
-
-    QString versionStr = tr("KristaTech version %1").arg(QString::fromStdString(FormatFullVersion()));
-#if defined(__x86_64__)
-    versionStr += " " + tr("(%1-bit)").arg(64);
-#elif defined(__i386__)
-    versionStr += " " + tr("(%1-bit)").arg(32);
-#endif
-    versionStr += QString("  |  Protocol %1").arg(PROTOCOL_VERSION);
-
-    versionBadgeLabel = new QLabel(versionStr, this);
-    titleCol->addWidget(titleLabel);
-    titleCol->addWidget(versionBadgeLabel);
-
-    copyVersionBtn = new QPushButton(tr("Copy Info"), this);
-    copyVersionBtn->setObjectName("aboutCopyInfoBtn");
+    copyVersionBtn = new QPushButton(tr("Copy Info"), modernRoot);
+    copyVersionBtn->setObjectName(QStringLiteral("aboutCopyInfoBtn"));
+    copyVersionBtn->setProperty("settingsSecondary", true);
     copyVersionBtn->setCursor(Qt::PointingHandCursor);
-    copyVersionBtn->setFocusPolicy(Qt::NoFocus);
-    copyVersionBtn->setMinimumHeight(34);
-    copyVersionBtn->setMaximumHeight(34);
+    copyVersionBtn->setFocusPolicy(Qt::TabFocus);
+    copyVersionBtn->setFixedHeight(34);
     connect(copyVersionBtn, &QPushButton::clicked, this, &SettingsAboutWidget::onCopyVersionClicked);
+    headerRight->addWidget(copyVersionBtn);
 
-    headerLayout->addWidget(logoLabel);
-    headerLayout->addLayout(titleCol, 1);
-    headerLayout->addWidget(copyVersionBtn, 0, Qt::AlignVCenter);
-    mainLayout->addLayout(headerLayout);
+    const QString releaseVer = QString("v%1.%2.%3.%4")
+        .arg(CLIENT_VERSION_MAJOR)
+        .arg(CLIENT_VERSION_MINOR)
+        .arg(CLIENT_VERSION_REVISION)
+        .arg(CLIENT_VERSION_BUILD);
+    const QString buildTag = QString::fromStdString(FormatFullVersion());
+    const QString networkName = formatNetworkDisplayName();
+    const int p2pPort = Params().GetDefaultPort();
+    const QString qtVer = QString("Qt %1").arg(QString::fromLatin1(qVersion()));
+    const QString buildDate = QString::fromStdString(CLIENT_DATE);
 
-    // Scrollable License & Build Card
-    scrollArea = new QScrollArea(this);
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setStyleSheet("QScrollArea { background: transparent; border: none; }");
+#if defined(__x86_64__) || defined(_M_X64)
+    const QString archLabel = tr("%1-bit").arg(64);
+#elif defined(__i386__) || defined(_M_IX86)
+    const QString archLabel = tr("%1-bit").arg(32);
+#else
+    const QString archLabel = tr("Native");
+#endif
 
-    QWidget* scrollContents = new QWidget(scrollArea);
-    scrollContents->setObjectName(QStringLiteral("aboutScrollContents"));
-    scrollContents->setStyleSheet("QWidget#aboutScrollContents { background: transparent; border: none; }");
-    QVBoxLayout* scrollLayout = new QVBoxLayout(scrollContents);
-    scrollLayout->setContentsMargins(4, 2, 8, 12);
-    scrollLayout->setSpacing(12);
+    // 1. Hero identity card
+    heroCard = new QFrame(modernRoot);
+    heroCard->setObjectName(QStringLiteral("aboutHeroCard"));
+    heroCard->setProperty("settingsCard", true);
+    heroCard->setAttribute(Qt::WA_StyledBackground, true);
 
-    aboutCard = new QWidget(scrollContents);
-    aboutCard->setObjectName("aboutLicenseCard");
-    QVBoxLayout* cardLayout = new QVBoxLayout(aboutCard);
-    cardLayout->setContentsMargins(20, 18, 20, 18);
-    cardLayout->setSpacing(10);
+    QHBoxLayout* heroLay = new QHBoxLayout(heroCard);
+    heroLay->setContentsMargins(20, 18, 20, 18);
+    heroLay->setSpacing(16);
 
-    aboutMessageLabel = new QLabel(aboutCard);
-    aboutMessageLabel->setWordWrap(true);
-    aboutMessageLabel->setTextFormat(Qt::RichText);
-    aboutMessageLabel->setOpenExternalLinks(true);
-    aboutMessageLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse);
-    cardLayout->addWidget(aboutMessageLabel);
+    QVBoxLayout* heroLeft = new QVBoxLayout();
+    heroLeft->setContentsMargins(0, 0, 0, 0);
+    heroLeft->setSpacing(6);
 
-    scrollLayout->addWidget(aboutCard);
-    scrollLayout->addStretch(1);
-    scrollArea->setWidget(scrollContents);
-    mainLayout->addWidget(scrollArea, 1);
+    logoLabel = new QLabel(heroCard);
+    logoLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    heroLeft->addWidget(logoLabel, 0, Qt::AlignLeft);
+
+    taglineLabel = new QLabel(
+        tr("Fair, community-first hybrid Layer-1 digital currency wallet."),
+        heroCard);
+    taglineLabel->setWordWrap(true);
+    heroLeft->addWidget(taglineLabel);
+
+    QHBoxLayout* badgesLay = new QHBoxLayout();
+    badgesLay->setContentsMargins(0, 0, 0, 0);
+    badgesLay->setSpacing(8);
+
+    const QStringList badgeTexts = {
+        releaseVer,
+        networkName,
+        archLabel,
+        tr("MIT Open Source")
+    };
+    for (int i = 0; i < badgeTexts.size(); ++i) {
+        QLabel* badge = new QLabel(badgeTexts[i], heroCard);
+        badge->setProperty("aboutBadgeVariant", i == 0 ? QStringLiteral("primary") : QStringLiteral("neutral"));
+        badge->setAlignment(Qt::AlignCenter);
+        badgesLay->addWidget(badge);
+        heroBadges.push_back(badge);
+    }
+
+    heroLay->addLayout(heroLeft, 1);
+    heroLay->addLayout(badgesLay, 0);
+    heroLay->setAlignment(badgesLay, Qt::AlignVCenter | Qt::AlignRight);
+    scrollLayout->addWidget(heroCard);
+
+    // 2. Two-column balanced row: Software & Runtime | Quick Links & Resources
+    QHBoxLayout* columnsRow = new QHBoxLayout();
+    columnsRow->setContentsMargins(0, 0, 0, 0);
+    columnsRow->setSpacing(14);
+
+    // Left card: Software & Runtime
+    QVBoxLayout* runtimeBody = nullptr;
+    QFrame* runtimeCard = createSettingsCard(modernRoot, tr("Software & Runtime"), runtimeBody);
+    runtimeCard->setObjectName(QStringLiteral("aboutRuntimeCard"));
+    runtimeCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    addCompactRuntimeRow(runtimeCard, runtimeBody, tr("Release Version"), releaseVer, false, false);
+    addCompactRuntimeRow(runtimeCard, runtimeBody, tr("Build Tag"), buildTag, true, true);
+    addCompactRuntimeRow(runtimeCard, runtimeBody, tr("Protocol Version"), QString::number(PROTOCOL_VERSION), true, true);
+    addCompactRuntimeRow(runtimeCard, runtimeBody, tr("Network & Port"),
+                         QString("%1  (TCP %2)").arg(networkName).arg(p2pPort), false, true);
+    addCompactRuntimeRow(runtimeCard, runtimeBody, tr("Qt Framework"), qtVer, false, true);
+    addCompactRuntimeRow(runtimeCard, runtimeBody, tr("Build Date"), buildDate, false, true);
+    runtimeBody->addStretch(1);
+    columnsRow->addWidget(runtimeCard, 1);
+
+    // Right card: Quick Links & Resources
+    QVBoxLayout* linksBody = nullptr;
+    QFrame* linksCard = createSettingsCard(modernRoot, tr("Quick Links & Resources"), linksBody);
+    linksCard->setObjectName(QStringLiteral("aboutLinksCard"));
+    linksCard->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+    auto addQuickLinkRow = [&](const QString& title,
+                               const QString& desc,
+                               const QString& arrowGlyph,
+                               std::function<void()> onClick,
+                               bool addDividerBefore) {
+        if (addDividerBefore) {
+            linksBody->addWidget(createSettingsDivider(linksCard));
+        }
+
+        QPushButton* rowBtn = new QPushButton(linksCard);
+        rowBtn->setProperty("aboutLinkRow", true);
+        rowBtn->setCursor(Qt::PointingHandCursor);
+        rowBtn->setFocusPolicy(Qt::TabFocus);
+        rowBtn->setMinimumHeight(54);
+        rowBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+
+        QHBoxLayout* rowLay = new QHBoxLayout(rowBtn);
+        rowLay->setContentsMargins(10, 8, 10, 8);
+        rowLay->setSpacing(10);
+
+        QVBoxLayout* textCol = new QVBoxLayout();
+        textCol->setContentsMargins(0, 0, 0, 0);
+        textCol->setSpacing(2);
+
+        QLabel* lblTitle = new QLabel(title, rowBtn);
+        lblTitle->setAttribute(Qt::WA_TransparentForMouseEvents);
+        QLabel* lblDesc = new QLabel(desc, rowBtn);
+        lblDesc->setWordWrap(true);
+        lblDesc->setAttribute(Qt::WA_TransparentForMouseEvents);
+        textCol->addWidget(lblTitle);
+        textCol->addWidget(lblDesc);
+
+        QLabel* lblArrow = new QLabel(arrowGlyph, rowBtn);
+        lblArrow->setAlignment(Qt::AlignCenter);
+        lblArrow->setAttribute(Qt::WA_TransparentForMouseEvents);
+
+        rowLay->addLayout(textCol, 1);
+        rowLay->addWidget(lblArrow, 0, Qt::AlignVCenter);
+
+        connect(rowBtn, &QPushButton::clicked, this, [onClick]() {
+            if (onClick) onClick();
+        });
+
+        linksBody->addWidget(rowBtn);
+        linkRowButtons.push_back(rowBtn);
+        linkTitleLabels.push_back(lblTitle);
+        linkDescLabels.push_back(lblDesc);
+        linkArrowLabels.push_back(lblArrow);
+    };
+
+    const QString internalArrow = QString::fromUtf8("\xE2\x86\x92");
+    const QString externalArrow = QString::fromUtf8("\xE2\x86\x97");
+
+    addQuickLinkRow(
+        tr("Help & FAQ"),
+        tr("Plain-English guides for sending, backups, earning, and fixes."),
+        internalArrow,
+        [this]() {
+            if (window) {
+                window->openFAQ(0);
+            }
+        },
+        false);
+    addQuickLinkRow(
+        tr("Node Information"),
+        tr("Inspect live peers, block height, and wallet file location."),
+        internalArrow,
+        [this]() {
+            if (window) {
+                window->goToSettingsInfo();
+            }
+        },
+        true);
+    addQuickLinkRow(
+        tr("Official Website"),
+        tr("Guides, downloads, and project news (krista.kristalteknoloji.com)."),
+        externalArrow,
+        []() {
+            QDesktopServices::openUrl(QUrl(QStringLiteral("https://krista.kristalteknoloji.com")));
+        },
+        true);
+    addQuickLinkRow(
+        tr("Block Explorer"),
+        tr("Explore live blocks, transactions, and network statistics."),
+        externalArrow,
+        []() {
+            QDesktopServices::openUrl(QUrl(QStringLiteral("https://explorer.kristalteknoloji.com")));
+        },
+        true);
+
+    linksBody->addStretch(1);
+    columnsRow->addWidget(linksCard, 1);
+    scrollLayout->addLayout(columnsRow);
+
+    // 3. Bottom card: Open-Source License & Credits
+    QVBoxLayout* licBody = nullptr;
+    licenseCard = createSettingsCard(modernRoot, tr("Open-Source License & Credits"), licBody);
+    licenseCard->setObjectName(QStringLiteral("aboutLicenseCard"));
 
     const QString licenseInfo = QString::fromStdString(LicenseInfo());
-    rawAboutText = versionStr + "\n\n" + licenseInfo;
+    const QStringList rawParagraphs = licenseInfo.trimmed().split("\n\n", QString::SkipEmptyParts);
+    QStringList copyrights;
+    for (QString para : rawParagraphs) {
+        para.replace(QRegExp("\\s*\\n\\s*"), " ");
+        para = para.trimmed();
+        if (para.isEmpty()) continue;
+        if (para.startsWith(QStringLiteral("Copyright"), Qt::CaseInsensitive)) {
+            copyrights.append(para);
+        } else {
+            parsedLicenseNotes.append(para);
+        }
+    }
+    // Present newest lineage (KristaTech) first while preserving complete upstream attribution
+    for (int i = copyrights.size() - 1; i >= 0; --i) {
+        parsedCopyrights.append(copyrights[i]);
+    }
+
+    licenseAlertBox = new QFrame(licenseCard);
+    licenseAlertBox->setProperty("settingsAlertBox", QStringLiteral("info"));
+    licenseAlertBox->setAttribute(Qt::WA_StyledBackground, true);
+    QVBoxLayout* alertLay = new QVBoxLayout(licenseAlertBox);
+    alertLay->setContentsMargins(14, 10, 14, 10);
+    alertLay->setSpacing(4);
+
+    licenseSummaryLabel = new QLabel(licenseAlertBox);
+    licenseSummaryLabel->setWordWrap(true);
+    licenseSummaryLabel->setTextFormat(Qt::RichText);
+    licenseSummaryLabel->setOpenExternalLinks(true);
+    licenseSummaryLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::LinksAccessibleByMouse);
+    alertLay->addWidget(licenseSummaryLabel);
+    licBody->addWidget(licenseAlertBox);
+
+    if (!parsedCopyrights.isEmpty()) {
+        licBody->addSpacing(12);
+        creditsHeaderLabel = new QLabel(tr("Contributors & Upstream Lineage"), licenseCard);
+        creditsHeaderLabel->setProperty("settingsRowTitle", true);
+        licBody->addWidget(creditsHeaderLabel);
+        licBody->addSpacing(6);
+
+        QWidget* creditsGrid = new QWidget(licenseCard);
+        QVBoxLayout* creditsLay = new QVBoxLayout(creditsGrid);
+        creditsLay->setContentsMargins(0, 0, 0, 6);
+        creditsLay->setSpacing(4);
+        for (const QString& copyLine : parsedCopyrights) {
+            QLabel* lblCopy = new QLabel(copyLine, creditsGrid);
+            lblCopy->setWordWrap(true);
+            lblCopy->setTextFormat(Qt::PlainText);
+            lblCopy->setTextInteractionFlags(Qt::TextSelectableByMouse);
+            creditsLay->addWidget(lblCopy);
+            creditLabels.push_back(lblCopy);
+        }
+        licBody->addWidget(creditsGrid);
+    }
+
+    scrollLayout->addWidget(licenseCard);
+    scrollLayout->addStretch(1);
+
+    rawAboutText = QString(
+        "KristaTech %1 (%2, %3)\n"
+        "Build: %4\n"
+        "Protocol: %5  |  Port: %6  |  %7\n"
+        "Build Date: %8\n\n%9"
+    ).arg(releaseVer, networkName, archLabel, buildTag)
+     .arg(PROTOCOL_VERSION)
+     .arg(p2pPort)
+     .arg(qtVer, buildDate, licenseInfo);
 
     applyThemeStyles(isLightTheme());
 }
 
 void SettingsAboutWidget::onCopyVersionClicked()
 {
-    if (QApplication::clipboard()) {
-        QApplication::clipboard()->setText(rawAboutText);
-        inform(tr("Version & license info copied to clipboard"));
-    }
+    GUIUtil::setClipboard(rawAboutText);
+    inform(tr("Version & license info copied to clipboard"));
 }
 
 void SettingsAboutWidget::applyThemeStyles(bool isLight)
@@ -136,70 +392,76 @@ void SettingsAboutWidget::applyThemeStyles(bool isLight)
                     }
                 }
             }
-            cachedLogo = QPixmap::fromImage(aboutImg).scaledToHeight(48, Qt::SmoothTransformation);
+            cachedLogo = QPixmap::fromImage(aboutImg).scaledToHeight(42, Qt::SmoothTransformation);
         }
     }
-    if (!cachedLogo.isNull()) {
+    if (!cachedLogo.isNull() && logoLabel) {
         logoLabel->setPixmap(cachedLogo);
     }
 
-    const QString cardBg = isLight ? "#FFFFFF" : "#182132";
-    const QString cardBorder = isLight ? "#DDE5F2" : "#28354D";
-    const QString bodyText = isLight ? "#334155" : "#CBD5E1";
-    const QString headText = isLight ? "#0F172A" : "#F8FAFC";
-    const QString badgeText = isLight ? "#4A679E" : "#8FAEE6";
-    const QString linkCol = isLight ? "#3E5C94" : "#8FB0E8";
+    const QString titleCol    = isLight ? QStringLiteral("#1E293B") : QStringLiteral("#F1F5F9");
+    const QString mutedCol    = isLight ? QStringLiteral("#64748B") : QStringLiteral("#94A3B8");
+    const QString bodyCol     = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString linkCol     = isLight ? QStringLiteral("#2F4878") : QStringLiteral("#93C5FD");
+    const QString primBg      = isLight ? QStringLiteral("#EEF3FB") : QStringLiteral("#1B2B4A");
+    const QString primFg      = isLight ? QStringLiteral("#3E5B94") : QStringLiteral("#A8C1EE");
+    const QString primBrd     = isLight ? QStringLiteral("#B8CBE8") : QStringLiteral("#355184");
+    const QString neutBg      = isLight ? QStringLiteral("#F1F5F9") : QStringLiteral("#1A2438");
+    const QString neutFg      = isLight ? QStringLiteral("#334155") : QStringLiteral("#CBD5E1");
+    const QString neutBrd     = isLight ? QStringLiteral("#CBD5E1") : QStringLiteral("#2E3F5E");
+    const QString rowHoverBg  = isLight ? QStringLiteral("#F4F7FC") : QStringLiteral("#1A2640");
+    const QString arrowCol    = isLight ? QStringLiteral("#5576B2") : QStringLiteral("#8FAEE6");
 
-    if (versionBadgeLabel) {
-        versionBadgeLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: 500; }").arg(badgeText));
-    }
-    if (copyVersionBtn) {
-        const QString btnBg = isLight ? "#FFFFFF" : "#1E293B";
-        const QString btnHoverBg = isLight ? "#EEF3FB" : "#26354D";
-        const QString btnPressedBg = isLight ? "#E2E8F0" : "#182235";
-        const QString btnBorder = isLight ? "#CBD6E6" : "#334155";
-        const QString btnText = isLight ? "#334155" : "#E2E8F0";
-        copyVersionBtn->setStyleSheet(QString(
-            "QPushButton#aboutCopyInfoBtn { background-color: %1; color: %2; border: 1px solid %3; "
-            "border-radius: 8px; padding: 0 14px; font-size: 13px; font-weight: 500; }"
-            "QPushButton#aboutCopyInfoBtn:hover { background-color: %4; border-color: #7695CD; }"
-            "QPushButton#aboutCopyInfoBtn:pressed { background-color: %5; border-color: #5B7BB8; }"
-        ).arg(btnBg, btnText, btnBorder, btnHoverBg, btnPressedBg));
-    }
-    if (aboutCard) {
-        aboutCard->setStyleSheet(QString(
-            "QWidget#aboutLicenseCard { background-color: %1; border: 1px solid %2; border-radius: 10px; }"
-        ).arg(cardBg, cardBorder));
+    const QString extraCss = QString(
+        "QPushButton[aboutLinkRow=\"true\"] { background: transparent; border: none; border-radius: 7px; text-align: left; }"
+        "QPushButton[aboutLinkRow=\"true\"]:hover { background-color: %1; }"
+        "QPushButton[aboutLinkRow=\"true\"]:focus { border: 1.5px solid #7695CD; outline: none; }"
+    ).arg(rowHoverBg);
+
+    if (modernRoot) {
+        modernRoot->setStyleSheet(buildSettingsPageStyleSheet(isLight) + extraCss);
     }
 
-    QString versionLine = tr("KristaTech version %1").arg(QString::fromStdString(FormatFullVersion()));
-#if defined(__x86_64__)
-    versionLine += " " + tr("(%1-bit)").arg(64);
-#elif defined(__i386__)
-    versionLine += " " + tr("(%1-bit)").arg(32);
-#endif
-
-    const QString licenseInfo = QString::fromStdString(LicenseInfo());
-    const QStringList rawParagraphs = licenseInfo.trimmed().split("\n\n", QString::SkipEmptyParts);
-    QStringList htmlParagraphs;
-    for (QString para : rawParagraphs) {
-        para.replace(QRegExp("\\s*\\n\\s*"), " ");
-        para = para.trimmed().toHtmlEscaped();
-        para.replace(QRegExp("&lt;([^&]+)&gt;"),
-                     QString("<a style='color: %1; font-weight: 600; text-decoration: underline;' href=\"\\1\">\\1</a>").arg(linkCol));
-        htmlParagraphs.append(QString("<p style='margin: 0 0 10px 0; color: %1; font-size: 13px;'>%2</p>").arg(bodyText, para));
+    if (taglineLabel) {
+        taglineLabel->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; background: transparent; }").arg(mutedCol));
     }
 
-    const QString fullHTML = QString(
-        "<div style='color: %1; font-size: 13px; line-height: 150%;'>"
-        "<p style='margin: 0 0 12px 0; color: %2; font-size: 14px; font-weight: 600;'>%3</p>"
-        "%4"
-        "</div>"
-    ).arg(bodyText, headText, versionLine.toHtmlEscaped(), htmlParagraphs.join(""));
+    for (QLabel* badge : heroBadges) {
+        if (!badge) continue;
+        const bool isPrimary = badge->property("aboutBadgeVariant").toString() == QStringLiteral("primary");
+        const QString bg = isPrimary ? primBg : neutBg;
+        const QString fg = isPrimary ? primFg : neutFg;
+        const QString brd = isPrimary ? primBrd : neutBrd;
+        badge->setStyleSheet(QString(
+            "QLabel { background-color: %1; color: %2; border: 1px solid %3; "
+            "border-radius: 11px; padding: 4px 10px; font-size: 11.5px; font-weight: 600; }"
+        ).arg(bg, fg, brd));
+    }
 
-    if (aboutMessageLabel) {
-        aboutMessageLabel->setText(fullHTML);
-        aboutMessageLabel->setStyleSheet(QString("QLabel { background: transparent; border: none; color: %1; }").arg(bodyText));
+    for (QLabel* lbl : linkTitleLabels) {
+        if (lbl) lbl->setStyleSheet(QString("QLabel { color: %1; font-size: 13px; font-weight: 600; background: transparent; }").arg(titleCol));
+    }
+    for (QLabel* lbl : linkDescLabels) {
+        if (lbl) lbl->setStyleSheet(QString("QLabel { color: %1; font-size: 12px; background: transparent; }").arg(mutedCol));
+    }
+    for (QLabel* lbl : linkArrowLabels) {
+        if (lbl) lbl->setStyleSheet(QString("QLabel { color: %1; font-size: 15px; font-weight: 700; background: transparent; }").arg(arrowCol));
+    }
+    for (QLabel* lbl : creditLabels) {
+        if (lbl) lbl->setStyleSheet(QString("QLabel { color: %1; font-size: 12.5px; background: transparent; }").arg(bodyCol));
+    }
+
+    if (licenseSummaryLabel) {
+        QStringList htmlParas;
+        for (const QString& note : parsedLicenseNotes) {
+            QString escaped = note.toHtmlEscaped();
+            escaped.replace(
+                QRegExp("&lt;([^&]+)&gt;"),
+                QString("<a style=\"color:%1; font-weight:600; text-decoration:underline;\" href=\"\\1\">\\1</a>").arg(linkCol));
+            htmlParas.append(QString("<p style=\"margin: 0 0 6px 0; color: %1; font-size: 12.5px; line-height: 1.45;\">%2</p>")
+                                 .arg(bodyCol, escaped));
+        }
+        licenseSummaryLabel->setText(htmlParas.join(QString()));
     }
 }
 

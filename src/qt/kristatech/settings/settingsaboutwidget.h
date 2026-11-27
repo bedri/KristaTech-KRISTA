@@ -7,9 +7,12 @@
 
 #include "qt/kristatech/pwidget.h"
 
+#include <QStringList>
+#include <vector>
+
+class QFrame;
 class QLabel;
 class QPushButton;
-class QScrollArea;
 class QWidget;
 
 class SettingsAboutWidget : public PWidget
@@ -26,13 +29,24 @@ private Q_SLOTS:
     void onCopyVersionClicked();
 
 private:
-    QLabel* logoLabel = nullptr;
-    QLabel* titleLabel = nullptr;
-    QLabel* versionBadgeLabel = nullptr;
+    QWidget* modernRoot = nullptr;
     QPushButton* copyVersionBtn = nullptr;
-    QScrollArea* scrollArea = nullptr;
-    QWidget* aboutCard = nullptr;
-    QLabel* aboutMessageLabel = nullptr;
+    QFrame* heroCard = nullptr;
+    QLabel* logoLabel = nullptr;
+    QLabel* taglineLabel = nullptr;
+    std::vector<QLabel*> heroBadges;
+    QFrame* licenseCard = nullptr;
+    QFrame* licenseAlertBox = nullptr;
+    QLabel* licenseSummaryLabel = nullptr;
+    QLabel* creditsHeaderLabel = nullptr;
+    std::vector<QLabel*> creditLabels;
+    std::vector<QPushButton*> linkRowButtons;
+    std::vector<QLabel*> linkTitleLabels;
+    std::vector<QLabel*> linkDescLabels;
+    std::vector<QLabel*> linkArrowLabels;
+
+    QStringList parsedLicenseNotes;
+    QStringList parsedCopyrights;
     QString rawAboutText;
 
     void applyThemeStyles(bool isLight);

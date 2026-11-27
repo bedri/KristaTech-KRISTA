@@ -1,5 +1,5 @@
 // Copyright (c) 2019-2020 The PIVX developers
-// Copyright (c) 2021-2022 The DECENOMY Core Developers
+// Copyright (c) 2020-2026 The DECENOMY Core Developers
 // Copyright (c) 2026 The KristaTech Core Developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
@@ -443,7 +443,7 @@ DashboardWidget::DashboardWidget(KRISTATECHGUI* parent) :
     emptyLayout->setAlignment(Qt::AlignCenter);
     lblEmpty = new QLabel(tr("No transactions yet"), emptyContainer);
     lblEmpty->setAlignment(Qt::AlignCenter);
-    btnLearnMore = new QPushButton(tr("FAQ & Protocol Guide"), emptyContainer);
+    btnLearnMore = new QPushButton(tr("Help && FAQ"), emptyContainer);
     btnLearnMore->setCursor(Qt::PointingHandCursor);
     btnLearnMore->setFocusPolicy(Qt::TabFocus);
     btnLearnMore->setFixedHeight(34);

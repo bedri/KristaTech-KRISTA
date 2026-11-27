@@ -1,13 +1,14 @@
 // Copyright (c) 2009-2015 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
 // Copyright (c) 2015-2019 The PIVX developers
-// Copyright (c) 2021-2022 The DECENOMY Core Developers
+// Copyright (c) 2020-2026 The DECENOMY Core Developers
 // Copyright (c) 2026 The KristaTech Core Developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "rpc/server.h"
 
+#include "chainparams.h"
 #include "clientversion.h"
 #include "main.h"
 #include "net.h"
@@ -194,7 +195,8 @@ UniValue addnode(const JSONRPCRequest& request)
             "2. \"command\"  (string, required) 'add' to add a node to the list, 'remove' to remove a node from the list, 'onetry' to try a connection to the node once\n"
 
             "\nExamples:\n" +
-            HelpExampleCli("addnode", "\"192.168.0.6:__PORT_MAINNET__\" \"onetry\"") + HelpExampleRpc("addnode", "\"192.168.0.6:__PORT_MAINNET__\", \"onetry\""));
+            HelpExampleCli("addnode", "\"192.168.0.6:" + std::to_string(Params().GetDefaultPort()) + "\" \"onetry\"") +
+            HelpExampleRpc("addnode", "\"192.168.0.6:" + std::to_string(Params().GetDefaultPort()) + "\", \"onetry\""));
 
     if(!g_connman)
         throw JSONRPCError(RPC_CLIENT_P2P_DISABLED, "Error: Peer-to-peer functionality missing or disabled");
@@ -229,8 +231,8 @@ UniValue disconnectnode(const JSONRPCRequest& request)
             "1. \"node\"     (string, required) The node (see getpeerinfo for nodes)\n"
 
             "\nExamples:\n"
-            + HelpExampleCli("disconnectnode", "\"192.168.0.6:8333\"")
-            + HelpExampleRpc("disconnectnode", "\"192.168.0.6:8333\"")
+            + HelpExampleCli("disconnectnode", "\"192.168.0.6:" + std::to_string(Params().GetDefaultPort()) + "\"")
+            + HelpExampleRpc("disconnectnode", "\"192.168.0.6:" + std::to_string(Params().GetDefaultPort()) + "\"")
         );
 
     if(!g_connman)
@@ -262,7 +264,7 @@ UniValue getaddednodeinfo(const JSONRPCRequest& request)
             "    \"connected\" : true|false,          (boolean) If connected\n"
             "    \"addresses\" : [                    (list of objects) Only when connected = true\n"
             "       {\n"
-            "         \"address\" : \"192.168.0.201:__PORT_MAINNET__\",  (string) The kristatech server IP and port we're connected to\n"
+            "         \"address\" : \"192.168.0.201:" + std::to_string(Params().GetDefaultPort()) + "\",  (string) The kristatech server IP and port we're connected to\n"
             "         \"connected\" : \"outbound\"           (string) connection, inbound or outbound\n"
             "       }\n"
             "     ]\n"

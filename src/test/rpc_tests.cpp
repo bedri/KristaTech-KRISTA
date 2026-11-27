@@ -1,6 +1,6 @@
 // Copyright (c) 2012-2013 The Bitcoin Core developers
 // Copyright (c) 2017-2019 The PIVX developers
-// Copyright (c) 2021-2022 The DECENOMY Core Developers
+// Copyright (c) 2020-2026 The DECENOMY Core Developers
 // Copyright (c) 2026 The KristaTech Core Developers
 // Distributed under the MIT/X11 software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
@@ -9,6 +9,8 @@
 #include "rpc/client.h"
 
 #include "base58.h"
+#include "chainparams.h"
+#include "chainparamsbase.h"
 #include "evo/deterministicmns.h"
 #include "httpserver.h"
 #include "netbase.h"
@@ -491,6 +493,41 @@ BOOST_AUTO_TEST_CASE(http_host_header_rebinding_test)
     BOOST_CHECK(!IsAllowedHTTPRequestHost("other.internal"));
     if (hadRpcBind) mapMultiArgs["-rpcbind"] = prevRpcBind;
     else mapMultiArgs.erase("-rpcbind");
+}
+
+BOOST_AUTO_TEST_CASE(rpc_help_examples_port_test)
+{
+    const std::string defaultRpcUrl = "http://127.0.0.1:" + std::to_string(BaseParams().RPCPort()) + "/";
+    const std::string getinfoEx = HelpExampleRpc("getinfo", "");
+    BOOST_CHECK(getinfoEx.find("__RPCPORT") == std::string::npos);
+    BOOST_CHECK(getinfoEx.find(defaultRpcUrl) != std::string::npos);
+
+    const bool hadRpcPort = mapArgs.count("-rpcport") > 0;
+    const std::string prevRpcPort = hadRpcPort ? mapArgs["-rpcport"] : "";
+    mapArgs["-rpcport"] = "27998";
+    const std::string customEx = HelpExampleRpc("getinfo", "");
+    BOOST_CHECK(customEx.find("http://127.0.0.1:27998/") != std::string::npos);
+    if (hadRpcPort) mapArgs["-rpcport"] = prevRpcPort;
+    else mapArgs.erase("-rpcport");
+
+    const std::vector<std::string> commands = tableRPC.listCommands();
+    BOOST_CHECK(!commands.empty());
+    for (const std::string& cmd : commands) {
+        const std::string helpText = tableRPC.help(cmd);
+        BOOST_CHECK_MESSAGE(helpText.find("__RPCPORT") == std::string::npos,
+                            "Unexpanded __RPCPORT placeholder in help for: " + cmd);
+        BOOST_CHECK_MESSAGE(helpText.find("__PORT_") == std::string::npos,
+                            "Unexpanded __PORT_ placeholder in help for: " + cmd);
+    }
+
+    const std::string p2pPortStr = std::to_string(Params().GetDefaultPort());
+    for (const std::string& netCmd : {"addnode", "disconnectnode", "getaddednodeinfo"}) {
+        const std::string netHelp = tableRPC.help(netCmd);
+        BOOST_CHECK_MESSAGE(netHelp.find(p2pPortStr) != std::string::npos,
+                            "Missing resolved P2P port in help for: " + netCmd);
+        BOOST_CHECK_MESSAGE(netHelp.find("8333") == std::string::npos,
+                            "Stale Bitcoin port 8333 in help for: " + netCmd);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

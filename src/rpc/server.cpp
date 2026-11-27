@@ -2,7 +2,7 @@
 // Copyright (c) 2009-2014 The Bitcoin developers
 // Copyright (c) 2014-2015 The Dash developers
 // Copyright (c) 2015-2020 The PIVX developers
-// Copyright (c) 2021-2022 The DECENOMY Core Developers
+// Copyright (c) 2020-2026 The DECENOMY Core Developers
 // Copyright (c) 2026 The KristaTech Core Developers
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
@@ -10,6 +10,7 @@
 #include "rpc/server.h"
 
 #include "base58.h"
+#include "chainparamsbase.h"
 #include "fs.h"
 #include "init.h"
 #include "main.h"
@@ -594,9 +595,13 @@ std::string HelpExampleCli(std::string methodname, std::string args)
 
 std::string HelpExampleRpc(std::string methodname, std::string args)
 {
+    const int nDefaultRpcPort = AreBaseParamsConfigured() ? BaseParams().RPCPort() : __RPCPORT_MAINNET__;
+    const int64_t nConfiguredPort = GetArg("-rpcport", nDefaultRpcPort);
+    const int nRpcPort = (nConfiguredPort > 0 && nConfiguredPort <= 65535) ? (int)nConfiguredPort : nDefaultRpcPort;
     return "> curl --user myusername --data-binary '{\"jsonrpc\": \"1.0\", \"id\":\"curltest\", "
            "\"method\": \"" +
-           methodname + "\", \"params\": [" + args + "] }' -H 'content-type: text/plain;' http://127.0.0.1:__RPCPORT_MAINNET__/\n";
+           methodname + "\", \"params\": [" + args + "] }' -H 'content-type: text/plain;' http://127.0.0.1:" +
+           std::to_string(nRpcPort) + "/\n";
 }
 
 void RPCSetTimerInterfaceIfUnset(RPCTimerInterface *iface)
