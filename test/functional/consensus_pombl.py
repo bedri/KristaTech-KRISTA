@@ -23,7 +23,7 @@ REJECT_INVALID = 16
 class MPAConsensusTest(KristaTechTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
-        self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1', '-sporkkey=932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi']]
+        self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1']]
         self.setup_clean_chain = True
 
     def run_test(self):
@@ -63,7 +63,7 @@ class MPAConsensusTest(KristaTechTestFramework):
         self.nodes[0].generate(1) # Mine block 299
         assert_equal(self.nodes[0].getblockcount(), 299)
 
-        # Consensus::UPGRADE_POMBL activates automatically at height 300 on Regtest without Spork dependency
+        # Consensus::UPGRADE_POMBL activates deterministically at height 300 on Regtest
 
         # 3. Test version 12 block enforcement at height 300
         self.log.info("Testing version 12 block enforcement at height 300")

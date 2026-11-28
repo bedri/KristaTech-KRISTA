@@ -4635,10 +4635,6 @@ KristaTech心钱包</translation>
         <translation>在MIT软件许可下发布，参见附带的文件复制或&lt;http://www.opensource.org/licenses/mit-license.php&gt;。</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>使用适当的私钥启用spork管理功能。</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>进入回归测试模式，该模式使用一个特殊的链，其中区块可以立即被解决。</translation>
     </message>
@@ -5151,10 +5147,6 @@ KristaTech心钱包</translation>
         <translation>正在下载主节点支付缓存...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>正在下载分叉...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>正在下载钱包……</translation>
     </message>
@@ -5431,10 +5423,6 @@ KristaTech心钱包</translation>
         <translation>正在同步主节点...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>正在同步分叉...</translation>
-    </message>
-    <message>
         <source>This help message</source>
         <translation>这个帮助信息</translation>
     </message>
@@ -5497,10 +5485,6 @@ KristaTech心钱包</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>无法合成密钥</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>无法签署的分叉消息，错误的关键?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

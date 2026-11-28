@@ -28,14 +28,14 @@ stateDiagram-v2
     Draft --> Proposed : Peer review requested
     Proposed --> Active : Deployed on Testnet/Regtest
     Proposed --> Rejected : Abandoned or rejected
-    Active --> Final : Activated on Mainnet via consensus/spork
+    Active --> Final : Activated on Mainnet via consensus height
     Active --> Rejected : Reverted/replaced
 ```
 
 * **Draft**: The proposal is in progress and actively edited by the authors.
 * **Proposed**: The proposal is complete, formally submitted, and undergoing review by core developers and the community.
 * **Active**: The proposal has been approved and its implementation is deployed and testing on the Testnet and Regtest environments.
-* **Final**: The proposal has been successfully activated on Mainnet, either through a specific block height consensus trigger or a Spork activation.
+* **Final**: The proposal has been successfully activated on Mainnet through a deterministic `Consensus::UPGRADE_*` block height trigger.
 * **Rejected**: The proposal is closed without activation, either due to security flaws, lack of consensus, or replacement by a superior proposal.
 
 ## Document Template
@@ -43,7 +43,7 @@ Every KTIP must begin with a metadata header block (enclosed in a text block) an
 1. **Abstract**: A concise technical summary of the proposed change (under 200 words).
 2. **Motivation**: The rationale explaining why the current protocol is insufficient and why the upgrade is necessary.
 3. **Specification**: The exact technical details of the proposal, including mathematical formulas, data structures, state machines, and consensus parameters.
-4. **Backward Compatibility**: An evaluation of the upgrade's impact on legacy nodes (e.g., Soft Fork, Hard Fork, or Spork-controlled).
+4. **Backward Compatibility**: An evaluation of the upgrade's impact on legacy nodes (e.g., Soft Fork or Height-Gated Hard Fork).
 5. **Reference Implementation**: Links to the pull requests, commits, or source code files implementing the specification.
 
 ## Index of Active KTIPs

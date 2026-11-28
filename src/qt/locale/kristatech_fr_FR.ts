@@ -5087,10 +5087,6 @@ Portefeuille KristaTech</translation>
         <translation>Distribué sous la licence du logiciel MIT, consultez le fichier d'accompagnement COPYING ou &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Activer la fonctionnalité d'administration de spork avec la clé privée appropriée.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Entrer dans le mode de test de régression, qui utilise une chaîne spéciale dans laquelle les blocs peuvent être résolus instantanément.</translation>
     </message>
@@ -5599,10 +5595,6 @@ Portefeuille KristaTech</translation>
         <translation>Chargement du cache de paiement masternode ...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Chargement des sporks...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Chargement du portefeuille...</translation>
     </message>
@@ -6005,10 +5997,6 @@ Portefeuille KristaTech</translation>
         <translation>Synchronisation des masternodes...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Synchronisation des sporks ...</translation>
-    </message>
-    <message>
         <source>The threshold value cannot be less than %s</source>
         <translation>La valeur limite ne doit pas êre inférieur à %s</translation>
     </message>
@@ -6087,10 +6075,6 @@ Portefeuille KristaTech</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>Impossible de générer les clés</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Impossible de signer le message spork, clé erronée ?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

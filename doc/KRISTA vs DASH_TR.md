@@ -14,10 +14,10 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 | **ASIC Direnci** | Yok (X11 ASIC'leri ağa hakimdir) | Mimari Düzeyde Tam Koruma (Permütasyonlu Hashing Zinciri) |
 | **Masternode Teminatı** | **1000 DASH** (Evonode için 4000 DASH) | **4200 KRISTA** (Ağ genelinde sabit) |
 | **Quorum İmza Tipi** | BLS Eşik İmzası (BLS Threshold Signature) | `secp256k1` MN kimliğine (veya `UPGRADE_DIP3` altında KTDIP3 `blsPubKeyOperator` anahtarına) bağlı Birleştirilmiş BLS12-381 (`blst`) Dinamik 2/3 BFT Kurul İmzası (`CQuorumSignature`, `UPGRADE_HARDENING_V4` altında `4-of-5`..`11-of-15`) |
-| **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | **%7,0 `DeveloperFund`** (Dinamik BFT LLMQ + Spork Çift İmzalı) |
+| **Hazine Dağıtımı** | Blok ödülünün %20'si (Superblock Ödülleri) | **%7,0 `DeveloperFund`** (Dinamik BFT LLMQ + Hazine Anahtarı Çift İmzalı) |
 | **Akıllı Sözleşmeler** | Yok (Yalnızca Platform katmanında veri şemaları) | **MESCAL** (JSON formatlı Güvenli Sözleşme Dili) |
-| **Yönetişim Kilidi** | Yok (Oylama kazananı doğrudan harcar) | Enforce start height + Spork ve LLMQ Çift Yetkilendirmesi |
-| **Ağ Güncellemeleri** | Sporklar + BIP9/BIP135 Hard Fork | Deterministik blok yüksekliği kapıları (`Consensus::UPGRADE_*`) + idari Sporklar |
+| **Yönetişim Kilidi** | Yok (Oylama kazananı doğrudan harcar) | Yönetişim başlangıç yüksekliği (#200) + Hazine Anahtarı ve LLMQ Çift Yetkilendirmesi |
+| **Ağ Güncellemeleri** | Sporklar + BIP9/BIP135 Hard Fork | Deterministik blok yüksekliği kapıları (`Consensus::UPGRADE_*`) (merkezi spork yok) |
 | **Enerji Tüketimi** | Yüksek (Sürekli global rekabetçi PoW yarışı) | Çok Düşük (Sadece seçilen madenciler işlem yapar) |
 
 ---
@@ -45,8 +45,8 @@ Bu doküman, **KristaTech (KRISTA)** blok zinciri protokolü ile **Dash Core** p
 ### 4. Geliştirici Hazinesi Yönetimi (Developer Treasury)
 * **Dash Core:** Bütçe ödemeleri teklif oylamalarıyla belirlenir. Masternodlar teklifleri oylar ve onaylanan teklifler Superblock sırasında doğrudan alıcının adresine ödenir.
 * **KRISTA:** Sistem düzeyinde güvenli bir **Developer Fund** adresi barındırır. Bu adresten harcama yapılması konsensüs katmanında (`ConnectBlock` ve `CheckInputs` içinde) sıkı bir şekilde denetlenir:
-  * **Zaman Kilidi:** Harcamalar Mainnet'te 5.000. bloktan (Testnet'te 200) önce yapılamaz.
-  * **Çift İmza Yetkilendirmesi:** İşlem, aktif masternode quorum'unun harcamayı onayladığını doğrulayan bir LLMQ Quorum İmzası içermeli ve aynı zamanda ağın yönetimsel Spork Genel Anahtarı ile imzalanmış olmalıdır.
+  * **Zaman Kilidi:** Harcamalar Mainnet ve Testnet'te 200. bloktan (Regtest'te 100) önce yapılamaz.
+  * **Çift İmza Yetkilendirmesi:** İşlem, aktif masternode quorum'unun harcamayı onayladığını doğrulayan bir LLMQ Quorum İmzası içermeli ve aynı zamanda ağın Geliştirici Hazine Genel Anahtarı (`strTreasuryPubKey`) ile imzalanmış olmalıdır.
 
 ### 5. Akıllı Sözleşmeler (MESCAL)
 * **Dash Core:** Dash Core temel katmanda akıllı sözleşmeleri desteklemez. Dash Platform merkeziyetsiz bir belge ve veri deposu sunsa da akıllı sözleşme mantığı yürütmez.

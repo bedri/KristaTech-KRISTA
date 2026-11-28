@@ -5036,10 +5036,6 @@ KristaTech Wallet</source>
         <translation>Veröffentlicht unter der MIT-Software-Lizenz, siehe die beigelegte Datei COPYING oder &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Aktiviere die Funktionalität der Spork-Administration mit dem entsprechenden privaten Schlüssel.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Gebe den Regressions-Testmodus ein, der eine spezielle Kette verwendet, in der Blöcke sofort gelöst werden können.</translation>
     </message>
@@ -5552,10 +5548,6 @@ KristaTech Wallet</source>
         <translation>Lade Masternode-Zahlungs-Puffer... </translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Lade Sporks...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Lade Wallet...</translation>
     </message>
@@ -5962,10 +5954,6 @@ Halte den Transaktionsspeicherpool unter &lt;n&gt;  Megabyte (Standard: %u)</tra
         <translation>Synchronisiere Masternodes....</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Synchronisiere Sporks....</translation>
-    </message>
-    <message>
         <source>The threshold value cannot be less than %s</source>
         <translation> 
 Der Schwellenwert darf nicht kleiner sein als %s</translation>
@@ -6045,10 +6033,6 @@ Der Schwellenwert darf nicht kleiner sein als %s</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>Schlüssel konnten nicht erzeugt werden</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Die Spork-Nachricht konnte nicht signiert werden. Falscher Key?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

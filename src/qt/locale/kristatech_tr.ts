@@ -4178,10 +4178,6 @@ Hoşgeldiniz</translation>
         <translation>MIT yazılım lisansı altında dağıtılmıştır, eşlik eden KOPYALAMA dosyasına bakın veya &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Uygun private key ile Spork yönetim özelliğine izin verin.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Regresyon test modunu girin, bu bloklar anında çözülebilen özel bir zincir kullanır.</translation>
     </message>
@@ -4682,10 +4678,6 @@ Hoşgeldiniz</translation>
         <translation>Masternode ödeme ön belleği yükleniyor...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Sporklar yükleniyor...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Cüzdan Yükleniyor...</translation>
     </message>
@@ -4938,10 +4930,6 @@ Hoşgeldiniz</translation>
         <translation>Masternode'lar eşzamanlanıyor..</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Sporklar eşzamanlanıyor..</translation>
-    </message>
-    <message>
         <source>This help message</source>
         <translation>Bu yardım mesajı</translation>
     </message>
@@ -5000,10 +4988,6 @@ Hoşgeldiniz</translation>
     <message>
         <source>Unable to bind to %s on this computer (bind returned error %s)</source>
         <translation>Bu bilgisayarda %s 'e bağlanılamıyor (bağlantıdan dönen hata %s )</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Spork mesajı imzalanamıyor, yanlış anahtar?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

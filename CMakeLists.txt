@@ -216,7 +216,6 @@ set(SERVER_SOURCES
         ./src/rpc/server.cpp
         ./src/script/sigcache.cpp
         ./src/script/ismine.cpp
-        ./src/sporkdb.cpp
         ./src/timedata.cpp
         ./src/torcontrol.cpp
         ./src/txdb.cpp
@@ -259,7 +258,6 @@ set(WALLET_SOURCES
         ./src/masternode-budget.cpp
         ./src/masternode-payments.cpp
         ./src/masternode-sync.cpp
-        ./src/masternodeman.cpp
         ./src/messagesigner.cpp
         ./src/zpiv/mintpool.cpp
         ./src/wallet/hdchain.cpp
@@ -269,7 +267,6 @@ set(WALLET_SOURCES
         ./src/wallet/scriptpubkeyman.cpp
         ./src/wallet/rpcwallet.cpp
         ./src/kernel.cpp
-        ./src/legacy/stakemodifier.cpp
         ./src/wallet/wallet.cpp
         ./src/wallet/wallet_zerocoin.cpp
         ./src/wallet/walletdb.cpp
@@ -392,8 +389,6 @@ set(COMMON_SOURCES
         ./src/script/sign.cpp
         ./src/script/standard.cpp
         ./src/script/script_error.cpp
-        ./src/spork.cpp
-        ./src/sporkdb.cpp
         )
 add_library(COMMON_A STATIC ${BitcoinHeaders} ${COMMON_SOURCES})
 target_include_directories(COMMON_A PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/src

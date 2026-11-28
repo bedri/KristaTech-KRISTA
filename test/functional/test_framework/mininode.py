@@ -47,7 +47,6 @@ MESSAGEMAP = {
     b"tx": msg_tx,
     b"verack": msg_verack,
     b"version": msg_version,
-    #b"getsporks": msg_generic,
 }
 
 MAGIC_BYTES = {

@@ -4747,10 +4747,6 @@ KristaTech Wallet</translation>
         <translation>Distribuido bajo licencia MIT software license, ver el archivo adjunto COPYING or &lt;http://www.opensource.org/licenses/mit-license.php&gt;</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Activar la función de administración de sporks con la llave privada apropiada.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Entrar en el modo prueba de regresión, el cual usa una cadena especial en el cual los bloques pueden ser resueltos instantaneamente.</translation>
     </message>
@@ -5263,10 +5259,6 @@ KristaTech Wallet</translation>
         <translation>Cargando cache de pagos de nodos maestros</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Cargando sporks...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Cargando wallet...</translation>
     </message>
@@ -5543,10 +5535,6 @@ KristaTech Wallet</translation>
         <translation>Sincronizando masternodes...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Sincronizando con la red... </translation>
-    </message>
-    <message>
         <source>This help message</source>
         <translation>Este mensaje de ayuda</translation>
     </message>
@@ -5609,10 +5597,6 @@ KristaTech Wallet</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>No se puede generar las llaves</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Imposible firmar el mensaje spork, ¿llave equivocada?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

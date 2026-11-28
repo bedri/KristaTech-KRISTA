@@ -218,7 +218,7 @@ class CInv():
         3: "MSG_FILTERED_BLOCK",
         # 4: "MSG_TXLOCK_REQUEST",
         # 5: "MSG_TXLOCK_VOTE",
-        6: "MSG_SPORK",
+        # 6: "MSG_SPORK",  # retired
         7: "MSG_MASTERNODE_WINNER",
         8: "MSG_MASTERNODE_SCANNING_ERROR",
         13: "MSG_MASTERNODE_QUORUM",

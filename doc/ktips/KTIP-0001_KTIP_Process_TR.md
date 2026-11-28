@@ -28,14 +28,14 @@ stateDiagram-v2
     Draft --> Proposed : Akran denetimi talep edilir
     Proposed --> Active : Testnet/Regtest üzerinde konuşlandırıldı
     Proposed --> Rejected : Terk edildi veya reddedildi
-    Active --> Final : Konsensüs/Spork ile Mainnet'te etkinleştirildi
+    Active --> Final : Konsensüs yüksekliği ile Mainnet'te etkinleştirildi
     Active --> Rejected : Geri alındı/Değiştirildi
 ```
 
 * **Taslak (Draft)**: Öneri hazırlık aşamasındadır ve yazarlar tarafından aktif olarak düzenlenmektedir.
 * **Önerilen (Proposed)**: Öneri tamamlanmış, resmi olarak sunulmuş ve çekirdek geliştiriciler ile topluluk tarafından inceleme sürecindedir.
 * **Aktif (Active)**: Öneri onaylanmış ve uygulaması Testnet ve Regtest ortamlarında test edilmek üzere devreye alınmıştır.
-* **Nihai (Final)**: Öneri, belirli bir blok yüksekliği konsensüs tetikleyicisi veya bir Spork etkinleştirmesi aracılığıyla Mainnet üzerinde başarıyla etkinleştirilmiştir.
+* **Nihai (Final)**: Öneri, deterministik bir `Consensus::UPGRADE_*` blok yüksekliği tetikleyicisi aracılığıyla Mainnet üzerinde başarıyla etkinleştirilmiştir.
 * **Reddedildi (Rejected)**: Güvenlik açıkları, fikir birliği eksikliği veya daha üstün bir öneriyle değiştirilmesi nedeniyle öneri etkinleştirilmeden kapatılmıştır.
 
 ## Belge Şablonu
@@ -43,7 +43,7 @@ Her KTIP, bir üst bilgi bloğu ile başlamalı (bir metin bloğu içinde) ve a�
 1. **Abstract (Özet)**: Önerilen değişikliğin kısa bir teknik özeti (200 kelimenin altında).
 2. **Motivation (Motivasyon)**: Mevcut protokolün neden yetersiz olduğunu ve güncellemenin neden gerekli olduğunu açıklayan gerekçe.
 3. **Specification (Teknik Özellikler)**: Matematiksel formüller, veri yapıları, durum makineleri ve konsensüs parametreleri dahil olmak üzere önerinin kesin teknik ayrıntıları.
-4. **Backward Compatibility (Geriye Dönük Uyumluluk)**: Güncellemenin eski düğümler üzerindeki etkisinin değerlendirilmesi (örn. Soft Fork, Hard Fork veya Spork kontrollü).
+4. **Backward Compatibility (Geriye Dönük Uyumluluk)**: Güncellemenin eski düğümler üzerindeki etkisinin değerlendirilmesi (örn. Soft Fork veya Blok Yüksekliği Kapılı Hard Fork).
 5. **Reference Implementation (Referans Uygulama)**: Spesifikasyonu uygulayan pull request'lere, commit'lere veya kaynak kod dosyalarına bağlantılar.
 
 ## Aktif KTIP Dizini

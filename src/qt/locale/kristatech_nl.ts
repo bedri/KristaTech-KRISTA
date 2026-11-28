@@ -5098,10 +5098,6 @@ KristaTech Portemonnee</translation>
         <translation>Gedistribueerd onder de MIT software licentie, zie het bijgevoegde bestand COPYING of &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Activeer de spork administratie functionaliteit met de juiste private sleutel.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Voer de regressietest modus uit, die een speciale chain gebruikt waarin blokken direct kunnen worden opgelost.</translation>
     </message>
@@ -5614,10 +5610,6 @@ KristaTech Portemonnee</translation>
         <translation>Masternode betalingscache laden...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Sporks laden...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Portemonnee aan het laden...</translation>
     </message>
@@ -6020,10 +6012,6 @@ KristaTech Portemonnee</translation>
         <translation>Synchroniseren masternodes...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Synchroniseren sporks...</translation>
-    </message>
-    <message>
         <source>The threshold value cannot be less than %s</source>
         <translation>De drempelwaarde kan niet lager zijn dan %s</translation>
     </message>
@@ -6102,10 +6090,6 @@ KristaTech Portemonnee</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>Niet mogelijke om sleutels te genereren.</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Kan sporkbericht niet tekenen, verkeerde sleutel?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

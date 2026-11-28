@@ -5050,10 +5050,6 @@ KristaTech Wallet</source>
         <translation>Распространяется по лицензии программного обеспечения MIT, см. Сопроводительный файл COPYING или &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Включите функцию администрирования spork с помощью соответствующего закрытого ключа.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Введите режим регрессии, в котором используется специальная цепочка, в которой блоки могут быть решены мгновенно.</translation>
     </message>
@@ -5566,10 +5562,6 @@ KristaTech Wallet</source>
         <translation>Загрузка кэша платежей в мазну ...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Загрузка ...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Загрузка кошелька ...</translation>
     </message>
@@ -5968,10 +5960,6 @@ KristaTech Wallet</source>
         <translation>Синхронизация мастернод ...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Синхронизация спорков ...</translation>
-    </message>
-    <message>
         <source>The threshold value cannot be less than %s</source>
         <translation>Пороговое значение не может быть меньше, чем %s</translation>
     </message>
@@ -6050,10 +6038,6 @@ KristaTech Wallet</source>
     <message>
         <source>Unable to generate keys</source>
         <translation>Невозможно сгенерировать ключи</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Не удалось подписать сообщение , неправильный ключ?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

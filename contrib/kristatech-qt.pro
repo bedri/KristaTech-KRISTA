@@ -96,7 +96,6 @@ HEADERS += src/activemasternode.h \
            src/masternode-sync.h \
            src/masternode.h \
            src/masternodeconfig.h \
-           src/masternodeman.h \
            src/merkleblock.h \
            src/miner.h \
            src/mruset.h \
@@ -111,7 +110,6 @@ HEADERS += src/activemasternode.h \
            src/rpcprotocol.h \
            src/rpcserver.h \
            src/serialize.h \
-           src/spork.h \
            src/streams.h \
            src/sync.h \
            src/threadsafety.h \
@@ -395,7 +393,6 @@ SOURCES += src/activemasternode.cpp \
            src/masternode-sync.cpp \
            src/masternode.cpp \
            src/masternodeconfig.cpp \
-           src/masternodeman.cpp \
            src/merkleblock.cpp \
            src/miner.cpp \
            src/net.cpp \
@@ -417,7 +414,6 @@ SOURCES += src/activemasternode.cpp \
            src/rpcrawtransaction.cpp \
            src/rpcserver.cpp \
            src/rpcwallet.cpp \
-           src/spork.cpp \
            src/sync.cpp \
            src/timedata.cpp \
            src/txdb.cpp \

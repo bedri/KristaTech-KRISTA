@@ -5097,10 +5097,6 @@ Portafoglio KristaTech.</translation>
         <translation>Distribuito sotto la licenza del software MIT, consultare il file di accompagnamento COPYING o &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Abilitare la funzionalità di amministrazione di spork con la chiave privata appropriata.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Entra nella modalità test di regressione, che utilizza una catena speciale in cui i blocchi possono essere risolti istantaneamente.</translation>
     </message>
@@ -5613,10 +5609,6 @@ Portafoglio KristaTech.</translation>
         <translation>Caricamento cache pagamento masternode...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Caricamento sporks...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Caricamento portafoglio...</translation>
     </message>
@@ -6019,10 +6011,6 @@ Portafoglio KristaTech.</translation>
         <translation>Sincronizzazione dei Masternode...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Sincronizzazione sporks...</translation>
-    </message>
-    <message>
         <source>The threshold value cannot be less than %s</source>
         <translation>Il valore di soglia non può essere inferiore a %s</translation>
     </message>
@@ -6101,10 +6089,6 @@ Portafoglio KristaTech.</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>Impossibile generare le chiavi</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Impossibile firmare il messaggio spork, chiave errata?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

@@ -45,7 +45,7 @@ def address_to_scriptPubKey(address):
 class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
-        self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1', '-sporkkey=932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi']]
+        self.extra_args = [['-promiscuousmempoolflags=1', '-whitelist=127.0.0.1']]
         self.setup_clean_chain = True
 
     def run_test(self):
@@ -69,7 +69,7 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
     def do_run_test(self):
         # Addresses
         dev_address = "kt5KNitasi4bEHbQQCrpy6445nJD7uSVNux"
-        spork_privkey = "932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi"
+        treasury_privkey = "932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi"
         
         # 1. Mine blocks up to block 95 (approaching the governance start height 100)
         self.log.info("Mining 95 blocks to generate developer treasury rewards")
@@ -128,9 +128,9 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
         outputs = {dest_addr: float(utxo_amount) - 0.01}
         raw_tx = self.nodes[0].createrawtransaction(inputs, outputs)
         
-        # Sign it in Python using the spork key
+        # Sign it in Python using the treasury key
         tx = FromHex(CTransaction(), raw_tx)
-        spork_script = address_to_scriptPubKey("yCvUVd72w7xpimf981m114FSFbmAmne7j9")
+        treasury_script = address_to_scriptPubKey("yCvUVd72w7xpimf981m114FSFbmAmne7j9")
         
         # Helper to convert WIF to private key bytes
         def wif_to_privkey_bytes(wif):
@@ -164,7 +164,7 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
 
         # Calculate the sighash for the spending transaction
         from test_framework.script import SignatureHash, SIGHASH_ALL, CScript
-        (sighash, err) = SignatureHash(CScript(spork_script), tx, 0, SIGHASH_ALL)
+        (sighash, err) = SignatureHash(CScript(treasury_script), tx, 0, SIGHASH_ALL)
         assert err is None
         
         # Helper to construct a proper script data push
@@ -180,12 +180,12 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
                 return bytes([0x4f]) + struct.pack("<I", l) + data
 
         # Sign it
-        sig_der = sign_hash_with_wif(sighash, spork_privkey)
+        sig_der = sign_hash_with_wif(sighash, treasury_privkey)
         sig_with_type = sig_der + b'\x01'
-        spork_pubkey = get_pubkey_bytes_from_wif(spork_privkey)
+        treasury_pubkey = get_pubkey_bytes_from_wif(treasury_privkey)
         
         # 1. Spend without quorum signature
-        scriptSig_no_q = script_push(sig_with_type) + script_push(spork_pubkey)
+        scriptSig_no_q = script_push(sig_with_type) + script_push(treasury_pubkey)
         tx.vin[0].scriptSig = scriptSig_no_q
         signed_hex = ToHex(tx)
         
@@ -207,7 +207,7 @@ class ConsensusTreasuryFaucetTest(KristaTechTestFramework):
         assert_equal(self.nodes[0].getblockcount(), 100)
         self.log.info("Mined to block 100. Treasury governance active.")
 
-        # 4. Try spending without quorum signature (using the spork signature alone)
+        # 4. Try spending without quorum signature (using the treasury signature alone)
         self.log.info("Verifying spend without quorum signature is rejected")
         try:
             self.nodes[0].sendrawtransaction(signed_hex)

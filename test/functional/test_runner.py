@@ -71,7 +71,6 @@ BASE_SCRIPTS= [
     'wallet_keypool_topup.py',                  # ~ 174 sec
     'wallet_txn_doublespend.py --mineblock',    # ~ 157 sec
     'wallet_txn_clone.py --mineblock',          # ~ 157 sec
-    'rpc_spork.py',                             # ~ 156 sec
     'interface_rest.py',                        # ~ 154 sec
     'feature_proxy.py',                         # ~ 143 sec
     'feature_uacomment.py',                     # ~ 130 sec
@@ -176,7 +175,6 @@ LEGACY_SKIP_TESTS = [
     'rpc_fundrawtransaction.py',
     'rpc_net.py',
     'rpc_signmessage.py',
-    'rpc_spork.py',
     'wallet_hd.py',         # no HD tests for pre-HD wallets
     'wallet_upgrade.py',    # can't upgrade to pre-HD wallet
 ]

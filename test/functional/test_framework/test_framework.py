@@ -53,8 +53,6 @@ from .util import (
     bytes_to_hex_str,
     initialize_datadir,
     set_node_times,
-    SPORK_ACTIVATION_TIME,
-    SPORK_DEACTIVATION_TIME,
     sync_blocks,
     sync_mempools,
 )
@@ -442,7 +440,7 @@ class KristaTechTestFramework():
             node_0_datadir = os.path.join(get_datadir_path(cachedir, 0), "regtest")
             for i in range(from_num, MAX_NODES):
                 node_i_datadir = os.path.join(get_datadir_path(cachedir, i), "regtest")
-                for subdir in ["blocks", "chainstate", "sporks"]:
+                for subdir in ["blocks", "chainstate"]:
                     copy_and_overwrite(os.path.join(node_0_datadir, subdir),
                                     os.path.join(node_i_datadir, subdir))
                 initialize_datadir(cachedir, i)  # Overwrite port/rpcport in kristatech.conf
@@ -462,7 +460,7 @@ class KristaTechTestFramework():
 
             for i in range(MAX_NODES):
                 for entry in os.listdir(cache_path(i)):
-                    if entry not in ['wallet.dat', 'chainstate', 'blocks', 'sporks', 'backups']:
+                    if entry not in ['wallet.dat', 'chainstate', 'blocks', 'backups']:
                         path = cache_path(i, entry)
                         if os.path.isdir(path):
                             shutil.rmtree(path)
@@ -1032,30 +1030,6 @@ class KristaTechTestFramework():
             btime += 60
             set_node_times(self.nodes, btime)
         return btime
-
-
-    def set_spork(self, node_id, sporkName, value):
-        assert_greater_than(len(self.nodes), node_id)
-        return self.nodes[node_id].spork(sporkName, value)
-
-
-    def get_spork(self, node_id, sporkName):
-        assert_greater_than(len(self.nodes), node_id)
-        return self.nodes[node_id].spork("show")[sporkName]
-
-
-    def activate_spork(self, node_id, sporkName):
-        return self.set_spork(node_id, sporkName, SPORK_ACTIVATION_TIME)
-
-
-    def deactivate_spork(self, node_id, sporkName):
-        return self.set_spork(node_id, sporkName, SPORK_DEACTIVATION_TIME)
-
-
-    def is_spork_active(self, node_id, sporkName):
-        assert_greater_than(len(self.nodes), node_id)
-        return self.nodes[node_id].spork("active")[sporkName]
-
 
 
 ### ------------------------------------------------------

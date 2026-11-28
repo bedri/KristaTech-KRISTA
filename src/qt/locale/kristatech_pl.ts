@@ -4508,10 +4508,6 @@ Portfel KristaTech</translation>
         <translation>Dystrybuowane w ramach licencji oprogramowania MIT, patrz plik towarzyszący COPYING lub &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Włącz funkcję zarządzania sporkami za pomocą odpowiedniego klucza prywatnego.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Wejdź w tryb testu regresyjnego, który wykorzystuje specjalny łańcuch, w którym bloki można natychmiast rozwiązać.</translation>
     </message>
@@ -5024,10 +5020,6 @@ Portfel KristaTech</translation>
         <translation>Ładowanie pamięci podręcznej płatności masternode ...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Ładowanie sporks ...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Ładowanie portfela ...</translation>
     </message>
@@ -5304,10 +5296,6 @@ Portfel KristaTech</translation>
         <translation>Synchronizowanie masternode...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Synchronizowanie sporks...</translation>
-    </message>
-    <message>
         <source>This help message</source>
         <translation>Ten komunikat pomocy</translation>
     </message>
@@ -5370,10 +5358,6 @@ Portfel KristaTech</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>Nie można wygenerować kluczy</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Nie można podpisać wiadomości „Spork”, zły klucz?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

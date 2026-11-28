@@ -6320,11 +6320,6 @@ KristaTech Wallet</source>
     </message>
     <message>
         <location line="+2"/>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+2"/>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation type="unfinished">Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</translation>
     </message>
@@ -7000,11 +6995,6 @@ KristaTech Wallet</source>
     </message>
     <message>
         <location line="+1"/>
-        <source>Loading sporks...</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
         <source>Loading wallet...</source>
         <translation type="unfinished">Loading wallet...</translation>
     </message>
@@ -7537,11 +7527,6 @@ KristaTech Wallet</source>
     </message>
     <message>
         <location line="+1"/>
-        <source>Synchronizing sporks...</source>
-        <translation type="unfinished">Synchronizing sporks...</translation>
-    </message>
-    <message>
-        <location line="+1"/>
         <source>The threshold value cannot be less than %s</source>
         <translation type="unfinished"></translation>
     </message>
@@ -7639,11 +7624,6 @@ KristaTech Wallet</source>
         <location line="+3"/>
         <source>Unable to generate keys</source>
         <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <location line="+1"/>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation type="unfinished">Unable to sign spork message, wrong key?</translation>
     </message>
     <message>
         <location line="+1"/>

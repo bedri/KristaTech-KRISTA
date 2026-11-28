@@ -5134,10 +5134,6 @@ KristaTech Wallet</translation>
         <translation>Distributed under the MIT software license, see the accompanying file COPYING or &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Enable spork administration functionality with the appropriate private key.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</translation>
     </message>
@@ -5678,10 +5674,6 @@ KristaTech Wallet</translation>
         <translation>Loading masternode payment cache...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Loading sporks...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Loading wallet...</translation>
     </message>
@@ -6110,10 +6102,6 @@ KristaTech Wallet</translation>
         <translation>Synchronizing masternodes...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Synchronizing sporks...</translation>
-    </message>
-    <message>
         <source>The threshold value cannot be less than %s</source>
         <translation>The threshold value cannot be less than %s</translation>
     </message>
@@ -6192,10 +6180,6 @@ KristaTech Wallet</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>Unable to generate keys</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Unable to sign spork message, wrong key?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

@@ -4933,10 +4933,6 @@ KristaTech Wallet</source>
         <translation>Distribuirano pod MIT softverskom licencom, pogledajte priloženu datoteku COPYING ili &lt;http://www.opensource.org/licenses/mit-license.php&gt;.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>Omogućite funkcionalnost administracije s odgovarajućim privatnim ključem.</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>Unesite način rada regresije, koji koristi poseban lanac u kojem blokovi mogu biti riješeni odmah.</translation>
     </message>
@@ -5450,10 +5446,6 @@ KristaTech Wallet</source>
         <translation>Učitavanje predmemorije plaćanja masternodea...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>Učitavanje sporkova...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>Učitavanje novčanika...</translation>
     </message>
@@ -5752,10 +5744,6 @@ KristaTech Wallet</source>
         <translation>Sinkronizacija masternodeova...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>Sinkronizacija sporkova...</translation>
-    </message>
-    <message>
         <source>This help message</source>
         <translation>Ova poruka za pomoć</translation>
     </message>
@@ -5826,10 +5814,6 @@ KristaTech Wallet</source>
     <message>
         <source>Unable to generate keys</source>
         <translation>Nije moguće generiranje ključeva</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>Nije moguće potpisati spork poruku, pogrešan ključ?</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

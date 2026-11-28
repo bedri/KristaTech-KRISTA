@@ -4299,10 +4299,6 @@ KristaTech Wallet</translation>
         <translation>MIT 소프트웨어 라이센스에 따라 배포, 첨부 파일 COPYING 또는 &lt;http://www.opensource.org/licenses/mit-license.php&gt; 를 참조하십시오.</translation>
     </message>
     <message>
-        <source>Enable spork administration functionality with the appropriate private key.</source>
-        <translation>올바른 개인키로 spork 관리 기능을 사용 가능</translation>
-    </message>
-    <message>
         <source>Enter regression test mode, which uses a special chain in which blocks can be solved instantly.</source>
         <translation>리그레션 테스트에 들어갑니다. 특수 체인을 사용하며 블록들을 바로 푸는 것이 가능합니다.</translation>
     </message>
@@ -4783,10 +4779,6 @@ KristaTech Wallet</translation>
         <translation>마스터노드 결제 캐시를 불러오는 중...</translation>
     </message>
     <message>
-        <source>Loading sporks...</source>
-        <translation>sporks 로딩중...</translation>
-    </message>
-    <message>
         <source>Loading wallet...</source>
         <translation>지갑을 불러오는 중…</translation>
     </message>
@@ -5043,10 +5035,6 @@ KristaTech Wallet</translation>
         <translation>마스터노드와 동기화중입니다...</translation>
     </message>
     <message>
-        <source>Synchronizing sporks...</source>
-        <translation>sporks와 동기화 중입니다...</translation>
-    </message>
-    <message>
         <source>This help message</source>
         <translation>도움말 메시지입니다</translation>
     </message>
@@ -5109,10 +5097,6 @@ KristaTech Wallet</translation>
     <message>
         <source>Unable to generate keys</source>
         <translation>키를 생성할 수 없습니다.</translation>
-    </message>
-    <message>
-        <source>Unable to sign spork message, wrong key?</source>
-        <translation>스포크 메시지를 인증할 수 없습니다, 키를 확인해주세요</translation>
     </message>
     <message>
         <source>Unable to start HTTP server. See debug log for details.</source>

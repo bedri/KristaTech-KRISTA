@@ -35,8 +35,8 @@ Standard Mode represents the full cooperative Multi-Proof-Algorithm (PoMBL) cons
 * **Elected Coordinator**: Under `UPGRADE_FAIRNESS` (Block `1`, `SelectAdamNodes`), the primary Coordinator is elected across all funded validators via proportional locked-capital VRF without per-track representative caps (**`4,200` per Active MN, `250` per `Coin-Lock`, and `10` per `Funded PoW-Lock`**), enforcing an **exact `>= 55%` Active MN security floor via `ADAM_FAIR_COORD_V5`** whenever `11 * sumNonMN > 9 * sumMN` under `UPGRADE_MODELD` (and preserving **`ADAM_FAIR_COORD_V4`** with an exact **`>= 75%` Active MN floor** whenever `3 * sumNonMN > sumMN` Pre-Model D; replacing the legacy `65 : 8 : 2` V2 caps and falling back to Bootstrap $\rightarrow$ Zero-Coin VRF only when no funded validators exist), and is distinct from the `15` (or `11` Pre-Model D) `vAdamMiners` entries.
 
 ### C. Deterministic Height-Gated Activation (`Consensus::UPGRADE_POMBL`)
-The transition between Fallback Mode (Version 11) and Standard Mode (Version 12) is strictly height-gated by `Consensus::UPGRADE_POMBL` (`vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight` in `src/chainparams.cpp`), with no administrative Spork dependency:
-* **Activation Heights**: Block **`4,800`** on Mainnet, Block **`400`** on Testnet, and Block **`300`** on Regtest.
+The transition between Fallback Mode (Version 11) and Standard Mode (Version 12) is strictly height-gated by `Consensus::UPGRADE_POMBL` (`vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight` in `src/chainparams.cpp`), purely deterministic by block height:
+* **Activation Heights**: Block **`200`** on Mainnet, Block **`200`** on Testnet, and Block **`300`** on Regtest.
 * **Behavior**:
   - For `UPGRADE_ADAM <= nHeight < UPGRADE_POMBL`: blocks are built and validated as **Version 11** under Fallback Mode rules.
   - For `nHeight >= UPGRADE_POMBL`: `ComputeBlockVersion` produces **Version 12** blocks, and both `ContextualCheckBlockHeader` and `CheckBlock` strictly reject any block with `nVersion < 12` (`bad-version`).
