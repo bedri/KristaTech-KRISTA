@@ -15,7 +15,6 @@
 #include "main.h"
 #include "masternode-sync.h"
 #include "masternode.h"
-#include "masternodeman.h"
 #include "optionsmodel.h"
 #include "qt/kristatech/kristatechgui.h"
 #include "qt/kristatech/minerhubwidget.h"
@@ -1160,7 +1159,6 @@ void DashboardWidget::refreshOverviewStats()
                         if (kv.second.state.IsValid()) ++mnEnabled;
                     }
                 }
-                if (mnEnabled == 0) mnEnabled = mnodeman.CountEnabled();
                 cachedMnEnabled = mnEnabled;
                 hasCachedNodeSnapshot = true;
             }
@@ -1185,7 +1183,6 @@ void DashboardWidget::refreshOverviewStats()
                 for (const CMasternodeWalletRecord& rec : pwalletMain->GetAllMasternodeMeta()) {
                     if (rec.collateralOutpoint.IsNull()) continue;
                     ++myTotal;
-                    const CTxIn txIn(rec.collateralOutpoint);
                     if (hasDip3List) {
                         if (const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(rec.collateralOutpoint)) {
                             seenDip3Collaterals.insert(rec.collateralOutpoint);
@@ -1197,16 +1194,6 @@ void DashboardWidget::refreshOverviewStats()
                                 if (dip3Mn->state.nPoSePenalty > 0) ++myPenalized;
                             }
                             continue;
-                        }
-                    }
-                    if (!mnSynced) continue;
-                    CMasternode mn;
-                    if (mnodeman.Get(txIn, mn)) {
-                        if (mn.activeState == CMasternode::MASTERNODE_PRE_ENABLED ||
-                            mn.activeState == CMasternode::MASTERNODE_ENABLED) {
-                            ++myActive;
-                        } else if (mn.activeState == CMasternode::MASTERNODE_POSE_BAN) {
-                            ++myBanned;
                         }
                     }
                 }

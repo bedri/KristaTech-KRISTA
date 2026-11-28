@@ -9,7 +9,6 @@
 #include "chain.h"
 #include "chainparams.h"
 #include "hash.h"
-#include "legacy/stakemodifier.h"  // for ComputeNextStakeModifier
 
 
 /**
@@ -192,19 +191,6 @@ void CBlockIndex::SetStakeModifier(const uint64_t nStakeModifier, bool fGenerate
 
 }
 
-// Generates and sets new V1 stake modifier
-void CBlockIndex::SetNewStakeModifier()
-{
-    // compute stake entropy bit for stake modifier
-    if (!SetStakeEntropyBit(GetStakeEntropyBit()))
-        LogPrintf("%s : SetStakeEntropyBit() failed\n", __func__);
-    uint64_t nStakeModifier = 0;
-    bool fGeneratedStakeModifier = false;
-    if (!ComputeNextStakeModifier(pprev, nStakeModifier, fGeneratedStakeModifier))
-        LogPrintf("%s : ComputeNextStakeModifier() failed \n",  __func__);
-    return SetStakeModifier(nStakeModifier, fGeneratedStakeModifier);
-}
-
 // Sets V2 stake modifiers (uint256)
 void CBlockIndex::SetStakeModifier(const uint256& nStakeModifier)
 {
@@ -217,7 +203,7 @@ void CBlockIndex::SetNewStakeModifier(const uint256& prevoutId)
 {
     uint256 prevMod = UINT256_ZERO;
     if (pprev) {
-        if (IsHardeningV3Active(pprev->nHeight)) {
+        if (pprev->nHeight > 0) {
             // Defer computing V2 modifier if the parent block data / modifier has not been linked yet.
             if (!(pprev->nFlags & BLOCK_STAKE_MODIFIER) || pprev->GetStakeModifierV2().IsNull()) {
                 return;

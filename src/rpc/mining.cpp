@@ -14,7 +14,7 @@
 #include "init.h"
 #include "main.h"
 #include "miner.h"
-#include "masternodeman.h"
+#include "masternode.h"
 #include "messagesigner.h"
 
 #include "adam.h"
@@ -24,7 +24,6 @@
 #include "llmq.h"
 #include "net.h"
 #include "pow.h"
-#include "spork.h"
 #include "netmessagemaker.h"
 #include "rpc/server.h"
 #include "util.h"
@@ -373,11 +372,10 @@ UniValue generate(const JSONRPCRequest& request)
                     bool fOpOnly = false;
                     if (ResolveLocalSigningKey(expectedCoordinator, pwalletMain, pindexTip->nHeight + 1, coordKey, blsKey, fOpOnly, pindexTip) &&
                         blsKey.IsValid()) {
-                        const bool fHardeningV3 = IsHardeningV3Active(pindexTip->nHeight + 1);
-                        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3))) {
+                        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF))) {
                             LogPrintf("generate RPC: Failed to sign VRF proof as coordinator\n");
                         }
-                        if (!SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3))) {
+                        if (!SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD))) {
                             LogPrintf("generate RPC: Failed to sign ADAM block as coordinator\n");
                         } else {
                             LogPrintf("generate RPC: Signed ADAM block as coordinator, hash: %s\n", pblock->GetHash().ToString());
@@ -840,7 +838,7 @@ UniValue getblocktemplate(const JSONRPCRequest& request)
                     RecordExternalAdamMinerPoll(myMinerKey.GetID(), false);
                 }
                 if (!fV12) {
-                    algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
+                    algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey);
                 } else {
                     GetAdam3PermutationAlgos(pindexPrevTmp->GetBlockHash(), myMinerKey, algo1, algo2, algo3);
                 }
@@ -1201,7 +1199,7 @@ UniValue submitblock(const JSONRPCRequest& request)
                 }
                 if (minerIdx >= 0) {
                     if (!fV12) {
-                        algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey, true);
+                        algoIndex = GetAdamPuzzleAlgo(adamSeed, minerKey);
                     } else {
                         GetAdam3PermutationAlgos(tipHash, minerKey, algo1, algo2, algo3);
                     }
@@ -1270,7 +1268,7 @@ UniValue submitblock(const JSONRPCRequest& request)
 
         std::vector<unsigned char> vchSig;
         if (blsKey.IsValid()) {
-            const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nNextHeight));
+            const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL);
             if (!SignAdamOrDip3(puzzleHash, privKey, blsKey, fOpOnly, vchSig, solDst)) {
                 LogPrintf("submitblock: Failed to sign puzzle hash for miner %s\n", minerKey.GetID().ToString());
                 return "bls-sign-failed";
@@ -1356,7 +1354,7 @@ UniValue submitblock(const JSONRPCRequest& request)
 #endif
             if (ResolveLocalSigningKey(expectedCoordinator, pSigningWallet, pindexTip->nHeight + 1, coordKey, blsKey, fOpOnly, pindexTip) &&
                 blsKey.IsValid()) {
-                const std::string& coordDst = GetBLSDomainTag(BLSDomain::ADAM_COORD, IsHardeningV3Active(pindexTip->nHeight + 1));
+                const std::string& coordDst = GetBLSDomainTag(BLSDomain::ADAM_COORD);
                 if (SignAdamOrDip3(block.GetHash(), coordKey, blsKey, fOpOnly, block.vAdamCoordinatorSig, coordDst)) {
                     LogPrintf("submitblock: Signed ADAM block as coordinator, hash: %s\n", block.GetHash().ToString());
                 } else {
@@ -1619,13 +1617,11 @@ UniValue registerminer(const JSONRPCRequest& request)
 
     // Reject early if this pubkey is already active as a funded validator OR if this wallet already holds an active seat on the requested track
     bool fKeyUnfundedInPool = false;
-    bool fHardeningV4Next = false;
     {
         LOCK2(cs_main, pwalletMain->cs_wallet);
         const int nTipNow = chainActive.Height();
-        fHardeningV4Next = IsHardeningV4Active(nTipNow + 1);
-        if (fHardeningV4Next && !minerBlsKey.IsValid()) {
-            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Hardening v4 miner registration requires wallet private key ownership to sign BLS proof-of-possession");
+        if (!minerBlsKey.IsValid()) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Miner registration requires wallet private key ownership to sign BLS proof-of-possession");
         }
         const int nFundedRenewWindow = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
                                         IsModelDActive(nTipNow + 1)) ? 15 : 240;
@@ -1733,12 +1729,10 @@ UniValue registerminer(const JSONRPCRequest& request)
         {
             LOCK2(cs_main, pwalletMain->cs_wallet);
             const int nTip = chainActive.Height();
-            const bool fHardeningV2Next = Params().GetConsensus().NetworkUpgradeActive(nTip + 1, Consensus::UPGRADE_HARDENING_V2);
-            fHardeningV4Next = IsHardeningV4Active(nTip + 1);
-            if (fHardeningV4Next && !minerBlsKey.IsValid()) {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Hardening v4 miner registration requires wallet private key ownership to sign BLS proof-of-possession");
+            if (!minerBlsKey.IsValid()) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Miner registration requires wallet private key ownership to sign BLS proof-of-possession");
             }
-            if (fHardeningV2Next && !pubkey.IsCompressed()) {
+            if (!pubkey.IsCompressed()) {
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Coin-Lock registration requires a compressed public key");
             }
             const int nMinLockPeriod = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
@@ -1754,21 +1748,15 @@ UniValue registerminer(const JSONRPCRequest& request)
             }
         }
 
-        if (fHardeningV4Next) {
-            CBLSPubKey minerBlsPubKey(minerBlsKey);
-            CBLSSignature blsPoP;
-            if (!minerBlsPubKey.IsValid() || !blsPoP.SignPoP(minerBlsKey) || !blsPoP.IsValid()) {
-                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to sign BLS proof-of-possession for miner registration");
-            }
-            scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(blsPoP) << OP_2DROP
-                                     << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
-                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        } else {
-            scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
-                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+        CBLSPubKey minerBlsPubKey(minerBlsKey);
+        CBLSSignature blsPoP;
+        if (!minerBlsPubKey.IsValid() || !blsPoP.SignPoP(minerBlsKey) || !blsPoP.IsValid()) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to sign BLS proof-of-possession for miner registration");
         }
+        scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(blsPoP) << OP_2DROP
+                                 << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
+                                 << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                 << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
         nAmount = MINER_REGISTRATION_LOCK_AMOUNT;
     } else if (type == "pow") {
         static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
@@ -1777,7 +1765,6 @@ UniValue registerminer(const JSONRPCRequest& request)
         int64_t currentHeight = 0;
         int challengeHeight = 0;
         const bool fAutoChallenge = (request.params.size() <= 1 || request.params[1].isNull() || request.params[1].get_str().empty());
-        bool fHardeningV2Next = false;
         {
             LOCK2(cs_main, pwalletMain->cs_wallet);
             if (!chainActive.Tip()) {
@@ -1799,11 +1786,7 @@ UniValue registerminer(const JSONRPCRequest& request)
             challengeHeight = pindexChallenge->nHeight;
 
             currentHeight = chainActive.Height();
-            const bool fHardeningNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V1);
-            fHardeningV2Next = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
-            const size_t nBootstrapGateCount = fHardeningNext
-                ? GetFundedAdamMinerPoolCount(currentHeight)
-                : GetExplicitAdamMinerPoolCount(currentHeight);
+            const size_t nBootstrapGateCount = GetFundedAdamMinerPoolCount(currentHeight);
             const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(currentHeight + 1) + 2);
             const bool fDualTrackNext = IsAdamDualTrackActive(currentHeight + 1);
 
@@ -1819,11 +1802,11 @@ UniValue registerminer(const JSONRPCRequest& request)
             }
 
             if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
-                if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                if (!pubkey.IsCompressed()) {
                     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "PoW-Lock registration requires a compressed public key");
                 }
                 nAmount = POW_LOCK_REGISTRATION_AMOUNT;
-                target = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
+                target = GetMinerPoWLimit(Params().NetworkIDString());
                 if (challengeHeight < (currentHeight + 1) - 100) {
                     throw JSONRPCError(RPC_INVALID_PARAMETER, "Challenge block hash is older than 100 blocks");
                 }
@@ -1832,15 +1815,15 @@ UniValue registerminer(const JSONRPCRequest& request)
                     strprintf("Miner key is already active in the ADAM bootstrap pool; upgrading to Funded PoW-Lock requires at least 10.01 KRISTA with %d confirmations",
                               ADAM_POW_LOCK_MIN_INPUT_DEPTH));
             } else if (Params().GetConsensus().IsAdamOpenEntryActive(currentHeight + 1) || nBootstrapGateCount < maxBootstrapPoolSize) {
-                if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                if (!pubkey.IsCompressed()) {
                     throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Zero-Coin PoW registration requires a compressed public key");
                 }
-                const int nAllowedChallengeLag = fHardeningV2Next ? (ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2) : 100;
+                const int nAllowedChallengeLag = ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2;
                 if (challengeHeight < (currentHeight + 1) - nAllowedChallengeLag) {
                     throw JSONRPCError(RPC_INVALID_PARAMETER,
                         strprintf("Challenge block hash is too old for Zero-Coin PoW registration (must be within the last %d blocks)", nAllowedChallengeLag));
                 }
-                if (fHardeningV2Next && !Params().IsRegTestNet()) {
+                if (!Params().IsRegTestNet()) {
                     const int nZeroRenewWindow = ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
                                                   IsModelDActive(currentHeight + 1)) ? 8 : 24;
                     std::set<CPubKey> mnKeys, coinLockKeys, fundedPoWKeys, bootstrapKeys;
@@ -1877,8 +1860,7 @@ UniValue registerminer(const JSONRPCRequest& request)
                     }
                 }
                 nAmount = 0;
-                const bool fFairnessNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_FAIRNESS);
-                target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next, fFairnessNext);
+                target = GetZeroCoinPoWLimit(Params().NetworkIDString());
                 LOCK(mempool.cs);
                 if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
                     throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration is already pending in mempool for the next block; please retry after the next block");
@@ -1890,51 +1872,30 @@ UniValue registerminer(const JSONRPCRequest& request)
             }
         }
 
-        const bool fUseX11KVS = fHardeningV2Next;
-        const bool fZeroCoinV2 = (nAmount == 0) && fHardeningV2Next;
-        bool fUseV4Bls = IsHardeningV4Active(currentHeight + 1);
-        CBLSPubKey minerBlsPubKey;
+        if (!minerBlsKey.IsValid()) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Miner registration requires wallet private key ownership to sign BLS proof-of-possession");
+        }
+        CBLSPubKey minerBlsPubKey(minerBlsKey);
         CBLSSignature minerBlsPoP;
-        if (fUseV4Bls) {
-            if (!minerBlsKey.IsValid()) {
-                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Hardening v4 miner registration requires wallet private key ownership to sign BLS proof-of-possession");
-            }
-            minerBlsPubKey = CBLSPubKey(minerBlsKey);
-            if (!minerBlsPubKey.IsValid() || !minerBlsPoP.SignPoP(minerBlsKey) || !minerBlsPoP.IsValid()) {
-                throw JSONRPCError(RPC_WALLET_ERROR, "Failed to sign BLS proof-of-possession for miner registration");
-            }
+        if (!minerBlsPubKey.IsValid() || !minerBlsPoP.SignPoP(minerBlsKey) || !minerBlsPoP.IsValid()) {
+            throw JSONRPCError(RPC_WALLET_ERROR, "Failed to sign BLS proof-of-possession for miner registration");
         }
         unsigned char powHeaderBuf[80];
-        if (fUseX11KVS) {
-            const CBLSPubKey* pBoundBls = fUseV4Bls ? &minerBlsPubKey : nullptr;
-            if (nAmount == 0) {
-                BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, pBoundBls);
-            } else {
-                BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, pBoundBls);
-            }
+        if (nAmount == 0) {
+            BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, minerBlsPubKey);
+        } else {
+            BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, minerBlsPubKey);
         }
         uint32_t nonce = 0;
         uint256 puzzleHash;
         LogPrintf("registerminer pow: Starting CPU search (%s) for challenge %s...\n",
-                  nAmount == 0 ? (fUseX11KVS ? "Zero-Coin HashX11KVS" : "Zero-Coin 24-bit")
-                               : (fUseX11KVS ? "Funded HashX11KVS" : "Funded 28-bit"),
+                  nAmount == 0 ? "Zero-Coin HashX11KVS" : "Funded HashX11KVS",
                   challengeHash.ToString());
-        const uint32_t cancelMask = fUseX11KVS ? 0xFFU : 0x1FFFU;
-        const uint32_t mempoolCheckMask = fUseX11KVS ? 0x7FFU : 0x1FFFFU;
+        const uint32_t cancelMask = 0xFFU;
+        const uint32_t mempoolCheckMask = 0x7FFU;
         while (true) {
-            if (fUseX11KVS) {
-                WriteLE32(powHeaderBuf + 76, nonce);
-                puzzleHash = HashX11KVS(powHeaderBuf, powHeaderBuf + 80);
-            } else {
-                CHashWriter ss(SER_GETHASH, 0);
-                ss << nonce;
-                ss << challengeHash;
-                ss << pubkey;
-                if (fUseV4Bls) {
-                    ss << minerBlsPubKey;
-                }
-                puzzleHash = ss.GetHash();
-            }
+            WriteLE32(powHeaderBuf + 76, nonce);
+            puzzleHash = HashX11KVS(powHeaderBuf, powHeaderBuf + 80);
             if (puzzleHash <= target) {
                 break;
             }
@@ -1951,23 +1912,17 @@ UniValue registerminer(const JSONRPCRequest& request)
                         throw JSONRPCError(RPC_MISC_ERROR, "Another Zero-Coin PoW registration entered mempool for the next block; please retry after the next block");
                     }
                 }
-                if (fUseX11KVS && fAutoChallenge) {
+                if (fAutoChallenge) {
                     LOCK(cs_main);
                     const int nMaxDrift = (nAmount == 0) ? 6 : 50;
                     if (chainActive.Tip() && chainActive.Height() - challengeHeight >= nMaxDrift) {
                         currentHeight = chainActive.Height();
                         challengeHeight = currentHeight;
                         challengeHash = chainActive.Tip()->GetBlockHash();
-                        fUseV4Bls = IsHardeningV4Active(currentHeight + 1);
-                        if (fUseV4Bls && !minerBlsPubKey.IsValid() && minerBlsKey.IsValid()) {
-                            minerBlsPubKey = CBLSPubKey(minerBlsKey);
-                            minerBlsPoP.SignPoP(minerBlsKey);
-                        }
-                        const CBLSPubKey* pBoundBls = (fUseV4Bls && minerBlsPubKey.IsValid()) ? &minerBlsPubKey : nullptr;
                         if (nAmount == 0) {
-                            BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, pBoundBls);
+                            BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, minerBlsPubKey);
                         } else {
-                            BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, pBoundBls);
+                            BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, minerBlsPubKey);
                         }
                     }
                 }
@@ -1975,28 +1930,19 @@ UniValue registerminer(const JSONRPCRequest& request)
         }
         LogPrintf("registerminer pow: Found solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
 
-        int64_t locktime = (nAmount == 0 && fZeroCoinV2)
+        int64_t locktime = (nAmount == 0)
             ? (currentHeight + GetZeroCoinRegPeriod(currentHeight + 1) + 20)
             : (currentHeight + 2900);
 
         CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
         ssNonce << nonce;
-        if (fUseV4Bls) {
-            scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(minerBlsPoP) << OP_2DROP
-                                     << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
-                                     << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
-                                     << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
-                                     << OP_DROP << OP_DROP << OP_DROP
-                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        } else {
-            scriptPubKey = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
-                                     << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
-                                     << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
-                                     << OP_DROP << OP_DROP << OP_DROP
-                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-        }
+        scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(minerBlsPoP) << OP_2DROP
+                                 << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                 << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
+                                 << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
+                                 << OP_DROP << OP_DROP << OP_DROP
+                                 << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                 << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
     }
 
     if (ShutdownRequested() || IsMinerPoWRegistrationCancelled() || !pwalletMain || !pcoinsTip) {
@@ -2068,9 +2014,7 @@ UniValue registerminer(const JSONRPCRequest& request)
             static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
             const int nTipNow = chainActive.Height();
             const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(nTipNow + 1) + 2);
-            const size_t nGateNow = Params().GetConsensus().NetworkUpgradeActive(nTipNow + 1, Consensus::UPGRADE_HARDENING_V1)
-                ? GetFundedAdamMinerPoolCount(nTipNow)
-                : GetExplicitAdamMinerPoolCount(nTipNow);
+            const size_t nGateNow = GetFundedAdamMinerPoolCount(nTipNow);
             if (!Params().GetConsensus().IsAdamOpenEntryActive(nTipNow + 1) && nGateNow >= maxBootstrapPoolSize) {
                 throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS,
                     strprintf("Zero-Coin bootstrap pool reached %u/%u funded validators while solving PoW; funded PoW-Lock requires 10.01 KRISTA with %d confirmations",

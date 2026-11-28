@@ -475,7 +475,7 @@ bool SignPSBTInput(const CKeyStore& keystore, PartiallySignedTransaction& psbt, 
         if (!txdata.m_spent_outputs_ready) return false;
         const CXOnlyPubKey qXOnly(utxo.scriptPubKey.data() + 2, 32);
         uint256 tapSighash;
-        if (!ComputeTaprootSighash(tx_const, static_cast<unsigned int>(index), use_sighash, SIGVERSION_TAPROOT, txdata, tapSighash, true)) {
+        if (!ComputeTaprootSighash(tx_const, static_cast<unsigned int>(index), use_sighash, SIGVERSION_TAPROOT, txdata, tapSighash)) {
             return false;
         }
         std::vector<unsigned char> sigBytes;

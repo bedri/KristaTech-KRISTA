@@ -65,8 +65,6 @@ QT_TRANSLATE_NOOP("kristatech-core", ""
 QT_TRANSLATE_NOOP("kristatech-core", ""
 "Do not keep transactions in the mempool longer than <n> hours (default: %u)"),
 QT_TRANSLATE_NOOP("kristatech-core", ""
-"Enable spork administration functionality with the appropriate private key."),
-QT_TRANSLATE_NOOP("kristatech-core", ""
 "Enter regression test mode, which uses a special chain in which blocks can "
 "be solved instantly."),
 QT_TRANSLATE_NOOP("kristatech-core", ""
@@ -330,7 +328,6 @@ QT_TRANSLATE_NOOP("kristatech-core", "Loading banlist..."),
 QT_TRANSLATE_NOOP("kristatech-core", "Loading block index..."),
 QT_TRANSLATE_NOOP("kristatech-core", "Loading masternode cache..."),
 QT_TRANSLATE_NOOP("kristatech-core", "Loading masternode payment cache..."),
-QT_TRANSLATE_NOOP("kristatech-core", "Loading sporks..."),
 QT_TRANSLATE_NOOP("kristatech-core", "Loading wallet..."),
 QT_TRANSLATE_NOOP("kristatech-core", "Location of the auth cookie (default: data dir)"),
 QT_TRANSLATE_NOOP("kristatech-core", "Lock masternodes from masternode configuration file (default: %u)"),
@@ -402,7 +399,6 @@ QT_TRANSLATE_NOOP("kristatech-core", "Synchronization failed"),
 QT_TRANSLATE_NOOP("kristatech-core", "Synchronization finished"),
 QT_TRANSLATE_NOOP("kristatech-core", "Synchronizing masternode winners..."),
 QT_TRANSLATE_NOOP("kristatech-core", "Synchronizing masternodes..."),
-QT_TRANSLATE_NOOP("kristatech-core", "Synchronizing sporks..."),
 QT_TRANSLATE_NOOP("kristatech-core", "The threshold value cannot be less than %s"),
 QT_TRANSLATE_NOOP("kristatech-core", "This help message"),
 QT_TRANSLATE_NOOP("kristatech-core", "This is experimental software."),
@@ -425,7 +421,6 @@ QT_TRANSLATE_NOOP("kristatech-core", "Unable to bind to %s on this computer (bin
 QT_TRANSLATE_NOOP("kristatech-core", "Unable to find transaction containing mint %s"),
 QT_TRANSLATE_NOOP("kristatech-core", "Unable to find transaction containing mint, txHash: %s"),
 QT_TRANSLATE_NOOP("kristatech-core", "Unable to generate keys"),
-QT_TRANSLATE_NOOP("kristatech-core", "Unable to sign spork message, wrong key?"),
 QT_TRANSLATE_NOOP("kristatech-core", "Unable to start HTTP server. See debug log for details."),
 QT_TRANSLATE_NOOP("kristatech-core", "Unknown network specified in -onlynet: '%s'"),
 QT_TRANSLATE_NOOP("kristatech-core", "Unsupported logging category %s=%s."),

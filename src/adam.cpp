@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include "adam.h"
+#include "consensus/tx_verify.h"
 #include "evo/deterministicmns.h"
 #include "llmq.h"
 #include "txdb.h"
@@ -10,7 +11,8 @@
 #include "primitives/block.h"
 #include "hash.h"
 #include "crypto/bls.h"
-#include "masternodeman.h"
+#include "masternode.h"
+#include "messagesigner.h"
 #include "util.h"
 #include "sync.h"
 #include "main.h"
@@ -21,7 +23,6 @@
 #include "script/standard.h"
 #include "script/mescal.h"
 #include "keystore.h"
-#include "spork.h"
 #include "masternode-sync.h"
 #include "masternode-payments.h"
 
@@ -186,10 +187,6 @@ bool CheckRegistrationBlsBinding(
     std::string& strRejectReasonOut)
 {
     strRejectReasonOut.clear();
-    const bool fHardeningV4 = IsHardeningV4Active(nHeight);
-    if (!fHardeningV4 && !blsPk.IsValid() && !blsPoP.IsValid()) {
-        return true;
-    }
     if (!blsPk.IsValid() || !blsPoP.IsValid()) {
         strRejectReasonOut = "bad-txns-minerreg-missing-bls";
         return false;
@@ -206,8 +203,7 @@ bool CheckRegistrationBlsBinding(
         strRejectReasonOut = "bad-txns-minerreg-dup-bls";
         return false;
     }
-    const Consensus::Params& consensus = Params().GetConsensus();
-    if (deterministicMNManager && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
+    if (deterministicMNManager) {
         const CBlockIndex* pListIdx = pindexPrev;
         if (!pListIdx && nHeight > 0) {
             LOCK(cs_main);
@@ -242,17 +238,30 @@ static bool VerifyOnChainDelegationSignature(const COnChainMasternodeDelegation&
     if (!del.pubKeyCollateralAddress.IsValid() || !del.pubKeyMasternode.IsValid() || del.vchCollateralSig.empty()) {
         return false;
     }
-    CMasternode mn;
-    mn.vin = CTxIn(collateralOutpoint);
-    mn.addr = del.addr;
-    mn.pubKeyCollateralAddress = del.pubKeyCollateralAddress;
-    mn.pubKeyMasternode = del.pubKeyMasternode;
-    mn.sigTime = del.sigTime;
-    mn.protocolVersion = del.protocolVersion;
-    mn.nMessVersion = del.nMessVersion;
-    mn.SetVchSig(del.vchCollateralSig);
-    CMasternodeBroadcast mnb(mn);
-    return mnb.CheckSignature();
+    const std::string vchPubKey(del.pubKeyCollateralAddress.begin(), del.pubKeyCollateralAddress.end());
+    const std::string vchPubKey2(del.pubKeyMasternode.begin(), del.pubKeyMasternode.end());
+    const std::string oldStrMessage = del.addr.ToString() + std::to_string(del.sigTime) + vchPubKey + vchPubKey2 + std::to_string(del.protocolVersion);
+    const std::string strMessage = del.addr.ToString() + std::to_string(del.sigTime) +
+                                   del.pubKeyCollateralAddress.GetID().ToString() +
+                                   del.pubKeyMasternode.GetID().ToString() +
+                                   std::to_string(del.protocolVersion);
+
+    std::string strError;
+    if (del.nMessVersion == MessageVersion::MESS_VER_HASH) {
+        CHashWriter ss(SER_GETHASH, PROTOCOL_VERSION);
+        ss << del.nMessVersion;
+        ss << del.addr;
+        ss << del.sigTime;
+        ss << del.pubKeyCollateralAddress;
+        ss << del.pubKeyMasternode;
+        ss << del.protocolVersion;
+        const std::string hashHex = ss.GetHash().GetHex();
+        if (CMessageSigner::VerifyMessage(del.pubKeyCollateralAddress, del.vchCollateralSig, hashHex, strError)) {
+            return true;
+        }
+    }
+    return CMessageSigner::VerifyMessage(del.pubKeyCollateralAddress, del.vchCollateralSig, oldStrMessage, strError) ||
+           CMessageSigner::VerifyMessage(del.pubKeyCollateralAddress, del.vchCollateralSig, strMessage, strError);
 }
 
 bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMasternodeOut, COutPoint& collateralOutpointOut, bool fRecordDelegation, COnChainMasternodeDelegation* pDelegationOut, const CCoinsViewCache* pView, int nHeight, bool fStrictRelayFormat) {
@@ -347,10 +356,6 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
 
     if (!foundPubKey.IsValid()) return false;
 
-    const int effectiveHeight = (nHeight >= 0) ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight + 1 : 1);
-    const bool fRequirePingSig = !fSignedInput || fStrictRelayFormat ||
-                                 Params().GetConsensus().NetworkUpgradeActive(effectiveHeight, Consensus::UPGRADE_HARDENING_V1);
-
     // 3. Extract collateralOutpoint + cryptographic authorization from OP_RETURN output
     for (const CTxOut& out : tx.vout) {
         if (out.scriptPubKey.IsUnspendable() && out.scriptPubKey.size() >= 38 && out.scriptPubKey[0] == OP_RETURN) {
@@ -366,21 +371,15 @@ bool ExtractOnChainMasternodePing(const CTransaction& tx, CPubKey& pubKeyMastern
                     COutPoint collateralOutpoint;
                     o_ss >> collateralOutpoint;
 
-                    if (fRequirePingSig) {
-                        if (o_ss.empty()) {
-                            return false;
-                        }
-                        std::vector<unsigned char> vchPingSig;
-                        o_ss >> vchPingSig;
-                        CHashWriter ssPingHash(SER_GETHASH, 0);
-                        ssPingHash << collateralOutpoint << tx.vin[0].prevout;
-                        if (vchPingSig.empty() || !foundPubKey.Verify(ssPingHash.GetHash(), vchPingSig)) {
-                            return false;
-                        }
-                    } else if (!o_ss.empty()) {
-                        // Consume optional vchPingSig if present on legacy input-signed ping
-                        std::vector<unsigned char> vchPingSig;
-                        o_ss >> vchPingSig;
+                    if (o_ss.empty()) {
+                        return false;
+                    }
+                    std::vector<unsigned char> vchPingSig;
+                    o_ss >> vchPingSig;
+                    CHashWriter ssPingHash(SER_GETHASH, 0);
+                    ssPingHash << collateralOutpoint << tx.vin[0].prevout;
+                    if (vchPingSig.empty() || !foundPubKey.Verify(ssPingHash.GetHash(), vchPingSig)) {
+                        return false;
                     }
 
                     // Extract and verify optional on-chain Hot/Cold collateral delegation proof
@@ -693,8 +692,7 @@ void RegisterBlockMasternodeActivity(const CBlock& block, int nHeight, const CCo
                 ss >> qsig;
                 if (qsig.blockHash == hashBlock) {
                     if (fTrustedReplay) {
-                        const bool fUseDip3 = deterministicMNManager &&
-                            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
+                        const bool fUseDip3 = (deterministicMNManager != nullptr);
                         dip3::CDeterministicMNList mnList;
                         if (fUseDip3) {
                             mnList = pindexPrev
@@ -1068,11 +1066,10 @@ bool IsModelDActive(int nHeight) {
 }
 
 bool IsAdamValidatorSplitActive(int nHeight) {
-    if (nHeight < 0) return false;
+    if (nHeight <= 0) return false;
     if (IsModelDActive(nHeight)) return true;
     const Consensus::Params& consensus = Params().GetConsensus();
-    return IsAdamActive(nHeight, consensus) &&
-           consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V2);
+    return IsAdamActive(nHeight, consensus);
 }
 
 bool IsAdamDualTrackActive(int nHeight) {
@@ -1096,73 +1093,47 @@ CPubKey GetAdamDeterministicPubKey(int index) {
     return GetAdamDeterministicKey(index).GetPubKey();
 }
 
-uint256 GetMinerPoWLimit(const std::string& networkId, bool fHardeningV2) {
-    if (fHardeningV2) {
-        // Under UPGRADE_HARDENING_V2, Funded 10 KRISTA PoW-Lock solves 7-level recursive HashX11KVS (~2,200 H/s per desktop core):
-        if (networkId == "main") {
-            return uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 15 zero bits (~32,768 X11KVS hashes, ~14.8s CPU)
-        } else if (networkId == "test") {
-            return uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 13 zero bits (~8,192 X11KVS hashes, ~3.7s CPU)
-        } else { // regtest
-            return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 zero bits (~256 X11KVS hashes, ~0.11s CPU)
-        }
-    }
+uint256 GetMinerPoWLimit(const std::string& networkId) {
+    // Funded 10 KRISTA PoW-Lock solves 7-level recursive HashX11KVS (~2,200 H/s per desktop core):
     if (networkId == "main") {
-        return uint256S("0000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 28 bits (SHA256d)
+        return uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 15 zero bits (~32,768 X11KVS hashes, ~14.8s CPU)
     } else if (networkId == "test") {
-        return uint256S("00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 20 bits (SHA256d)
+        return uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 13 zero bits (~8,192 X11KVS hashes, ~3.7s CPU)
     } else { // regtest
-        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 bits (SHA256d)
+        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 zero bits (~256 X11KVS hashes, ~0.11s CPU)
     }
 }
 
-uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2, bool fFairness) {
-    if (fHardeningV2) {
-        // Under UPGRADE_HARDENING_V2, Zero-Coin PoW solves 7-level recursive HashX11KVS (~2,200 H/s per desktop core):
-        if (networkId == "main") {
-            if (fFairness) {
-                return uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 15 zero bits (~32,768 X11KVS hashes, matches Funded PoW-Lock work)
-            }
-            return uint256S("0003ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 14 zero bits (~16,384 X11KVS hashes, ~7.4s CPU)
-        } else if (networkId == "test") {
-            return uint256S("000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 12 zero bits (~4,096 X11KVS hashes, ~1.8s CPU)
-        } else { // regtest
-            return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 zero bits (~256 X11KVS hashes, ~0.11s CPU)
-        }
-    }
+uint256 GetZeroCoinPoWLimit(const std::string& networkId) {
+    // Zero-Coin PoW solves 7-level recursive HashX11KVS (~2,200 H/s per desktop core):
     if (networkId == "main") {
-        return uint256S("000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 24 bits (SHA256d)
+        return uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 15 zero bits (~32,768 X11KVS hashes, matches Funded PoW-Lock work)
     } else if (networkId == "test") {
-        return uint256S("00007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 17 bits (SHA256d)
+        return uint256S("000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 12 zero bits (~4,096 X11KVS hashes, ~1.8s CPU)
     } else { // regtest
-        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 bits (SHA256d)
+        return uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"); // 8 zero bits (~256 X11KVS hashes, ~0.11s CPU)
     }
 }
 
 int GetZeroCoinRegPeriod(int nHeight) {
     const int evalHeight = std::max(0, nHeight);
-    const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(evalHeight, Consensus::UPGRADE_HARDENING_V2);
     if (Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) {
         if (IsModelDActive(evalHeight + 1)) {
-            return fHardeningV2 ? 50 : 100;
+            return 50;
         }
     }
-    return fHardeningV2 ? ADAM_ZEROCOIN_POW_REG_PERIOD_V2 : 2880;
+    return ADAM_ZEROCOIN_POW_REG_PERIOD_V2;
 }
 
-static void BuildRegistrationHeaderPrefix(const char tag4[4], const char suffixV2[7], const char suffixV4[7],
+static void BuildRegistrationHeaderPrefix(const char tag4[4], const char suffixV4[7],
                                           const uint256& challenge, const CPubKey& pubkey,
-                                          unsigned char outPrefix76[76], const CBLSPubKey* pBlsPubKey) {
+                                          unsigned char outPrefix76[76], const CBLSPubKey& blsPubKey) {
     memcpy(outPrefix76, tag4, 4);
-    if (pBlsPubKey && pBlsPubKey->IsValid()) {
-        CHashWriter ssChal(SER_GETHASH, 0);
-        ssChal << challenge;
-        ssChal << *pBlsPubKey;
-        const uint256 boundChallenge = ssChal.GetHash();
-        memcpy(outPrefix76 + 4, boundChallenge.begin(), 32);
-    } else {
-        memcpy(outPrefix76 + 4, challenge.begin(), 32);
-    }
+    CHashWriter ssChal(SER_GETHASH, 0);
+    ssChal << challenge;
+    ssChal << blsPubKey;
+    const uint256 boundChallenge = ssChal.GetHash();
+    memcpy(outPrefix76 + 4, boundChallenge.begin(), 32);
     if (pubkey.size() == 33) {
         memcpy(outPrefix76 + 36, pubkey.begin(), 33);
     } else {
@@ -1170,47 +1141,27 @@ static void BuildRegistrationHeaderPrefix(const char tag4[4], const char suffixV
         outPrefix76[36] = 0x04;
         memcpy(outPrefix76 + 37, pkDigest.begin(), 32);
     }
-    memcpy(outPrefix76 + 69, (pBlsPubKey && pBlsPubKey->IsValid()) ? suffixV4 : suffixV2, 7);
+    memcpy(outPrefix76 + 69, suffixV4, 7);
 }
 
-void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey* pBlsPubKey) {
-    BuildRegistrationHeaderPrefix("KRPL", "POWLKv2", "POWLKv4", challenge, pubkey, outPrefix76, pBlsPubKey);
+void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey& blsPubKey) {
+    BuildRegistrationHeaderPrefix("KRPL", "POWLKv4", challenge, pubkey, outPrefix76, blsPubKey);
 }
 
-uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2, const CBLSPubKey* pBlsPubKey) {
-    if (!fHardeningV2) {
-        CHashWriter ss(SER_GETHASH, 0);
-        ss << nNonce;
-        ss << challenge;
-        ss << pubkey;
-        if (pBlsPubKey && pBlsPubKey->IsValid()) {
-            ss << *pBlsPubKey;
-        }
-        return ss.GetHash();
-    }
+uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, const CBLSPubKey& blsPubKey) {
     unsigned char buf[80];
-    BuildMinerPoWRegistrationHeaderPrefix(challenge, pubkey, buf, pBlsPubKey);
+    BuildMinerPoWRegistrationHeaderPrefix(challenge, pubkey, buf, blsPubKey);
     WriteLE32(buf + 76, nNonce);
     return HashX11KVS(buf, buf + 80);
 }
 
-void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey* pBlsPubKey) {
-    BuildRegistrationHeaderPrefix("KRZC", "SYBILV2", "SYBILV4", challenge, pubkey, outPrefix76, pBlsPubKey);
+void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey& blsPubKey) {
+    BuildRegistrationHeaderPrefix("KRZC", "SYBILV4", challenge, pubkey, outPrefix76, blsPubKey);
 }
 
-uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2, const CBLSPubKey* pBlsPubKey) {
-    if (!fHardeningV2) {
-        CHashWriter ss(SER_GETHASH, 0);
-        ss << nNonce;
-        ss << challenge;
-        ss << pubkey;
-        if (pBlsPubKey && pBlsPubKey->IsValid()) {
-            ss << *pBlsPubKey;
-        }
-        return ss.GetHash();
-    }
+uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, const CBLSPubKey& blsPubKey) {
     unsigned char buf[80];
-    BuildZeroCoinRegistrationHeaderPrefix(challenge, pubkey, buf, pBlsPubKey);
+    BuildZeroCoinRegistrationHeaderPrefix(challenge, pubkey, buf, blsPubKey);
     WriteLE32(buf + 76, nNonce);
     return HashX11KVS(buf, buf + 80);
 }
@@ -1245,11 +1196,8 @@ static void ClearMinerPoolMemoryCaches() {
 
 static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, std::vector<CCachedBlockRegEntry>& vecEntriesOut) {
     vecEntriesOut.clear();
-    const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nBlockHeight), Consensus::UPGRADE_HARDENING_V2);
-    const bool fFairness = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nBlockHeight), Consensus::UPGRADE_FAIRNESS);
-    const bool fHardeningV4 = IsHardeningV4Active(std::max(0, nBlockHeight));
-    const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2);
-    const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2, fFairness);
+    const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
+    const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
     int nZeroCoinTxInBlock = 0;
     int nCoinLockTxInBlock = 0;
     int nPoWLockTxInBlock = 0;
@@ -1281,16 +1229,10 @@ static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, s
                 }
                 if (pubkey.GetID() != pubkeyHash) continue;
                 if (vout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) continue;
-                if (fHardeningV4) {
-                    if (!blsPk.IsValid() || !blsPoP.IsValid() || !blsPoP.VerifyPoP(blsPk)) continue;
-                } else if (blsPk.IsValid() || blsPoP.IsValid()) {
-                    if (!blsPk.IsValid() || !blsPoP.IsValid() || !blsPoP.VerifyPoP(blsPk)) continue;
-                }
-                if (blsPk.IsValid()) {
-                    auto itBls = seenBlockBlsKeys.find(blsPk);
-                    if (itBls != seenBlockBlsKeys.end() && itBls->second != pubkey) continue;
-                    seenBlockBlsKeys.emplace(blsPk, pubkey);
-                }
+                if (!blsPk.IsValid() || !blsPoP.IsValid() || !blsPoP.VerifyPoP(blsPk)) continue;
+                auto itBls = seenBlockBlsKeys.find(blsPk);
+                if (itBls != seenBlockBlsKeys.end() && itBls->second != pubkey) continue;
+                seenBlockBlsKeys.emplace(blsPk, pubkey);
                 if (nCoinLockOutputsInTx == 0) {
                     nCoinLockTxInBlock++;
                 }
@@ -1314,28 +1256,21 @@ static void ExtractBlockMinerRegEntries(const CBlock& block, int nBlockHeight, s
                     }
                     if (pubkey.GetID() != pubkeyHash) continue;
                     if (nonce.size() != 4) continue;
-                    if (fHardeningV4) {
-                        if (!blsPk.IsValid() || !blsPoP.IsValid() || !blsPoP.VerifyPoP(blsPk)) continue;
-                    } else if (blsPk.IsValid() || blsPoP.IsValid()) {
-                        if (!blsPk.IsValid() || !blsPoP.IsValid() || !blsPoP.VerifyPoP(blsPk)) continue;
-                    }
-                    if (blsPk.IsValid()) {
-                        auto itBls = seenBlockBlsKeys.find(blsPk);
-                        if (itBls != seenBlockBlsKeys.end() && itBls->second != pubkey) continue;
-                        seenBlockBlsKeys.emplace(blsPk, pubkey);
-                    }
-                    const CBLSPubKey* pBoundBls = (fHardeningV4 || blsPk.IsValid()) ? &blsPk : nullptr;
+                    if (!blsPk.IsValid() || !blsPoP.IsValid() || !blsPoP.VerifyPoP(blsPk)) continue;
+                    auto itBls = seenBlockBlsKeys.find(blsPk);
+                    if (itBls != seenBlockBlsKeys.end() && itBls->second != pubkey) continue;
+                    seenBlockBlsKeys.emplace(blsPk, pubkey);
                     uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
                     if (vout.nValue == 0) {
                         if (!isZeroCoinTx) continue;
-                        if (fHardeningV2 && !pubkey.IsCompressed()) continue;
-                        uint256 puzzleHash = ComputeZeroCoinRegistrationHash(nNonce, challenge, pubkey, fHardeningV2, pBoundBls);
+                        if (!pubkey.IsCompressed()) continue;
+                        uint256 puzzleHash = ComputeZeroCoinRegistrationHash(nNonce, challenge, pubkey, blsPk);
                         if (puzzleHash > zeroCoinTarget) continue;
                     } else {
                         const CAmount minPoWLockVal = fDualTrackRules ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
                         if (vout.nValue < minPoWLockVal) continue;
-                        if (fHardeningV2 && !pubkey.IsCompressed()) continue;
-                        uint256 puzzleHash = ComputeMinerPoWRegistrationHash(nNonce, challenge, pubkey, fHardeningV2, pBoundBls);
+                        if (!pubkey.IsCompressed()) continue;
+                        uint256 puzzleHash = ComputeMinerPoWRegistrationHash(nNonce, challenge, pubkey, blsPk);
                         if (puzzleHash > powLimitTarget) continue;
                     }
                     if (!isZeroCoinTx && nPoWLockOutputsInTx == 0) {
@@ -1548,7 +1483,7 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
     }
 
     int currentRefHeight = pindexTip ? pindexTip->nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0);
-    const bool fCanDip3 = deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight) + 1, Consensus::UPGRADE_DIP3);
+    const bool fCanDip3 = (deterministicMNManager != nullptr);
     const bool fOnActiveChain = pindexTip && !pindexTip->GetBlockHash().IsNull() && chainActive.Contains(pindexTip);
     const bool fDip3Ready = !fCanDip3 || (pindexTip && deterministicMNManager->HasListForBlock(pindexTip->GetBlockHash()));
     const bool fViewMatchesPrev = !pView || pView == pcoinsTip ||
@@ -1604,17 +1539,10 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
             uniqueKeys.insert(GetAdamDeterministicPubKey(i));
         }
     }
-    const bool fHardeningV1 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight), Consensus::UPGRADE_HARDENING_V1);
-    const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight), Consensus::UPGRADE_HARDENING_V2);
-    const bool fHardeningV4Tip = IsHardeningV4Active(std::max(0, currentRefHeight) + 1);
-    const bool fFairnessPool = Params().GetConsensus().NetworkUpgradeActive(std::max(0, currentRefHeight + 1), Consensus::UPGRADE_FAIRNESS);
-    const size_t maxZeroCoinOrdered = fFairnessPool ? MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS : MAX_ZEROCOIN_BOOTSTRAP_MINERS;
-    const size_t maxZeroCoinCap = fFairnessPool
-        ? MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS
-        : (fHardeningV2 ? MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 : MAX_ZEROCOIN_BOOTSTRAP_MINERS);
-    const int nHardeningV2Height = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight;
+    const size_t maxZeroCoinOrdered = MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS;
+    const size_t maxZeroCoinCap = MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS;
 
-    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(currentRefHeight + 1, Consensus::UPGRADE_DIP3)) {
+    if (deterministicMNManager) {
         const dip3::CDeterministicMNList mnList = pindexTip
             ? deterministicMNManager->GetListForBlock(pindexTip)
             : deterministicMNManager->GetListAtChainTip();
@@ -1703,25 +1631,21 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                 cacheIt = mapBlockRegCache.emplace(blockHash, std::move(vecEntries)).first;
             }
 
-            const bool fEntryV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, pindex->nHeight), Consensus::UPGRADE_HARDENING_V2);
-            const bool fEntryV4 = IsHardeningV4Active(std::max(0, pindex->nHeight));
             for (const auto& entry : cacheIt->second) {
-                if (fHardeningV1 && entry.lockTime >= LOCKTIME_THRESHOLD) continue;
-                if (fEntryV4 && !entry.blsPubKey.IsValid()) continue;
+                if (entry.lockTime >= LOCKTIME_THRESHOLD) continue;
+                if (!entry.blsPubKey.IsValid()) continue;
                 if (entry.isCoinLock) {
                     if (entry.lockTime < pindex->nHeight + nRegPeriod) continue;
                     if (!hasCoinAtRefTip(entry, pindex->nHeight)) continue;
-                    if (entry.blsPubKey.IsValid()) {
-                        auto itUsed = mapUsedBlsToOwner.find(entry.blsPubKey);
-                        if (fHardeningV4Tip && itUsed != mapUsedBlsToOwner.end() && itUsed->second != entry.pubkey) {
-                            continue;
-                        }
-                        if (itUsed == mapUsedBlsToOwner.end()) {
-                            mapUsedBlsToOwner.emplace(entry.blsPubKey, entry.pubkey);
-                        }
-                        if (!poolBlsKeys.count(entry.pubkey)) {
-                            poolBlsKeys[entry.pubkey] = entry.blsPubKey;
-                        }
+                    auto itUsed = mapUsedBlsToOwner.find(entry.blsPubKey);
+                    if (itUsed != mapUsedBlsToOwner.end() && itUsed->second != entry.pubkey) {
+                        continue;
+                    }
+                    if (itUsed == mapUsedBlsToOwner.end()) {
+                        mapUsedBlsToOwner.emplace(entry.blsPubKey, entry.pubkey);
+                    }
+                    if (!poolBlsKeys.count(entry.pubkey)) {
+                        poolBlsKeys[entry.pubkey] = entry.blsPubKey;
                     }
                     uniqueKeys.insert(entry.pubkey);
                     coinLockKeys.insert(entry.pubkey);
@@ -1749,19 +1673,16 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                 } else {
                     const bool isZeroCoinEntry = (entry.nValue == 0);
                     const int nRequiredPeriod = isZeroCoinEntry
-                        ? (fEntryV2 ? GetZeroCoinRegPeriod(pindex->nHeight) : nRegPeriod)
+                        ? GetZeroCoinRegPeriod(pindex->nHeight)
                         : nRegPeriod;
                     if (entry.lockTime < pindex->nHeight + nRequiredPeriod) continue;
 
-                    if (isZeroCoinEntry && fHardeningV2) {
-                        const int64_t nBaseHeight = fEntryV2
-                            ? pindex->nHeight
-                            : std::max(pindex->nHeight, std::max(0, nHardeningV2Height));
-                        const int64_t nEffectiveExpiry = std::min<int64_t>(entry.lockTime, nBaseHeight + nZeroActivePeriod);
+                    if (isZeroCoinEntry) {
+                        const int64_t nEffectiveExpiry = std::min<int64_t>(entry.lockTime, (int64_t)pindex->nHeight + nZeroActivePeriod);
                         if (nTipHeight >= nEffectiveExpiry) continue;
                     }
 
-                    const int nMaxChallengeAge = (isZeroCoinEntry && fEntryV2)
+                    const int nMaxChallengeAge = isZeroCoinEntry
                         ? ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2
                         : 100;
                     bool challengeValid = false;
@@ -1783,17 +1704,15 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                     if (entry.nValue > 0) {
                         const CAmount minPoWLockVal = IsAdamDualTrackActive(pindex->nHeight) ? POW_LOCK_REGISTRATION_AMOUNT : 10000;
                         if (entry.nValue < minPoWLockVal || !hasCoinAtRefTip(entry, pindex->nHeight)) continue;
-                        if (entry.blsPubKey.IsValid()) {
-                            auto itUsed = mapUsedBlsToOwner.find(entry.blsPubKey);
-                            if (fHardeningV4Tip && itUsed != mapUsedBlsToOwner.end() && itUsed->second != entry.pubkey) {
-                                continue;
-                            }
-                            if (itUsed == mapUsedBlsToOwner.end()) {
-                                mapUsedBlsToOwner.emplace(entry.blsPubKey, entry.pubkey);
-                            }
-                            if (!poolBlsKeys.count(entry.pubkey)) {
-                                poolBlsKeys[entry.pubkey] = entry.blsPubKey;
-                            }
+                        auto itUsed = mapUsedBlsToOwner.find(entry.blsPubKey);
+                        if (itUsed != mapUsedBlsToOwner.end() && itUsed->second != entry.pubkey) {
+                            continue;
+                        }
+                        if (itUsed == mapUsedBlsToOwner.end()) {
+                            mapUsedBlsToOwner.emplace(entry.blsPubKey, entry.pubkey);
+                        }
+                        if (!poolBlsKeys.count(entry.pubkey)) {
+                            poolBlsKeys[entry.pubkey] = entry.blsPubKey;
                         }
                         uniqueKeys.insert(entry.pubkey);
                         fundedPoWKeys.insert(entry.pubkey);
@@ -1806,17 +1725,15 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                             mapFundedEarliestHeight[entry.pubkey] = std::min(mapFundedEarliestHeight[entry.pubkey], pindex->nHeight);
                         }
                     } else {
-                        if (entry.blsPubKey.IsValid()) {
-                            auto itUsed = mapUsedBlsToOwner.find(entry.blsPubKey);
-                            if (fHardeningV4Tip && itUsed != mapUsedBlsToOwner.end() && itUsed->second != entry.pubkey) {
-                                continue;
-                            }
-                            if (itUsed == mapUsedBlsToOwner.end()) {
-                                mapUsedBlsToOwner.emplace(entry.blsPubKey, entry.pubkey);
-                            }
-                            if (!mapZeroCoinBls.count(entry.pubkey)) {
-                                mapZeroCoinBls[entry.pubkey] = entry.blsPubKey;
-                            }
+                        auto itUsed = mapUsedBlsToOwner.find(entry.blsPubKey);
+                        if (itUsed != mapUsedBlsToOwner.end() && itUsed->second != entry.pubkey) {
+                            continue;
+                        }
+                        if (itUsed == mapUsedBlsToOwner.end()) {
+                            mapUsedBlsToOwner.emplace(entry.blsPubKey, entry.pubkey);
+                        }
+                        if (!mapZeroCoinBls.count(entry.pubkey)) {
+                            mapZeroCoinBls[entry.pubkey] = entry.blsPubKey;
                         }
                         if (zeroCoinKeys.insert(entry.pubkey).second && zeroCoinKeysOrdered.size() < maxZeroCoinOrdered) {
                             zeroCoinKeysOrdered.push_back(entry.pubkey);
@@ -1824,9 +1741,8 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
                     }
 
                     if (pindexTip) {
-                        const int64_t effectiveLockEnd = (isZeroCoinEntry && fHardeningV2)
-                            ? std::min<int64_t>(entry.lockTime,
-                                  (fEntryV2 ? (int64_t)pindex->nHeight : (int64_t)std::max(pindex->nHeight, std::max(0, nHardeningV2Height))) + nZeroActivePeriod)
+                        const int64_t effectiveLockEnd = isZeroCoinEntry
+                            ? std::min<int64_t>(entry.lockTime, (int64_t)pindex->nHeight + nZeroActivePeriod)
                             : entry.lockTime;
                         int64_t remaining = effectiveLockEnd - pindexTip->nHeight;
                         const bool shouldWarn = isZeroCoinEntry
@@ -1904,57 +1820,25 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight, const CCoinsViewCache* pView,
         }
     };
 
-    size_t nExplicitValidatorCount = 0;
-    if (fHardeningV2) {
-        // Under UPGRADE_HARDENING_V2:
-        // 1. Preserve Block 1..199 real Classic PoW coinbase miners FIRST so Zero-Coin Sybil registrations cannot starve them out.
-        // 2. Admit newest distinct Zero-Coin PoW keys (up to MAX_ZEROCOIN_BOOTSTRAP_MINERS_V2 = 16) while nFundedValidatorCount < 13,
-        //    OR always when IsAdamOpenEntryActive(currentRefHeight + 1) is active (1 permanent Open-Entry seat for 0-KRISTA newcomers).
-        populateBootstrapCoinbaseKeys();
-        const bool fOpenEntry = Params().GetConsensus().IsAdamOpenEntryActive(currentRefHeight + 1);
-        if (fOpenEntry || nFundedValidatorCount < maxBootstrapPoolSize) {
-            size_t nAdmittedZeroCoin = 0;
-            for (const auto& zKey : zeroCoinKeysOrdered) {
-                if (fundedValidatorKeys.count(zKey) || bootstrapKeys.count(zKey)) continue;
-                if (nAdmittedZeroCoin >= maxZeroCoinCap) break;
-                if (uniqueKeys.insert(zKey).second) {
-                    if (!poolBlsKeys.count(zKey) && mapZeroCoinBls.count(zKey)) {
-                        poolBlsKeys[zKey] = mapZeroCoinBls[zKey];
-                    }
-                    ++nAdmittedZeroCoin;
-                }
-            }
-        }
-        nExplicitValidatorCount = uniqueKeys.size() - bootstrapKeys.size();
-    } else if (fHardeningV1) {
-        // Fair Zero-Coin PoW admission: gated strictly on real funded validator count (< 13),
-        // including all newest valid Zero-Coin registrations (up to MAX_ZEROCOIN_BOOTSTRAP_MINERS) without pubkey-order truncation.
-        if (nFundedValidatorCount < maxBootstrapPoolSize) {
-            size_t nAdmittedZeroCoin = 0;
-            for (const auto& zKey : zeroCoinKeysOrdered) {
-                if (nAdmittedZeroCoin >= maxZeroCoinCap) break;
-                uniqueKeys.insert(zKey);
+    // 1. Preserve Block 1..199 real Classic PoW coinbase miners FIRST so Zero-Coin Sybil registrations cannot starve them out.
+    // 2. Admit newest distinct Zero-Coin PoW keys (up to MAX_ZEROCOIN_BOOTSTRAP_MINERS_FAIRNESS) while nFundedValidatorCount < 13,
+    //    OR always when IsAdamOpenEntryActive(currentRefHeight + 1) is active (1 permanent Open-Entry seat for 0-KRISTA newcomers).
+    populateBootstrapCoinbaseKeys();
+    const bool fOpenEntry = Params().GetConsensus().IsAdamOpenEntryActive(currentRefHeight + 1);
+    if (fOpenEntry || nFundedValidatorCount < maxBootstrapPoolSize) {
+        size_t nAdmittedZeroCoin = 0;
+        for (const auto& zKey : zeroCoinKeysOrdered) {
+            if (fundedValidatorKeys.count(zKey) || bootstrapKeys.count(zKey)) continue;
+            if (nAdmittedZeroCoin >= maxZeroCoinCap) break;
+            if (uniqueKeys.insert(zKey).second) {
                 if (!poolBlsKeys.count(zKey) && mapZeroCoinBls.count(zKey)) {
                     poolBlsKeys[zKey] = mapZeroCoinBls[zKey];
                 }
                 ++nAdmittedZeroCoin;
             }
         }
-        nExplicitValidatorCount = uniqueKeys.size();
-        populateBootstrapCoinbaseKeys();
-    } else {
-        if (uniqueKeys.size() < maxBootstrapPoolSize) {
-            for (const auto& zKey : zeroCoinKeys) {
-                if (uniqueKeys.size() >= maxBootstrapPoolSize) break;
-                uniqueKeys.insert(zKey);
-                if (!poolBlsKeys.count(zKey) && mapZeroCoinBls.count(zKey)) {
-                    poolBlsKeys[zKey] = mapZeroCoinBls[zKey];
-                }
-            }
-        }
-        nExplicitValidatorCount = uniqueKeys.size();
-        populateBootstrapCoinbaseKeys();
     }
+    const size_t nExplicitValidatorCount = uniqueKeys.size() - bootstrapKeys.size();
 
     if (pMasternodeKeysOut) {
         *pMasternodeKeysOut = masternodeKeys;
@@ -2017,9 +1901,6 @@ std::vector<CAdamValidatorPoolInfo> GetAdamMinerPoolDetailed(int nHeight) {
 
     if (pindexTip) {
         const int nTipHeight = pindexTip->nHeight;
-        const bool fHardeningV1 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nTipHeight), Consensus::UPGRADE_HARDENING_V1);
-        const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nTipHeight), Consensus::UPGRADE_HARDENING_V2);
-        const int nHardeningV2Height = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_HARDENING_V2].nActivationHeight;
         int nRegPeriod = 2880;
         if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
             IsModelDActive(nTipHeight + 1)) {
@@ -2032,9 +1913,8 @@ std::vector<CAdamValidatorPoolInfo> GetAdamMinerPoolDetailed(int nHeight) {
             if (!pindex) continue;
             auto cacheIt = mapBlockRegCache.find(pindex->GetBlockHash());
             if (cacheIt == mapBlockRegCache.end()) continue;
-            const bool fEntryV2 = Params().GetConsensus().NetworkUpgradeActive(std::max(0, pindex->nHeight), Consensus::UPGRADE_HARDENING_V2);
             for (const auto& entry : cacheIt->second) {
-                if (fHardeningV1 && entry.lockTime >= LOCKTIME_THRESHOLD) continue;
+                if (entry.lockTime >= LOCKTIME_THRESHOLD) continue;
                 if (entry.isCoinLock) {
                     if (entry.lockTime < pindex->nHeight + nRegPeriod) continue;
                     if (!pcoinsTip || !pcoinsTip->HaveCoin(entry.outpoint)) continue;
@@ -2045,16 +1925,10 @@ std::vector<CAdamValidatorPoolInfo> GetAdamMinerPoolDetailed(int nHeight) {
                     if (entry.nValue < minPoWLockVal || !pcoinsTip || !pcoinsTip->HaveCoin(entry.outpoint)) continue;
                     mapBestFundedUnlock[entry.pubkey] = std::max(mapBestFundedUnlock[entry.pubkey], entry.lockTime);
                 } else {
-                    const int nRequiredPeriod = fEntryV2 ? GetZeroCoinRegPeriod(pindex->nHeight) : nRegPeriod;
+                    const int nRequiredPeriod = GetZeroCoinRegPeriod(pindex->nHeight);
                     if (entry.lockTime < pindex->nHeight + nRequiredPeriod) continue;
-                    int64_t nEffectiveExpiry = entry.lockTime;
-                    if (fHardeningV2) {
-                        const int64_t nBaseHeight = fEntryV2
-                            ? pindex->nHeight
-                            : std::max(pindex->nHeight, std::max(0, nHardeningV2Height));
-                        nEffectiveExpiry = std::min<int64_t>(entry.lockTime, nBaseHeight + nZeroActivePeriod);
-                        if (nTipHeight >= nEffectiveExpiry) continue;
-                    }
+                    const int64_t nEffectiveExpiry = std::min<int64_t>(entry.lockTime, (int64_t)pindex->nHeight + nZeroActivePeriod);
+                    if (nTipHeight >= nEffectiveExpiry) continue;
                     mapBestZeroCoinUnlock[entry.pubkey] = std::max(mapBestZeroCoinUnlock[entry.pubkey], nEffectiveExpiry);
                 }
             }
@@ -2088,12 +1962,6 @@ std::vector<CAdamValidatorPoolInfo> GetAdamMinerPoolDetailed(int nHeight) {
         result.push_back(std::move(info));
     }
     return result;
-}
-
-size_t GetExplicitAdamMinerPoolCount(int nHeight, const CCoinsViewCache* pView) {
-    size_t nExplicitCount = 0;
-    GetAdamMinerPool(nHeight, pView, nullptr, nullptr, &nExplicitCount, nullptr);
-    return nExplicitCount;
 }
 
 size_t GetFundedAdamMinerPoolCount(int nHeight, const CCoinsViewCache* pView) {
@@ -2454,12 +2322,7 @@ bool SelectAdamNodes(
     params.GetAdamTrackQuotas(effH, nQuotaMn, nQuotaCoinLock, nQuotaOpenPoW, nQuotaZeroCoin);
     const bool fDualTrack = IsAdamDualTrackActive(effectiveBlockHeight);
     const bool fOpenEntry = params.IsAdamOpenEntryActive(effectiveBlockHeight);
-    const bool fHardeningV2 = params.NetworkUpgradeActive(effH, Consensus::UPGRADE_HARDENING_V2);
-    const bool fHardeningV3 = IsHardeningV3Active(effH);
-    const bool fHardeningV4 = IsHardeningV4Active(effH);
-    const bool fUseDip3 = deterministicMNManager && params.NetworkUpgradeActive(effH, Consensus::UPGRADE_DIP3);
-    const bool fCoordWeightV2 = (params.nAdamCoordWeightV2Height > 0 && effectiveBlockHeight >= params.nAdamCoordWeightV2Height);
-    const bool fFairness = params.NetworkUpgradeActive(effH, Consensus::UPGRADE_FAIRNESS);
+    const bool fUseDip3 = (deterministicMNManager != nullptr);
     int threshold = params.GetAdamThreshold(nHeight >= 0 ? nHeight : (pindexTip ? pindexTip->nHeight : 0));
     if (pool.size() < (size_t)threshold) {
         return false;
@@ -2467,7 +2330,7 @@ bool SelectAdamNodes(
     
     // Get active masternodes list to evaluate Rule 1 vs Rule 2
     std::vector<CPubKey> vMns;
-    if (!Params().IsRegTestNet() && !(fHardeningV3 && fUseDip3)) {
+    if (!Params().IsRegTestNet() && !fUseDip3) {
         LOCK(cs_main);
         int currentHeight = (nHeight >= 0 ? nHeight : (chainActive.Tip() ? chainActive.Tip()->nHeight : 0));
         std::set<COutPoint> seenCollateralOutpoints;
@@ -2490,11 +2353,6 @@ bool SelectAdamNodes(
     static int cachedThreshold = -1;
     static bool cachedDualTrack = false;
     static bool cachedOpenEntry = false;
-    static bool cachedHardeningV2 = false;
-    static bool cachedHardeningV3 = false;
-    static bool cachedHardeningV4 = false;
-    static bool cachedCoordWeightV2 = false;
-    static bool cachedFairness = false;
     static bool cachedModelD = false;
     static std::vector<CPubKey> cachedPool;
     static std::set<CPubKey> cachedCollateralized;
@@ -2514,11 +2372,6 @@ bool SelectAdamNodes(
             cachedThreshold == threshold &&
             cachedDualTrack == fDualTrack &&
             cachedOpenEntry == fOpenEntry &&
-            cachedHardeningV2 == fHardeningV2 &&
-            cachedHardeningV3 == fHardeningV3 &&
-            cachedHardeningV4 == fHardeningV4 &&
-            cachedCoordWeightV2 == fCoordWeightV2 &&
-            cachedFairness == fFairness &&
             cachedModelD == fModelD &&
             cachedPool == pool &&
             cachedCollateralized == collateralizedKeys &&
@@ -2554,141 +2407,82 @@ bool SelectAdamNodes(
 
     std::set<CPubKey> activeMnSet(collateralizedKeys.begin(), collateralizedKeys.end());
     activeMnSet.insert(vMns.begin(), vMns.end());
-    const bool hasTieredValidators = fHardeningV2 && fDualTrack &&
+    const bool hasTieredValidators = fDualTrack &&
         (!activeMnSet.empty() || !coinLockKeys.empty() || !fundedPoWKeys.empty() || !bootstrapKeys.empty());
 
     if (hasTieredValidators) {
         coordinatorOut = CPubKey();
-        if (fFairness) {
-            // UPGRADE_FAIRNESS: Proportional locked-capital Coordinator weights (4200 : 250 : 10)
-            // Pre-Model D: >= 75% Active MN floor (3 * sumNonMN > sumMN, ADAM_FAIR_COORD_V4)
-            // Model D:     >= 55% Active MN floor (11 * sumNonMN > 9 * sumMN, ADAM_FAIR_COORD_V5)
-            uint64_t countMN = 0;
-            uint64_t countCL = 0;
-            uint64_t countPL = 0;
-            for (const auto& r : rankedPool) {
-                if (activeMnSet.count(r.key)) {
-                    ++countMN;
-                } else if (coinLockKeys.count(r.key)) {
-                    ++countCL;
-                } else if (fundedPoWKeys.count(r.key)) {
-                    ++countPL;
-                }
+        // Proportional locked-capital Coordinator weights (4200 : 250 : 10)
+        // Pre-Model D: >= 75% Active MN floor (3 * sumNonMN > sumMN, ADAM_FAIR_COORD_V4)
+        // Model D:     >= 55% Active MN floor (11 * sumNonMN > 9 * sumMN, ADAM_FAIR_COORD_V5)
+        uint64_t countMN = 0;
+        uint64_t countCL = 0;
+        uint64_t countPL = 0;
+        for (const auto& r : rankedPool) {
+            if (activeMnSet.count(r.key)) {
+                ++countMN;
+            } else if (coinLockKeys.count(r.key)) {
+                ++countCL;
+            } else if (fundedPoWKeys.count(r.key)) {
+                ++countPL;
             }
-            const uint64_t sumMN = countMN * 4200ULL;
-            const uint64_t sumNonMN = (countCL * 250ULL) + (countPL * 10ULL);
-            const bool fApplyFloor = fModelD
-                ? (sumMN > 0 && sumNonMN > 0 && (arith_uint256(11) * arith_uint256(sumNonMN)) > (arith_uint256(9) * arith_uint256(sumMN)))
-                : (sumMN > 0 && sumNonMN > 0 && (arith_uint256(3) * arith_uint256(sumNonMN)) > arith_uint256(sumMN));
-            const arith_uint256 mnWeight = fApplyFloor
-                ? (fModelD
-                    ? (arith_uint256(4200ULL) * arith_uint256(11) * arith_uint256(sumNonMN))
-                    : (arith_uint256(4200ULL) * (arith_uint256(3) * arith_uint256(sumNonMN))))
-                : arith_uint256(4200ULL);
-            const arith_uint256 clWeight = fApplyFloor
-                ? (arith_uint256(250ULL) * (fModelD ? arith_uint256(9) : arith_uint256(1)) * arith_uint256(sumMN))
-                : arith_uint256(250ULL);
-            const arith_uint256 plWeight = fApplyFloor
-                ? (arith_uint256(10ULL) * (fModelD ? arith_uint256(9) : arith_uint256(1)) * arith_uint256(sumMN))
-                : arith_uint256(10ULL);
+        }
+        const uint64_t sumMN = countMN * 4200ULL;
+        const uint64_t sumNonMN = (countCL * 250ULL) + (countPL * 10ULL);
+        const bool fApplyFloor = fModelD
+            ? (sumMN > 0 && sumNonMN > 0 && (arith_uint256(11) * arith_uint256(sumNonMN)) > (arith_uint256(9) * arith_uint256(sumMN)))
+            : (sumMN > 0 && sumNonMN > 0 && (arith_uint256(3) * arith_uint256(sumNonMN)) > arith_uint256(sumMN));
+        const arith_uint256 mnWeight = fApplyFloor
+            ? (fModelD
+                ? (arith_uint256(4200ULL) * arith_uint256(11) * arith_uint256(sumNonMN))
+                : (arith_uint256(4200ULL) * (arith_uint256(3) * arith_uint256(sumNonMN))))
+            : arith_uint256(4200ULL);
+        const arith_uint256 clWeight = fApplyFloor
+            ? (arith_uint256(250ULL) * (fModelD ? arith_uint256(9) : arith_uint256(1)) * arith_uint256(sumMN))
+            : arith_uint256(250ULL);
+        const arith_uint256 plWeight = fApplyFloor
+            ? (arith_uint256(10ULL) * (fModelD ? arith_uint256(9) : arith_uint256(1)) * arith_uint256(sumMN))
+            : arith_uint256(10ULL);
 
-            std::vector<std::pair<CPubKey, arith_uint256>> weightedCandidates;
-            std::vector<std::pair<CPubKey, arith_uint256>> maturedCandidates;
-            weightedCandidates.reserve(rankedPool.size());
-            arith_uint256 totalFundedWeight(0);
-            arith_uint256 totalMaturedWeight(0);
-            for (const auto& r : rankedPool) {
-                const CPubKey& key = r.key;
-                arith_uint256 w(0);
-                if (activeMnSet.count(key)) {
-                    w = mnWeight;
-                } else if (coinLockKeys.count(key)) {
-                    w = clWeight;
-                } else if (fundedPoWKeys.count(key)) {
-                    w = plWeight;
-                }
-                if (w > arith_uint256(0)) {
-                    weightedCandidates.push_back(std::make_pair(key, w));
-                    totalFundedWeight += w;
-                    if (fHardeningV4 && vrfMaturedKeys.count(key)) {
-                        maturedCandidates.push_back(std::make_pair(key, w));
-                        totalMaturedWeight += w;
-                    }
+        std::vector<std::pair<CPubKey, arith_uint256>> weightedCandidates;
+        std::vector<std::pair<CPubKey, arith_uint256>> maturedCandidates;
+        weightedCandidates.reserve(rankedPool.size());
+        arith_uint256 totalFundedWeight(0);
+        arith_uint256 totalMaturedWeight(0);
+        for (const auto& r : rankedPool) {
+            const CPubKey& key = r.key;
+            arith_uint256 w(0);
+            if (activeMnSet.count(key)) {
+                w = mnWeight;
+            } else if (coinLockKeys.count(key)) {
+                w = clWeight;
+            } else if (fundedPoWKeys.count(key)) {
+                w = plWeight;
+            }
+            if (w > arith_uint256(0)) {
+                weightedCandidates.push_back(std::make_pair(key, w));
+                totalFundedWeight += w;
+                if (vrfMaturedKeys.count(key)) {
+                    maturedCandidates.push_back(std::make_pair(key, w));
+                    totalMaturedWeight += w;
                 }
             }
-            const bool fUseMatured = fHardeningV4 && totalMaturedWeight > arith_uint256(0);
-            const auto& drawCandidates = fUseMatured ? maturedCandidates : weightedCandidates;
-            const arith_uint256 drawTotalWeight = fUseMatured ? totalMaturedWeight : totalFundedWeight;
-            if (drawTotalWeight > arith_uint256(0)) {
-                CHashWriter ssCoord(SER_GETHASH, 0);
-                ssCoord << hashAdamSeed;
-                ssCoord << std::string(fModelD ? "ADAM_FAIR_COORD_V5" : "ADAM_FAIR_COORD_V4");
-                const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
-                const arith_uint256 targetTicket = hCoord - (hCoord / drawTotalWeight) * drawTotalWeight;
-                arith_uint256 cumWeight(0);
-                for (const auto& wc : drawCandidates) {
-                    cumWeight += wc.second;
-                    if (targetTicket < cumWeight) {
-                        coordinatorOut = wc.first;
-                        break;
-                    }
-                }
-            }
-        } else {
-            // Quota-isolated quadratic stake-weighted deterministic VRF Coordinator election (65:16:4 pre-V2, 65:8:2 at/after nAdamCoordWeightV2Height):
-            uint64_t wMn = 0, wCoinLock = 0, wPoWLock = 0;
-            params.GetAdamCoordinatorWeights(effectiveBlockHeight, wMn, wCoinLock, wPoWLock);
-
-            std::vector<std::pair<CPubKey, uint64_t>> weightedCandidates;
-            std::vector<std::pair<CPubKey, uint64_t>> maturedCandidates;
-            weightedCandidates.reserve(rankedPool.size());
-            uint64_t totalFundedWeight = 0;
-            uint64_t totalMaturedWeight = 0;
-            int nCoinLockCoordReps = 0;
-            int nFundedPoWCoordReps = 0;
-            for (const auto& r : rankedPool) {
-                const CPubKey& key = r.key;
-                uint64_t w = 0;
-                if (activeMnSet.count(key)) {
-                    w = wMn;
-                } else if (coinLockKeys.count(key)) {
-                    if (nCoinLockCoordReps < ADAM_COIN_LOCK_TRACK_QUOTA) {
-                        w = wCoinLock;
-                        nCoinLockCoordReps++;
-                    }
-                } else if (fundedPoWKeys.count(key)) {
-                    if (nFundedPoWCoordReps < ADAM_OPEN_POW_TRACK_QUOTA) {
-                        w = wPoWLock;
-                        nFundedPoWCoordReps++;
-                    }
-                }
-                if (w > 0) {
-                    weightedCandidates.push_back(std::make_pair(key, w));
-                    totalFundedWeight += w;
-                    if (fHardeningV4 && vrfMaturedKeys.count(key)) {
-                        maturedCandidates.push_back(std::make_pair(key, w));
-                        totalMaturedWeight += w;
-                    }
-                }
-            }
-
-            const bool fUseMatured = fHardeningV4 && totalMaturedWeight > 0;
-            const auto& drawCandidates = fUseMatured ? maturedCandidates : weightedCandidates;
-            const uint64_t drawTotalWeight = fUseMatured ? totalMaturedWeight : totalFundedWeight;
-            if (drawTotalWeight > 0) {
-                CHashWriter ssCoord(SER_GETHASH, 0);
-                ssCoord << hashAdamSeed;
-                ssCoord << std::string("ADAM_QUAD_COORD_V3");
-                const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
-                const arith_uint256 wTotal(drawTotalWeight);
-                const uint64_t targetTicket = (hCoord - (hCoord / wTotal) * wTotal).GetLow64();
-                uint64_t cumWeight = 0;
-                for (const auto& wc : drawCandidates) {
-                    cumWeight += wc.second;
-                    if (targetTicket < cumWeight) {
-                        coordinatorOut = wc.first;
-                        break;
-                    }
+        }
+        const bool fUseMatured = totalMaturedWeight > arith_uint256(0);
+        const auto& drawCandidates = fUseMatured ? maturedCandidates : weightedCandidates;
+        const arith_uint256 drawTotalWeight = fUseMatured ? totalMaturedWeight : totalFundedWeight;
+        if (drawTotalWeight > arith_uint256(0)) {
+            CHashWriter ssCoord(SER_GETHASH, 0);
+            ssCoord << hashAdamSeed;
+            ssCoord << std::string(fModelD ? "ADAM_FAIR_COORD_V5" : "ADAM_FAIR_COORD_V4");
+            const arith_uint256 hCoord = UintToArith256(ssCoord.GetHash());
+            const arith_uint256 targetTicket = hCoord - (hCoord / drawTotalWeight) * drawTotalWeight;
+            arith_uint256 cumWeight(0);
+            for (const auto& wc : drawCandidates) {
+                cumWeight += wc.second;
+                if (targetTicket < cumWeight) {
+                    coordinatorOut = wc.first;
+                    break;
                 }
             }
         }
@@ -2724,8 +2518,7 @@ bool SelectAdamNodes(
 
         if (fDualTrack) {
             ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, coordinatorOut, minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners,
-                                     fHardeningV2 ? &fundedPoWKeys : nullptr,
-                                     fHardeningV2 ? &bootstrapKeys : nullptr,
+                                     &fundedPoWKeys, &bootstrapKeys,
                                      fOpenEntry, nQuotaMn, nQuotaCoinLock, nQuotaZeroCoin);
         } else {
             std::vector<MinerRank> remainingPool;
@@ -2748,8 +2541,7 @@ bool SelectAdamNodes(
         // Untiered / Regtest synthetic fallback when no tiered validators exist
         if (fDualTrack) {
             ElectDualTrackValidators(hashAdamSeed, pool, collateralizedKeys, CPubKey(), minCount, vSelectedMinersOut, coinLockKeys, &vStandbyMiners,
-                                     fHardeningV2 ? &fundedPoWKeys : nullptr,
-                                     fHardeningV2 ? &bootstrapKeys : nullptr,
+                                     &fundedPoWKeys, &bootstrapKeys,
                                      fOpenEntry, nQuotaMn, nQuotaCoinLock, nQuotaZeroCoin);
             std::set<CPubKey> electedSet(vSelectedMinersOut.begin(), vSelectedMinersOut.end());
             coordinatorOut = rankedPool[0].key;
@@ -2788,11 +2580,6 @@ bool SelectAdamNodes(
         cachedThreshold = threshold;
         cachedDualTrack = fDualTrack;
         cachedOpenEntry = fOpenEntry;
-        cachedHardeningV2 = fHardeningV2;
-        cachedHardeningV3 = fHardeningV3;
-        cachedHardeningV4 = fHardeningV4;
-        cachedCoordWeightV2 = fCoordWeightV2;
-        cachedFairness = fFairness;
         cachedModelD = fModelD;
         cachedPool = std::move(pool);
         cachedCollateralized = std::move(collateralizedKeys);
@@ -2809,31 +2596,16 @@ bool SelectAdamNodes(
     return true;
 }
 
-int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey, bool fFallbackMode) {
+int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey) {
     static constexpr int kUniformAlgos[17] = {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17
     };
-    if (fFallbackMode) {
-        CHashWriter ss(SER_GETHASH, 0);
-        ss << hashAdamSeed;
-        ss << minerKey;
-        uint256 h = ss.GetHash();
-        arith_uint256 tmp = UintToArith256(h);
-        return kUniformAlgos[(tmp - (tmp / 17) * 17).GetLow64()];
-    }
-    std::vector<CPubKey> vExpectedMiners;
-    CPubKey expectedCoordinator;
-    const Consensus::Params& params = Params().GetConsensus();
-    if (!SelectAdamNodes(hashAdamSeed, params, vExpectedMiners, expectedCoordinator)) {
-        return 12; // Fallback to DoubleSHA256
-    }
-    
-    for (size_t i = 0; i < vExpectedMiners.size(); ++i) {
-        if (vExpectedMiners[i] == minerKey) {
-            return i % 13;
-        }
-    }
-    return 12; // Fallback to DoubleSHA256
+    CHashWriter ss(SER_GETHASH, 0);
+    ss << hashAdamSeed;
+    ss << minerKey;
+    uint256 h = ss.GetHash();
+    arith_uint256 tmp = UintToArith256(h);
+    return kUniformAlgos[(tmp - (tmp / 17) * 17).GetLow64()];
 }
 
 std::string GetAdamPuzzleAlgoName(int algoIndex) {
@@ -2873,10 +2645,6 @@ bool ResolveDip3OperatorBlsPubKey(const CPubKey& ownerPubKey, int nHeight, CBLSP
             effHeight = chainActive.Tip() ? (chainActive.Height() + 1) : 0;
         }
     }
-    const Consensus::Params& consensus = Params().GetConsensus();
-    if (!consensus.NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3)) {
-        return false;
-    }
     const CBlockIndex* pListIndex = pindexRef;
     if (!pListIndex && effHeight > 0) {
         LOCK(cs_main);
@@ -2906,10 +2674,6 @@ bool ResolveDip3OwnerByOperatorBls(const CBLSPubKey& operatorBlsPubKey, int nHei
             LOCK(cs_main);
             effHeight = chainActive.Tip() ? (chainActive.Height() + 1) : 0;
         }
-    }
-    const Consensus::Params& consensus = Params().GetConsensus();
-    if (!consensus.NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3)) {
-        return false;
     }
     const CBlockIndex* pListIndex = pindexRef;
     if (!pListIndex && effHeight > 0) {
@@ -2942,12 +2706,11 @@ bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, 
             effHeight = chainActive.Tip() ? (chainActive.Height() + 1) : 0;
         }
     }
-    const bool fHardeningV3 = IsHardeningV3Active(effHeight);
-    const std::string& dst = GetBLSDomainTag(domain, fHardeningV3);
+    const std::string& dst = GetBLSDomainTag(domain);
 
     bool fUseDip3 = false;
     dip3::CDeterministicMNList mnList;
-    if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(effHeight, Consensus::UPGRADE_DIP3)) {
+    if (deterministicMNManager) {
         fUseDip3 = true;
         const CBlockIndex* pListIndex = pindexRef;
         if (!pListIndex && effHeight > 0) {
@@ -2962,11 +2725,9 @@ bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, 
         const dip3::CDeterministicMN* pmn = mnList.GetMNByOwner(ownerPubKey);
         if (pmn) {
             if (pmn->state.IsValid() && pmn->state.blsPubKeyOperator.IsValid()) {
-                return VerifyDip3OperatorBLS(hash, pmn->state.blsPubKeyOperator, vchSig, pBlsPubKeyOut, pBlsSigOut, dst, fHardeningV3);
+                return VerifyDip3OperatorBLS(hash, pmn->state.blsPubKeyOperator, vchSig, pBlsPubKeyOut, pBlsSigOut, dst);
             }
-            if (fHardeningV3) {
-                return false;
-            }
+            return false;
         }
     }
 
@@ -2981,23 +2742,21 @@ bool VerifyAdamOrDip3Signature(const uint256& hash, const CPubKey& ownerPubKey, 
     if (fUseDip3 && mnList.HasOperator(extractedBlsPk)) {
         return false;
     }
-    if (IsHardeningV4Active(effHeight)) {
-        const int nPoolH = pindexRef ? pindexRef->nHeight : (effHeight > 0 ? (effHeight - 1) : -1);
-        if (nPoolH >= 0) {
-            std::map<CPubKey, CBLSPubKey> poolBlsKeys;
-            GetAdamMinerPool(nPoolH, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &poolBlsKeys);
-            auto itPin = poolBlsKeys.find(ownerPubKey);
-            if (itPin != poolBlsKeys.end() && itPin->second.IsValid() && extractedBlsPk != itPin->second) {
+    const int nPoolH = pindexRef ? pindexRef->nHeight : (effHeight > 0 ? (effHeight - 1) : -1);
+    if (nPoolH >= 0) {
+        std::map<CPubKey, CBLSPubKey> poolBlsKeys;
+        GetAdamMinerPool(nPoolH, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &poolBlsKeys);
+        auto itPin = poolBlsKeys.find(ownerPubKey);
+        if (itPin != poolBlsKeys.end() && itPin->second.IsValid() && extractedBlsPk != itPin->second) {
+            return false;
+        }
+        for (const auto& kv : poolBlsKeys) {
+            if (kv.second == extractedBlsPk && kv.first != ownerPubKey) {
                 return false;
-            }
-            for (const auto& kv : poolBlsKeys) {
-                if (kv.second == extractedBlsPk && kv.first != ownerPubKey) {
-                    return false;
-                }
             }
         }
     }
-    if (!VerifyBLSWithECDSAFallback(hash, ownerPubKey, vchSig, dst, fHardeningV3, pinPred)) {
+    if (!VerifyBLSWithECDSAFallback(hash, ownerPubKey, vchSig, dst, pinPred)) {
         return false;
     }
     if (pBlsPubKeyOut || pBlsSigOut) {
@@ -3060,7 +2819,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
                 if (effHeight < 0) effHeight = pindexRef->nHeight + 1;
             }
         }
-        if (effHeight > 0 && Params().GetConsensus().NetworkUpgradeActive(effHeight, Consensus::UPGRADE_FAIRNESS)) {
+        if (effHeight > 0) {
             if (!minerKey.IsValid() || !minerKey.IsCompressed() || minerKey.size() != 33) {
                 return false;
             }
@@ -3106,7 +2865,7 @@ bool VerifyAdamSolution(const uint256& hashPrevBlock, const uint256& hashAdamSee
         uint256 puzzleHash;
         bool verifyRes = false;
         if (nVersion == 11) {
-            int algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey, true);
+            int algoIndex = GetAdamPuzzleAlgo(hashAdamSeed, minerKey);
             puzzleHash = CalculateAdamPuzzleHash(algoIndex, inputBuf, inputBuf + inputLen);
             if (!meetsTarget(puzzleHash)) {
                 return false;
@@ -3505,11 +3264,7 @@ bool ExtractPoBLSTicketFromSolution(const std::vector<unsigned char>& vchSolutio
                     }
                 } else {
                     const uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-                    const bool fStrict = IsHardeningV3Active(nBlockHeight);
-                    const bool fEcdsaOk = fStrict
-                        ? pMinerKey->VerifyStrictDER(hashPubKey, signedData.ecdsaSig)
-                        : pMinerKey->Verify(hashPubKey, signedData.ecdsaSig);
-                    if (!fEcdsaOk) {
+                    if (!pMinerKey->VerifyStrictDER(hashPubKey, signedData.ecdsaSig)) {
                         return false;
                     }
                     CBLSPubKey pinnedBlsPubKey;
@@ -3546,27 +3301,19 @@ std::vector<CPubKey> RankValidatorsByPoBLSDistance(
     const CBlockIndex* pindexPrev)
 {
     const int effHeight = (nBlockHeight >= 0) ? nBlockHeight : (pindexPrev ? (pindexPrev->nHeight + 1) : 0);
-    const bool fHardeningV3 = IsHardeningV3Active(effHeight);
-    const bool fHardeningV4 = IsHardeningV4Active(effHeight);
     std::set<CPubKey> maturedKeys;
-    if (fHardeningV4) {
-        const int nPoolH = pindexPrev ? pindexPrev->nHeight : (effHeight > 0 ? (effHeight - 1) : -1);
-        if (nPoolH >= 0) {
-            GetAdamMinerPool(nPoolH, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &maturedKeys);
-        }
+    const int nPoolH = pindexPrev ? pindexPrev->nHeight : (effHeight > 0 ? (effHeight - 1) : -1);
+    if (nPoolH >= 0) {
+        GetAdamMinerPool(nPoolH, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &maturedKeys);
     }
     uint256 targetHash = ComputePoBLSTarget(hashAdamSeed, nBlockHeight);
     struct ValidatorDistance {
         CPubKey key;
         uint256 distance;
         bool isMatured;
-        bool hasValidTicket;
         bool operator<(const ValidatorDistance& other) const {
             if (isMatured != other.isMatured) {
                 return isMatured > other.isMatured;
-            }
-            if (hasValidTicket != other.hasValidTicket) {
-                return hasValidTicket > other.hasValidTicket;
             }
             if (distance != other.distance) {
                 return distance < other.distance;
@@ -3578,26 +3325,15 @@ std::vector<CPubKey> RankValidatorsByPoBLSDistance(
     std::vector<ValidatorDistance> ranked;
     ranked.reserve(vMiners.size());
     for (const auto& minerKey : vMiners) {
-        uint256 ticketHash;
-        bool hasTicket = false;
-        if (!fHardeningV3) {
-            auto it = mapSolutions.find(minerKey);
-            if (it != mapSolutions.end() && !it->second.empty()) {
-                hasTicket = ExtractPoBLSTicketFromSolution(it->second, nBlockHeight, ticketHash, &minerKey, pindexPrev);
-            }
-        }
-        if (!hasTicket) {
-            CHashWriter ss(SER_GETHASH, 0);
-            ss << hashAdamSeed;
-            ss << minerKey;
-            ss << nBlockHeight;
-            ticketHash = ss.GetHash();
-        }
+        CHashWriter ss(SER_GETHASH, 0);
+        ss << hashAdamSeed;
+        ss << minerKey;
+        ss << nBlockHeight;
+        const uint256 ticketHash = ss.GetHash();
         ValidatorDistance vd;
         vd.key = minerKey;
         vd.distance = ComputePoBLSXORDistance(ticketHash, targetHash);
-        vd.isMatured = fHardeningV4 && (maturedKeys.count(minerKey) > 0);
-        vd.hasValidTicket = hasTicket;
+        vd.isMatured = (maturedKeys.count(minerKey) > 0);
         ranked.push_back(vd);
     }
 
@@ -3712,7 +3448,7 @@ bool SignPoSCoordRequest(const CBlock& block, const uint256& reqHash, const CKey
     if (!blsKey.IsValid()) {
         return false;
     }
-    const std::string& dst = GetBLSDomainTag(BLSDomain::POS_COORD_REQ, IsHardeningV3Active(nHeight));
+    const std::string& dst = GetBLSDomainTag(BLSDomain::POS_COORD_REQ);
     return SignBLSWithECDSAFallback(reqHash, key, blsKey, vchSigOut, dst);
 }
 
@@ -3755,10 +3491,8 @@ bool VerifyPoSCoordRequestAuth(const CBlock& block, const uint256& reqHash, cons
     if (!pubkey.IsValid()) {
         return false;
     }
-    const bool fHardeningV3 = IsHardeningV3Active(nHeight);
     return VerifyBLSWithECDSAFallback(reqHash, pubkey, vchSig,
-                                      GetBLSDomainTag(BLSDomain::POS_COORD_REQ, fHardeningV3),
-                                      fHardeningV3,
+                                      GetBLSDomainTag(BLSDomain::POS_COORD_REQ),
                                       MakeActiveChainPinPredicate());
 }
 

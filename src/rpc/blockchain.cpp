@@ -154,9 +154,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
         if (!GetStakeKernelHash(hashProofOfStakeRet, block, blockindex->pprev))
             throw JSONRPCError(RPC_INTERNAL_ERROR, "Cannot get proof of stake hash");
 
-        std::string stakeModifier = IsHardeningV3Active(blockindex->nHeight)
-            ? blockindex->GetStakeModifierV2().GetHex()
-            : strprintf("%016x", blockindex->GetStakeModifierV1());
+        std::string stakeModifier = blockindex->GetStakeModifierV2().GetHex();
         result.push_back(Pair("stakeModifier", stakeModifier));
         result.push_back(Pair("hashProofOfStake", hashProofOfStakeRet.GetHex()));
     }
@@ -192,7 +190,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
                 GetAdam3PermutationAlgos(block.hashPrevBlock, block.vAdamMiners[i], a1, a2, a3);
                 seatAlgos.push_back(GetAdamPuzzleAlgoName(a1) + "+" + GetAdamPuzzleAlgoName(a2) + "+" + GetAdamPuzzleAlgoName(a3));
             } else {
-                const int algoIdx = GetAdamPuzzleAlgo(adamSeed, block.vAdamMiners[i], true);
+                const int algoIdx = GetAdamPuzzleAlgo(adamSeed, block.vAdamMiners[i]);
                 seatAlgos.push_back(GetAdamPuzzleAlgoName(algoIdx));
             }
         }
@@ -258,7 +256,7 @@ UniValue blockToJSON(const CBlock& block, const CBlockIndex* blockindex, bool tx
                     const llmq::CQuorum quorum = llmq::GetActiveQuorum(blockindex->nHeight, blockindex->pprev);
                     if (!quorum.members.empty()) {
                         nQuorumSize = static_cast<int>(quorum.members.size());
-                        nThreshold = static_cast<int>(llmq::GetQuorumThreshold(quorum.members.size(), blockindex->nHeight));
+                        nThreshold = static_cast<int>(llmq::GetQuorumThreshold(quorum.members.size()));
                         fQuorumVerified = qsig.Verify(quorum, blockindex->pprev, BLSDomain::LLMQ_BLOCK, blockindex->nHeight);
                         for (const auto& sigPair : qsig.signatures) {
                             for (const auto& m : quorum.members) {
@@ -1229,7 +1227,7 @@ UniValue getblockchaininfo(const JSONRPCRequest& request)
             HeightGateUpgradePushBack(
                 upgradeEntries, "Treasury Governance", consensusParams.nTreasuryGovernanceStartHeight,
                 nTipHeight >= consensusParams.nTreasuryGovernanceStartHeight,
-                "Developer Treasury governance spending activation (Spork + LLMQ)");
+                "Developer Treasury governance spending activation (Treasury Key + LLMQ)");
         }
         std::stable_sort(upgradeEntries.begin(), upgradeEntries.end(),
             [](const UpgradeDisplayEntry& a, const UpgradeDisplayEntry& b) {

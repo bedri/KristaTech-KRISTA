@@ -8,8 +8,13 @@
 #define MNMODEL_H
 
 #include <QAbstractTableModel>
+#include <QMap>
 #include <QSet>
+#include <string>
 #include "masternode.h"
+#include "netaddress.h"
+#include "primitives/transaction.h"
+#include "pubkey.h"
 #include "wallet/walletdb.h"
 
 class MNModel : public QAbstractTableModel
@@ -49,6 +54,35 @@ public:
         uint16_t operatorRewardBps{0};
     };
 
+    enum MNState {
+        STATE_PRE_ENABLED = 0,
+        STATE_ENABLED,
+        STATE_EXPIRED,
+        STATE_REMOVE,
+        STATE_POSE_BAN,
+        STATE_MISSING
+    };
+
+    struct MNEntry {
+        COutPoint collateralOutpoint;
+        CService addr;
+        CPubKey pubKeyOwner;
+        MNState activeState{STATE_MISSING};
+
+        bool isEnabled() const { return activeState == STATE_ENABLED; }
+        std::string statusString() const {
+            switch (activeState) {
+                case STATE_PRE_ENABLED: return "PRE_ENABLED";
+                case STATE_ENABLED:     return "ENABLED";
+                case STATE_EXPIRED:     return "EXPIRED";
+                case STATE_REMOVE:      return "REMOVE";
+                case STATE_POSE_BAN:    return "POSE_BAN";
+                case STATE_MISSING:     return "MISSING";
+            }
+            return "MISSING";
+        }
+    };
+
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -84,8 +118,8 @@ public:
 private:
     void clearNodes();
     int getCollateralConfirmations(const uint256& txHash, int& requiredConfsOut) const;
-    // alias mn node ---> pair <ip, master node>
-    QMap<QString, std::pair<QString, CMasternode*>> nodes;
+    // alias mn node ---> pair <ip, entry>
+    QMap<QString, std::pair<QString, MNEntry>> nodes;
     mutable QMap<std::string, bool> collateralTxAccepted;
     mutable QMap<std::string, int> collateralTxConfs;
     mutable int requiredCollateralConfs{15};

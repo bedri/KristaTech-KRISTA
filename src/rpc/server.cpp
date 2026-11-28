@@ -378,18 +378,12 @@ static const CRPCCommand vRPCCommands[] =
         {"kristatech", "listmasternodes", &listmasternodes, true },
         {"kristatech", "getmasternodecount", &getmasternodecount, true },
         {"kristatech", "protx", &protx, true },
-        {"kristatech", "decodemasternodebroadcast", &decodemasternodebroadcast, true },
-        {"kristatech", "relaymasternodebroadcast", &relaymasternodebroadcast, true },
-        {"kristatech", "masternodecurrent", &masternodecurrent, true },
         {"kristatech", "createmasternodekey", &createmasternodekey, true },
         {"kristatech", "createblsprivkey", &createblsprivkey, true },
         {"kristatech", "getmasternodeoutputs", &getmasternodeoutputs, true },
         {"kristatech", "getmasternodestatus", &getmasternodestatus, true },
-        {"kristatech", "getmasternodewinners", &getmasternodewinners, true },
-        {"kristatech", "getmasternodescores", &getmasternodescores, true },
         {"kristatech", "getactivequorum", &getactivequorum, true },
         {"kristatech", "mnsync", &mnsync, true },
-        {"kristatech", "spork", &spork, true },
 
 #ifdef ENABLE_WALLET
         /* Wallet */

@@ -149,11 +149,8 @@ public:
         consensus.nPoseReviveCooldownBlocks = 120;
         consensus.nProUpRegCooldownBlocks = 100;
 
-        // spork keys
-        consensus.strSporkPubKey = "024897ee03b6f8133aa5fc926c8f9fd83b1454a817fda9fc907de18866eba0030a";
-        consensus.strSporkPubKeyOld = "";
-        consensus.nTime_EnforceNewSporkKey = 0;
-        consensus.nTime_RejectOldSporkKey = 0;
+        // developer treasury key
+        consensus.strTreasuryPubKey = "024897ee03b6f8133aa5fc926c8f9fd83b1454a817fda9fc907de18866eba0030a";
 
         // burn addresses
         consensus.mBurnAddresses = {
@@ -161,9 +158,9 @@ public:
             { "KTburnUHdmKMVx4z8BcnZYZCWYKxRgfZp95", 0 }
         };
 
-        consensus.nTreasuryGovernanceStartHeight = 5000;
+        consensus.nTreasuryGovernanceStartHeight = 200;
         consensus.nAdamCoordWeightV2Height = 1;
-        consensus.nAdamOpenEntryHeight = 2500;
+        consensus.nAdamOpenEntryHeight = 1;
         strDeveloperFundAddress = "KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP";
 
         // Network upgrades
@@ -175,11 +172,11 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                  = 200;
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].nActivationHeight       = 200;
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight     = 5001;
+        consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight     = 200;
         consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                   = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                = 5000;
-        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                  = 4800;
-        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 5000;
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                  = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                 = 200;
         consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                   = 1;
         consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight               = 1;
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V3].nActivationHeight           = 1;
@@ -281,11 +278,8 @@ public:
             { "ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG", 0 }
         };
 
-        // spork keys
-        consensus.strSporkPubKey = "03b4394f924c8bdbea7379fbcde9bf1b5a32d0f04631312b18c4ba3889a89b6a0d";
-        consensus.strSporkPubKeyOld = "";
-        consensus.nTime_EnforceNewSporkKey = 0;
-        consensus.nTime_RejectOldSporkKey = 0;
+        // developer treasury key
+        consensus.strTreasuryPubKey = "03b4394f924c8bdbea7379fbcde9bf1b5a32d0f04631312b18c4ba3889a89b6a0d";
 
         consensus.nTreasuryGovernanceStartHeight = 200;
         consensus.nAdamCoordWeightV2Height = 1;
@@ -301,11 +295,11 @@ public:
         consensus.vUpgrades[Consensus::UPGRADE_BIP65].nActivationHeight                     = 200;
         consensus.vUpgrades[Consensus::UPGRADE_TIME_PROTOCOL_V2].nActivationHeight          = 200;
         consensus.vUpgrades[Consensus::UPGRADE_P2PKH_BLOCK_SIGNATURES].nActivationHeight    = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        = 5001;
+        consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight        = 200;
         consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight                      = 200;
-        consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                   = 500;
-        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 400;
-        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 500;
+        consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight                   = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight                     = 200;
+        consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight                    = 200;
         consensus.vUpgrades[Consensus::UPGRADE_DIP3].nActivationHeight                      = 1;
         consensus.vUpgrades[Consensus::UPGRADE_FAIRNESS].nActivationHeight                  = 1;
         consensus.vUpgrades[Consensus::UPGRADE_HARDENING_V3].nActivationHeight              = 1;
@@ -411,15 +405,12 @@ public:
             { "ktBurnKmNRzVXVVVDXxFhhKytkH5x2yqsCG", 0 }
         };
 
-        /* Spork Key for RegTest:
+        /* Developer Treasury Key for RegTest:
         WIF private key: 932HEevBSujW2ud7RfB1YF91AFygbBRQj3de3LyaCRqNzKKgWXi
         private key hex: bd4960dcbd9e7f2223f24e7164ecb6f1fe96fc3a416f5d3a830ba5720c84b8ca
         Address: yCvUVd72w7xpimf981m114FSFbmAmne7j9
         */
-        consensus.strSporkPubKey = "043969b1b0e6f327de37f297a015d37e2235eaaeeb3933deecd8162c075cee0207b13537618bde640879606001a8136091c62ec272dd0133424a178704e6e75bb7";
-        consensus.strSporkPubKeyOld = "";
-        consensus.nTime_EnforceNewSporkKey = 0;
-        consensus.nTime_RejectOldSporkKey = 0;
+        consensus.strTreasuryPubKey = "043969b1b0e6f327de37f297a015d37e2235eaaeeb3933deecd8162c075cee0207b13537618bde640879606001a8136091c62ec272dd0133424a178704e6e75bb7";
 
         consensus.nTreasuryGovernanceStartHeight = 100;
         consensus.nAdamCoordWeightV2Height = 1;

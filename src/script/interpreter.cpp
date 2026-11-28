@@ -1371,25 +1371,20 @@ static uint256 DeriveTaprootMerkleRoot(const std::vector<unsigned char>& control
     return current_hash;
 }
 
-static bool SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData* cache, bool fStrictBip341, uint256& hashOut, const uint256* tapleaf_hash = nullptr, uint32_t codesep_pos = 0xffffffff)
+static bool SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData* cache, uint256& hashOut, const uint256* tapleaf_hash = nullptr, uint32_t codesep_pos = 0xffffffff)
 {
     if (nIn >= txTo.vin.size()) {
         return false;
     }
 
-    uint8_t sighash_type = 0;
-    if (fStrictBip341) {
-        if (nHashType != SIGHASH_DEFAULT) {
-            const int baseType = nHashType & (~SIGHASH_ANYONECANPAY);
-            if ((nHashType & ~(0x03 | SIGHASH_ANYONECANPAY)) != 0 ||
-                (baseType != SIGHASH_ALL && baseType != SIGHASH_NONE && baseType != SIGHASH_SINGLE)) {
-                return false;
-            }
+    if (nHashType != SIGHASH_DEFAULT) {
+        const int baseType = nHashType & (~SIGHASH_ANYONECANPAY);
+        if ((nHashType & ~(0x03 | SIGHASH_ANYONECANPAY)) != 0 ||
+            (baseType != SIGHASH_ALL && baseType != SIGHASH_NONE && baseType != SIGHASH_SINGLE)) {
+            return false;
         }
-        sighash_type = static_cast<uint8_t>(nHashType);
-    } else {
-        sighash_type = (nHashType == 0) ? SIGHASH_ALL : static_cast<uint8_t>(nHashType);
     }
+    const uint8_t sighash_type = static_cast<uint8_t>(nHashType);
 
     unsigned char tag_hash[32];
     CSHA256 shaTapSighash;
@@ -1413,7 +1408,7 @@ static bool SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, int
     sha.Write(buf, 4);
 
     const bool anyone_can_pay = (sighash_type & SIGHASH_ANYONECANPAY) != 0;
-    const uint8_t output_type = (fStrictBip341 && sighash_type == SIGHASH_DEFAULT)
+    const uint8_t output_type = (sighash_type == SIGHASH_DEFAULT)
         ? SIGHASH_ALL
         : (sighash_type & 0x1f);
 
@@ -1449,11 +1444,6 @@ static bool SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, int
     uint8_t spend_type = (sigversion == SIGVERSION_TAPSCRIPT) ? 2 : 0;
     sha.Write(&spend_type, 1);
 
-    if (!fStrictBip341) {
-        WriteLE32(buf, nIn);
-        sha.Write(buf, 4);
-    }
-
     if (anyone_can_pay) {
         const auto& prevout = txTo.vin[nIn].prevout;
         sha.Write(prevout.hash.begin(), 32);
@@ -1477,7 +1467,7 @@ static bool SignatureHashTaproot(const CTransaction& txTo, unsigned int nIn, int
 
         WriteLE32(buf, txTo.vin[nIn].nSequence);
         sha.Write(buf, 4);
-    } else if (fStrictBip341) {
+    } else {
         WriteLE32(buf, nIn);
         sha.Write(buf, 4);
     }
@@ -1607,9 +1597,9 @@ uint256 SignatureHash(const CScript& scriptCode, const CTransaction& txTo, unsig
     return ss.GetHash();
 }
 
-bool ComputeTaprootSighash(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData& cache, uint256& hashOut, bool fStrictBip341, const uint256* tapleaf_hash, uint32_t codesep_pos)
+bool ComputeTaprootSighash(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData& cache, uint256& hashOut, const uint256* tapleaf_hash, uint32_t codesep_pos)
 {
-    return SignatureHashTaproot(txTo, nIn, nHashType, sigversion, &cache, fStrictBip341, hashOut, tapleaf_hash, codesep_pos);
+    return SignatureHashTaproot(txTo, nIn, nHashType, sigversion, &cache, hashOut, tapleaf_hash, codesep_pos);
 }
 
 bool TransactionSignatureChecker::VerifySignature(const std::vector<unsigned char>& vchSig, const CPubKey& pubkey, const uint256& sighash) const
@@ -1646,9 +1636,6 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
 bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vchSigIn, const std::vector<unsigned char>& vchPubKey, const CScript& scriptCode, SigVersion sigversion, unsigned int flags) const
 {
     if (sigversion == SIGVERSION_TAPSCRIPT && (vchPubKey.size() == 33 || vchPubKey.size() == 65)) {
-        if (!(flags & SCRIPT_VERIFY_TAPROOT_BIP341)) {
-            return CheckSig(vchSigIn, vchPubKey, scriptCode, SIGVERSION_BASE, flags);
-        }
         CPubKey pubkey(vchPubKey);
         if (!pubkey.IsValid() || vchSigIn.empty()) {
             return false;
@@ -1660,14 +1647,13 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
         const int nHashType = vchSig.back();
         vchSig.pop_back();
         uint256 sighash;
-        if (!SignatureHashTaproot(*txTo, nIn, nHashType, SIGVERSION_TAPSCRIPT, precomTxData, true, sighash, GetTapleafHash(), GetCodesepPos())) {
+        if (!SignatureHashTaproot(*txTo, nIn, nHashType, SIGVERSION_TAPSCRIPT, precomTxData, sighash, GetTapleafHash(), GetCodesepPos())) {
             return false;
         }
         return VerifySignature(vchSig, pubkey, sighash);
     }
 
     if (sigversion == SIGVERSION_TAPROOT || sigversion == SIGVERSION_TAPSCRIPT) {
-        const bool fStrictBip341 = (flags & SCRIPT_VERIFY_TAPROOT_BIP341) != 0;
         if (vchSigIn.empty() || vchPubKey.size() != 32) {
             return false;
         }
@@ -1683,7 +1669,7 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
                 return false;
             }
             const int baseType = nHashType & (~SIGHASH_ANYONECANPAY);
-            if ((fStrictBip341 && (nHashType & ~(0x03 | SIGHASH_ANYONECANPAY)) != 0) ||
+            if ((nHashType & ~(0x03 | SIGHASH_ANYONECANPAY)) != 0 ||
                 (baseType != SIGHASH_ALL && baseType != SIGHASH_NONE && baseType != SIGHASH_SINGLE)) {
                 return false;
             }
@@ -1695,7 +1681,7 @@ bool TransactionSignatureChecker::CheckSig(const std::vector<unsigned char>& vch
         uint32_t codesep_pos = GetCodesepPos();
 
         uint256 sighash;
-        if (!SignatureHashTaproot(*txTo, nIn, nHashType, sigversion, precomTxData, fStrictBip341, sighash, tapleaf_hash, codesep_pos)) {
+        if (!SignatureHashTaproot(*txTo, nIn, nHashType, sigversion, precomTxData, sighash, tapleaf_hash, codesep_pos)) {
             return false;
         }
 

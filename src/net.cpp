@@ -21,7 +21,6 @@
 #include "guiinterface.h"
 #include "hash.h"
 #include "main.h"
-#include "masternodeman.h"
 #include "miner.h"
 #include "netmessagemaker.h"
 #include "primitives/transaction.h"
@@ -1862,30 +1861,6 @@ void CConnman::ThreadDNSAddressSeed()
     }
     
     std::vector<CDNSSeedData> vPeers(Params().DNSSeeds());
-    std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
-
-    std::random_device rd;
-    std::mt19937 g(rd());
- 
-    std::shuffle(vMasternodes.begin(), vMasternodes.end(), g);
-    
-    int ipV4Count = 0;
-    int ipV6Count = 0;   
-
-    for(const CMasternode& mn : vMasternodes) {
-
-        if(mn.addr.IsIPv4() && ipV4Count < MAX_MASTERNODES_SEEDED_AT_ONCE) {
-            vPeers.push_back(CDNSSeedData(mn.addr.ToStringIP(), mn.addr.ToStringIP()));
-            ipV4Count++;
-        }
-
-        if(mn.addr.IsIPv6() && ipV6Count < MAX_MASTERNODES_SEEDED_AT_ONCE) {
-            vPeers.push_back(CDNSSeedData(mn.addr.ToStringIP(), mn.addr.ToStringIP()));
-            ipV6Count++;
-        }
-
-        if (ipV4Count >= MAX_MASTERNODES_SEEDED_AT_ONCE && ipV6Count >= MAX_MASTERNODES_SEEDED_AT_ONCE) break;
-    }
 
     LogPrintf("Loading addresses from DNS seeds (could take a while)\n");
 

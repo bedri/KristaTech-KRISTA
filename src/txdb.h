@@ -131,23 +131,6 @@ public:
     bool ReadInt(const std::string& name, int& nValue);
     bool LoadBlockIndexGuts(boost::function<CBlockIndex*(const uint256&)> insertBlockIndex);
 
-    template <typename BurnMapType>
-    bool WriteBurnCache(const uint256& hashBestBlock, const BurnMapType& mapSerializedBurns)
-    {
-        return Write(std::make_pair('U', std::string("burncache_v2")), std::make_pair(hashBestBlock, mapSerializedBurns));
-    }
-
-    template <typename BurnMapType>
-    bool ReadBurnCache(uint256& hashBestBlock, BurnMapType& mapSerializedBurns)
-    {
-        std::pair<uint256, BurnMapType> data;
-        if (!Read(std::make_pair('U', std::string("burncache_v2")), data))
-            return false;
-        hashBestBlock = data.first;
-        mapSerializedBurns = std::move(data.second);
-        return true;
-    }
-
     template <typename BurnMapType, typename OutpointBurnMapType>
     bool WriteBurnCacheV3(const uint256& hashBestBlock, const BurnMapType& mapSerializedBurns, const OutpointBurnMapType& mapOutpointBurns)
     {

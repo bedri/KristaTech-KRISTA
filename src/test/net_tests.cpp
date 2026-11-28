@@ -191,9 +191,9 @@ BOOST_AUTO_TEST_CASE(c1_h9_m9_net_hardening_regression)
     BOOST_CHECK(!CInv(MSG_CMPCT_BLOCK, uint256()).IsMasterNodeType());
     BOOST_CHECK(!CInv(MSG_TX, uint256()).IsMasterNodeType());
     BOOST_CHECK(!CInv(MSG_BLOCK, uint256()).IsMasterNodeType());
-    BOOST_CHECK(CInv(MSG_SPORK, uint256()).IsMasterNodeType());
-    BOOST_CHECK(CInv(MSG_MASTERNODE_PING, uint256()).IsMasterNodeType());
-    BOOST_CHECK(CInv(MSG_MASTERNODE_QUORUM, uint256()).IsMasterNodeType());
+    BOOST_CHECK(CInv(MSG_DSTX, uint256()).IsMasterNodeType());
+    BOOST_CHECK(!CInv(6, uint256()).IsKnownType());
+    BOOST_CHECK(!CInv(6, uint256()).IsMasterNodeType());
 
     // M-9 & H-9: 12-byte non-NUL command header and chunked 6 MB v1 message over CNode::ReceiveMsgBytes
     std::vector<unsigned char> payload(6 * 1024 * 1024, 0x42);

@@ -251,12 +251,6 @@ std::vector<CPubKey> GetAdamMinerPool(int nHeight = -1, const CCoinsViewCache* p
 std::vector<CAdamValidatorPoolInfo> GetAdamMinerPoolDetailed(int nHeight = -1);
 
 /**
- * Return the number of explicitly registered validators (Active Masternodes + Coin-Lock +
- * Funded PoW-Lock + Zero-Coin PoW, excluding Block 1..199 Classic PoW coinbase filler keys) at nHeight.
- */
-size_t GetExplicitAdamMinerPoolCount(int nHeight = -1, const CCoinsViewCache* pView = nullptr);
-
-/**
  * Return the number of funded validators (Active Masternodes + 250 KRISTA Coin-Lock +
  * 10 KRISTA Funded PoW-Lock, excluding Zero-Coin PoW, Block 1..199 bootstrap, and Regtest synthetic keys) at nHeight.
  */
@@ -351,7 +345,7 @@ bool ValidateAdamCommitteeForTime(
 /**
  * Get the deterministic puzzle hash algorithm index for an elected miner.
  */
-int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey, bool fFallbackMode = false);
+int GetAdamPuzzleAlgo(const uint256& hashAdamSeed, const CPubKey& minerKey);
 
 /**
  * Get the name of a puzzle hash algorithm.
@@ -417,13 +411,13 @@ void ProcessOrphanAdamSolutions(const uint256& hash);
 static constexpr size_t MAX_ADAMSOL_SYNC_PER_PEER = 32;
 std::vector<CAdamSolutionMsg> CollectCachedAdamSolutionsForTip(const uint256& hashPrevBlock, size_t nMaxCount = MAX_ADAMSOL_SYNC_PER_PEER);
 
-uint256 GetMinerPoWLimit(const std::string& networkId, bool fHardeningV2 = false);
-uint256 GetZeroCoinPoWLimit(const std::string& networkId, bool fHardeningV2 = false, bool fFairness = false);
+uint256 GetMinerPoWLimit(const std::string& networkId);
+uint256 GetZeroCoinPoWLimit(const std::string& networkId);
 int GetZeroCoinRegPeriod(int nHeight);
-void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey* pBlsPubKey = nullptr);
-uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2, const CBLSPubKey* pBlsPubKey = nullptr);
-void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey* pBlsPubKey = nullptr);
-uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, bool fHardeningV2, const CBLSPubKey* pBlsPubKey = nullptr);
+void BuildMinerPoWRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey& blsPubKey);
+uint256 ComputeMinerPoWRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, const CBLSPubKey& blsPubKey);
+void BuildZeroCoinRegistrationHeaderPrefix(const uint256& challenge, const CPubKey& pubkey, unsigned char outPrefix76[76], const CBLSPubKey& blsPubKey);
+uint256 ComputeZeroCoinRegistrationHash(uint32_t nNonce, const uint256& challenge, const CPubKey& pubkey, const CBLSPubKey& blsPubKey);
 
 // Proof of BLS (PoBLS) Ticket & XOR Metric Distance Lottery functions
 uint256 ComputePoBLSTicket(const CBLSPubKey& blsPubKey, const CBLSSignature& blsSig, int nBlockHeight);

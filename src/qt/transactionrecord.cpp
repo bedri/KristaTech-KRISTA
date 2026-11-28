@@ -12,7 +12,7 @@
 #include "timedata.h"
 #include "wallet/wallet.h"
 #include "main.h"
-#include "masternodeman.h"
+#include "masternode.h"
 #include "adam.h"
 #include "evo/deterministicmns.h"
 #include "key_io.h"

@@ -11,18 +11,21 @@
 #include "chainparams.h"
 #include "evo/deterministicmns.h"
 #include "main.h"
+#include "init.h"
+#include "masternode.h"
+#include "masternode-sync.h"
+#include "util.h"
+#include "util/threadnames.h"
+#include "utiltime.h"
 
+#include <boost/thread.hpp>
 #include <vector>
+
+CActiveMasternodeMan amnodeman;
 
 void CActiveMasternodeMan::ManageStatus() {
     if (!fMasterNode) return;
-    int nTipHeight = 0;
-    {
-        LOCK(cs_main);
-        nTipHeight = chainActive.Height();
-    }
-    if (deterministicMNManager &&
-        Params().GetConsensus().NetworkUpgradeActive(nTipHeight + 1, Consensus::UPGRADE_DIP3)) {
+    if (deterministicMNManager) {
         const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListAtChainTip();
         LOCK(cs);
         for (auto& amn : vActiveMasternodes) {
@@ -48,36 +51,58 @@ std::vector<CActiveMasternode> CActiveMasternodeMan::GetActiveMasternodesCopy() 
     return vActiveMasternodes;
 }
 
-void CActiveMasternodeMan::EnableHotColdForPubKey(const CPubKey& pubKey, const CTxIn& vin, const CService& addr) {
-    LOCK(cs);
-    for (auto& activeMasternode : vActiveMasternodes) {
-        if (pubKey == activeMasternode.pubKeyMasternode) {
-            CTxIn vinCopy(vin);
-            CService addrCopy(addr);
-            activeMasternode.EnableHotColdMasterNode(vinCopy, addrCopy);
-        }
-    }
-}
-
-bool CActiveMasternodeMan::CheckAndEnableHotCold(const CTxIn& vin, const CPubKey& pubKey, const CService& addr, int protocolVersion) {
-    LOCK(cs);
-    for (auto& activeMasternode : vActiveMasternodes) {
-        if (fMasterNode &&
-            activeMasternode.vin != nullopt &&
-            vin.prevout == activeMasternode.vin->prevout &&
-            pubKey == activeMasternode.pubKeyMasternode) {
-            if (protocolVersion == PROTOCOL_VERSION) {
-                CTxIn vinCopy(vin);
-                CService addrCopy(addr);
-                activeMasternode.EnableHotColdMasterNode(vinCopy, addrCopy);
-            }
-            return true;
-        }
-    }
-    return false;
-}
-
 void CActiveMasternodeMan::Add(CActiveMasternode activeMasternode) {
     LOCK(cs);
     vActiveMasternodes.push_back(activeMasternode);
+}
+
+void ThreadCheckMasternodes()
+{
+    if (fLiteMode) return; //disable all Masternode related functionality
+
+    util::ThreadRename("kristatech-masternodeman");
+    LogPrintf("Masternodes thread started\n");
+
+    unsigned int c = 0;
+    uint256 lastDip3TipHash;
+
+    try {
+        while (true) {
+            if (ShutdownRequested()) {
+                break;
+            }
+
+            MilliSleep(1000);
+            boost::this_thread::interruption_point();
+
+            {
+                LOCK(cs_main);
+                masternodeSync.Process();
+            }
+
+            if (fMasterNode && deterministicMNManager &&
+                (Params().IsRegTestNet() || masternodeSync.IsBlockchainSynced())) {
+                uint256 tipHash;
+                {
+                    LOCK(cs_main);
+                    if (chainActive.Tip()) {
+                        tipHash = chainActive.Tip()->GetBlockHash();
+                    }
+                }
+                if (!tipHash.IsNull() && tipHash != lastDip3TipHash) {
+                    lastDip3TipHash = tipHash;
+                    amnodeman.ManageStatus();
+                }
+            }
+
+            if (masternodeSync.IsBlockchainSynced()) {
+                c++;
+                if (c % MASTERNODE_PING_SECONDS == 1) {
+                    amnodeman.ManageStatus();
+                }
+            }
+        }
+    } catch (boost::thread_interrupted&) {
+        // nothing, thread interrupted.
+    }
 }

@@ -6,10 +6,12 @@
 #include "evo/deterministicmns.h"
 #include "arith_uint256.h"
 #include "blocksignature.h"
+#include "base58.h"
 #include "chainparams.h"
 #include "coins.h"
 #include "consensus/merkle.h"
 #include "consensus/tx_verify.h"
+#include "consensus/upgrades.h"
 #include "consensus/validation.h"
 #include "crypto/bls.h"
 #include "keystore.h"
@@ -37,12 +39,12 @@
 #include <thread>
 
 namespace {
-uint32_t SolveZeroCoinPoWForTest(const CPubKey& pk, const uint256& challengeHash, const uint256& target, bool fHardeningV2 = true, const CBLSPubKey* pBlsPubKey = nullptr)
+uint32_t SolveZeroCoinPoWForTest(const CPubKey& pk, const uint256& challengeHash, const uint256& target, const CBLSPubKey& blsPubKey)
 {
     const unsigned int nWorkers = std::max(1U, std::min(16U, std::thread::hardware_concurrency()));
-    if (!fHardeningV2 || nWorkers == 1) {
+    if (nWorkers == 1) {
         for (uint32_t n = 0;; ++n) {
-            if (ComputeZeroCoinRegistrationHash(n, challengeHash, pk, fHardeningV2, pBlsPubKey) <= target) {
+            if (ComputeZeroCoinRegistrationHash(n, challengeHash, pk, blsPubKey) <= target) {
                 return n;
             }
         }
@@ -54,7 +56,7 @@ uint32_t SolveZeroCoinPoWForTest(const CPubKey& pk, const uint256& challengeHash
     for (unsigned int w = 0; w < nWorkers; ++w) {
         workers.emplace_back([&, w]() {
             for (uint32_t n = w; !found.load(std::memory_order_relaxed); n += nWorkers) {
-                if (ComputeZeroCoinRegistrationHash(n, challengeHash, pk, true, pBlsPubKey) <= target) {
+                if (ComputeZeroCoinRegistrationHash(n, challengeHash, pk, blsPubKey) <= target) {
                     bestNonce.store(n, std::memory_order_relaxed);
                     found.store(true, std::memory_order_relaxed);
                     break;
@@ -67,12 +69,12 @@ uint32_t SolveZeroCoinPoWForTest(const CPubKey& pk, const uint256& challengeHash
     }
     return bestNonce.load();
 }
-uint32_t SolveMinerPoWForTest(const CPubKey& pk, const uint256& challengeHash, const uint256& target, bool fHardeningV2 = true, const CBLSPubKey* pBlsPubKey = nullptr)
+uint32_t SolveMinerPoWForTest(const CPubKey& pk, const uint256& challengeHash, const uint256& target, const CBLSPubKey& blsPubKey)
 {
     const unsigned int nWorkers = std::max(1U, std::min(16U, std::thread::hardware_concurrency()));
-    if (!fHardeningV2 || nWorkers == 1) {
+    if (nWorkers == 1) {
         for (uint32_t n = 0;; ++n) {
-            if (ComputeMinerPoWRegistrationHash(n, challengeHash, pk, fHardeningV2, pBlsPubKey) <= target) {
+            if (ComputeMinerPoWRegistrationHash(n, challengeHash, pk, blsPubKey) <= target) {
                 return n;
             }
         }
@@ -84,7 +86,7 @@ uint32_t SolveMinerPoWForTest(const CPubKey& pk, const uint256& challengeHash, c
     for (unsigned int w = 0; w < nWorkers; ++w) {
         workers.emplace_back([&, w]() {
             for (uint32_t n = w; !found.load(std::memory_order_relaxed); n += nWorkers) {
-                if (ComputeMinerPoWRegistrationHash(n, challengeHash, pk, true, pBlsPubKey) <= target) {
+                if (ComputeMinerPoWRegistrationHash(n, challengeHash, pk, blsPubKey) <= target) {
                     bestNonce.store(n, std::memory_order_relaxed);
                     found.store(true, std::memory_order_relaxed);
                     break;
@@ -155,53 +157,34 @@ BOOST_FIXTURE_TEST_SUITE(adam_tests, TestingSetup)
 
 BOOST_AUTO_TEST_CASE(adam_pow_limits_test)
 {
-    // Test legacy (pre-V2) GetZeroCoinPoWLimit for Mainnet, Testnet, Regtest
-    uint256 mainZeroLimit = GetZeroCoinPoWLimit("main", false);
-    BOOST_CHECK_EQUAL(mainZeroLimit.GetHex(), uint256S("000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-    uint256 testZeroLimit = GetZeroCoinPoWLimit("test", false);
-    BOOST_CHECK_EQUAL(testZeroLimit.GetHex(), uint256S("00007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-    uint256 regtestZeroLimit = GetZeroCoinPoWLimit("regtest", false);
+    // Test GetZeroCoinPoWLimit (HashX11KVS + Fairness: 15/12/8 zero bits)
+    uint256 mainZeroLimit = GetZeroCoinPoWLimit("main");
+    uint256 testZeroLimit = GetZeroCoinPoWLimit("test");
+    uint256 regtestZeroLimit = GetZeroCoinPoWLimit("regtest");
+    BOOST_CHECK_EQUAL(mainZeroLimit.GetHex(), uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    BOOST_CHECK_EQUAL(testZeroLimit.GetHex(), uint256S("000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
     BOOST_CHECK_EQUAL(regtestZeroLimit.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
-    // Test UPGRADE_HARDENING_V2 (HashX11KVS) GetZeroCoinPoWLimit for Mainnet (14 bits), Testnet (12 bits), Regtest (8 bits)
-    uint256 mainZeroLimitV2 = GetZeroCoinPoWLimit("main", true);
-    uint256 testZeroLimitV2 = GetZeroCoinPoWLimit("test", true);
-    uint256 regtestZeroLimitV2 = GetZeroCoinPoWLimit("regtest", true);
-    BOOST_CHECK_EQUAL(mainZeroLimitV2.GetHex(), uint256S("0003ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-    BOOST_CHECK_EQUAL(testZeroLimitV2.GetHex(), uint256S("000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-    BOOST_CHECK_EQUAL(regtestZeroLimitV2.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-
-    // Test UPGRADE_FAIRNESS GetZeroCoinPoWLimit for Mainnet (15 zero bits, matching Funded PoW-Lock registration work)
-    uint256 mainZeroLimitFairness = GetZeroCoinPoWLimit("main", true, true);
-    BOOST_CHECK_EQUAL(mainZeroLimitFairness.GetHex(), uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-
-    // Test GetMinerPoWLimit for Mainnet, Testnet, Regtest (legacy SHA256d and UPGRADE_HARDENING_V2 HashX11KVS)
-    uint256 mainMinerLimit = GetMinerPoWLimit("main", false);
-    uint256 testMinerLimit = GetMinerPoWLimit("test", false);
-    uint256 regtestMinerLimit = GetMinerPoWLimit("regtest", false);
-    BOOST_CHECK_EQUAL(mainMinerLimit.GetHex(), uint256S("0000000fffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-    BOOST_CHECK_EQUAL(testMinerLimit.GetHex(), uint256S("00000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    // Test GetMinerPoWLimit (HashX11KVS: 15/13/8 zero bits)
+    uint256 mainMinerLimit = GetMinerPoWLimit("main");
+    uint256 testMinerLimit = GetMinerPoWLimit("test");
+    uint256 regtestMinerLimit = GetMinerPoWLimit("regtest");
+    BOOST_CHECK_EQUAL(mainMinerLimit.GetHex(), uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    BOOST_CHECK_EQUAL(testMinerLimit.GetHex(), uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
     BOOST_CHECK_EQUAL(regtestMinerLimit.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
-    uint256 mainMinerLimitV2 = GetMinerPoWLimit("main", true);
-    uint256 testMinerLimitV2 = GetMinerPoWLimit("test", true);
-    uint256 regtestMinerLimitV2 = GetMinerPoWLimit("regtest", true);
-    BOOST_CHECK_EQUAL(mainMinerLimitV2.GetHex(), uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-    BOOST_CHECK_EQUAL(testMinerLimitV2.GetHex(), uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
-    BOOST_CHECK_EQUAL(regtestMinerLimitV2.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    // Mainnet Equal Work -> Equal Pay (15 zero bits); Testnet Zero-Coin is larger target than Funded PoW-Lock
+    BOOST_CHECK(mainZeroLimit == mainMinerLimit);
+    BOOST_CHECK(testZeroLimit > testMinerLimit);
 
-    // Verify GetZeroCoinPoWLimit is a larger target (fewer leading zero bits) than GetMinerPoWLimit on Mainnet & Testnet
-    BOOST_CHECK(mainZeroLimit > mainMinerLimit);
-    BOOST_CHECK(mainZeroLimitV2 > mainMinerLimitV2);
-    BOOST_CHECK(testZeroLimitV2 > testMinerLimitV2);
-
-    // Domain separation: KRPL/POWLKv2 (Funded PoW-Lock) vs KRZC/SYBILV2 (Zero-Coin PoW) must never collide
+    // Domain separation: KRPL/POWLKv4 (Funded PoW-Lock) vs KRZC/SYBILV4 (Zero-Coin PoW) must never collide
     {
         CKey domKey;
         domKey.MakeNewKey(true);
+        const CBLSPubKey domBls = DeriveTestBlsPubKey(domKey);
         const uint256 domChal = uint256S("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
-        BOOST_CHECK(ComputeMinerPoWRegistrationHash(42, domChal, domKey.GetPubKey(), true) !=
-                    ComputeZeroCoinRegistrationHash(42, domChal, domKey.GetPubKey(), true));
+        BOOST_CHECK(ComputeMinerPoWRegistrationHash(42, domChal, domKey.GetPubKey(), domBls) !=
+                    ComputeZeroCoinRegistrationHash(42, domChal, domKey.GetPubKey(), domBls));
     }
 }
 
@@ -456,9 +439,8 @@ BOOST_AUTO_TEST_CASE(adam_vrf_and_coordinator_sig_test)
     uint256 prevSeed = uint256S("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     uint256 wrongSeed = uint256S("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
 
-    const bool fV3 = IsHardeningV3Active(chainActive.Tip() ? (chainActive.Height() + 1) : 0);
     std::vector<unsigned char> vchProof;
-    BOOST_CHECK(SignBLSWithECDSAFallback(prevSeed, coordKey, blsKey, vchProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3)));
+    BOOST_CHECK(SignBLSWithECDSAFallback(prevSeed, coordKey, blsKey, vchProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
     BOOST_CHECK(!vchProof.empty());
 
     // Valid VRF proof
@@ -478,7 +460,7 @@ BOOST_AUTO_TEST_CASE(adam_vrf_and_coordinator_sig_test)
     header.nNonce = 42;
     header.vAdamVRFProof = vchProof;
 
-    BOOST_CHECK(SignBLSWithECDSAFallback(header.GetHash(), coordKey, blsKey, header.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3)));
+    BOOST_CHECK(SignBLSWithECDSAFallback(header.GetHash(), coordKey, blsKey, header.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
     BOOST_CHECK(VerifyAdamCoordinatorSig(header, coordPubKey));
     BOOST_CHECK(!VerifyAdamCoordinatorSig(header, otherPubKey));
 
@@ -518,13 +500,13 @@ BOOST_AUTO_TEST_CASE(adam_verify_solution_v11_and_v12_test)
     ssInput << nNonce;
 
     // 1. Version 11 (Fallback single-algorithm mode)
-    int algoV11 = GetAdamPuzzleAlgo(hashAdamSeed, electedMinerPubKey, true);
+    int algoV11 = GetAdamPuzzleAlgo(hashAdamSeed, electedMinerPubKey);
     uint256 puzzleHashV11 = CalculateAdamPuzzleHash(algoV11,
         reinterpret_cast<const unsigned char*>(&ssInput[0]),
         reinterpret_cast<const unsigned char*>(&ssInput[0]) + ssInput.size());
 
     std::vector<unsigned char> vchSigV11;
-    BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHashV11, electedMinerKey, blsMinerKey, vchSigV11, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(500))));
+    BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHashV11, electedMinerKey, blsMinerKey, vchSigV11, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
 
     CDataStream ssSolV11(SER_NETWORK, PROTOCOL_VERSION);
     ssSolV11 << nNonce << vchSigV11;
@@ -545,7 +527,7 @@ BOOST_AUTO_TEST_CASE(adam_verify_solution_v11_and_v12_test)
     uint256 puzzleHashV12 = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
 
     std::vector<unsigned char> vchSigV12;
-    BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHashV12, electedMinerKey, blsMinerKey, vchSigV12, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(500))));
+    BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHashV12, electedMinerKey, blsMinerKey, vchSigV12, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
 
     CDataStream ssSolV12(SER_NETWORK, PROTOCOL_VERSION);
     ssSolV12 << nNonce << vchSigV12;
@@ -637,14 +619,13 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
     // 2. Cryptographically valid BLS+ECDSA signatures from a non-pool outsider key must be rejected
     const uint256 seedPreModelD = GetAdamSeed(pindexPreModelD);
     BOOST_REQUIRE(!seedPreModelD.IsNull());
-    const bool fV3Pre = IsHardeningV3Active(pindexPreModelD->nHeight + 1);
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, outsiderKey, outsiderBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3Pre)));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), outsiderKey, outsiderBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3Pre)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, outsiderKey, outsiderBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), outsiderKey, outsiderBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
     BOOST_CHECK(!IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
     // 3. Valid registered pool key passes on V11 and pre-Model-D V12; tampering or oversize fails
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, poolCoordKey, poolCoordBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3Pre)));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3Pre)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedPreModelD, poolCoordKey, poolCoordBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
     BOOST_CHECK(!IsFutureBlockPreVerified(hdr, nullptr));
     BOOST_CHECK(IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
@@ -656,7 +637,7 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
     hdr.nVersion = 12;
     hdr.vQuorumSig.clear();
     BOOST_CHECK(!IsModelDActive(pindexPreModelD->nHeight + 1));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3Pre)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), poolCoordKey, poolCoordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
     BOOST_CHECK(IsFutureBlockPreVerified(hdr, pindexPreModelD));
 
     hdr.vQuorumSig.assign(4097, 0x33);
@@ -670,11 +651,10 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
     hdrModelD.nTime = pindexModelD->nTime + 30;
     hdrModelD.nBits = 0x207fffff;
     const int nModelDCandidateHeight = pindexModelD->nHeight + 1;
-    const bool fV3ModelD = IsHardeningV3Active(nModelDCandidateHeight);
     BOOST_REQUIRE(IsModelDActive(nModelDCandidateHeight));
 
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedModelDParent, poolCoordKey, poolCoordBls, hdrModelD.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3ModelD)));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdrModelD.GetHash(), poolCoordKey, poolCoordBls, hdrModelD.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3ModelD)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(seedModelDParent, poolCoordKey, poolCoordBls, hdrModelD.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdrModelD.GetHash(), poolCoordKey, poolCoordBls, hdrModelD.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
 
     // Empty or dummy vQuorumSig must fail when Model D is active
     BOOST_CHECK(!IsFutureBlockPreVerified(hdrModelD, pindexModelD));
@@ -682,7 +662,7 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
     BOOST_CHECK(!IsFutureBlockPreVerified(hdrModelD, pindexModelD));
 
     const llmq::CQuorum quorum = llmq::GetActiveQuorum(nModelDCandidateHeight, pindexModelD);
-    const size_t nQuorumThreshold = llmq::GetQuorumThreshold(quorum.members.size(), nModelDCandidateHeight);
+    const size_t nQuorumThreshold = llmq::GetQuorumThreshold(quorum.members.size());
     BOOST_REQUIRE_GE(quorum.members.size(), nQuorumThreshold);
 
     llmq::CQuorumSignature qsig;
@@ -692,7 +672,7 @@ BOOST_AUTO_TEST_CASE(adam_future_block_preverification_k1_test)
         BOOST_REQUIRE(memberKey.IsValid());
         CBLSSecretKey memberBls = DeriveBLSFromCKey(memberKey);
         std::vector<unsigned char> memberSig;
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(qsig.blockHash, memberKey, memberBls, memberSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, fV3ModelD)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(qsig.blockHash, memberKey, memberBls, memberSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK)));
         qsig.signatures.emplace_back(quorum.members[i].collateralOutpoint, std::move(memberSig));
     }
     BOOST_REQUIRE(qsig.Verify(quorum));
@@ -775,7 +755,7 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
         uint256 m2 = ArithToUint256(UintToArith256(h2) * factor);
         uint256 pHash = CalculateAdamPuzzleHash(a1, m2.begin(), m2.begin() + 32);
         std::vector<unsigned char> sig;
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, bls, sig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nHeight))));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, bls, sig, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
         CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
         ssSol << nonce << sig;
         return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -805,15 +785,14 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
     baseBlock.hashMerkleRoot = BlockMerkleRoot(baseBlock);
 
     // 1) At t = +30s (< 45s), primary coordinator MUST succeed, whereas committee member front-running MUST fail!
-    const bool fV3K2 = IsHardeningV3Active(nHeight);
     {
         CBlock blkPrimary = baseBlock;
         blkPrimary.nTime = pindexParent->nTime + 30;
         CKey coordKey = findDetKey(expectedCoordinator);
         BOOST_REQUIRE(coordKey.IsValid());
         CBLSSecretKey coordBls = DeriveBLSFromCKey(coordKey);
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, blkPrimary.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3K2)));
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkPrimary.GetHash(), coordKey, coordBls, blkPrimary.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K2)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, blkPrimary.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkPrimary.GetHash(), coordKey, coordBls, blkPrimary.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
         CValidationState st;
         BOOST_CHECK(CheckBlock(blkPrimary, st, false, true, true));
     }
@@ -824,8 +803,8 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
         CKey rogueKey = findDetKey(rogueSigner);
         BOOST_REQUIRE(rogueKey.IsValid());
         CBLSSecretKey rogueBls = DeriveBLSFromCKey(rogueKey);
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, rogueKey, rogueBls, blkFrontRun.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3K2)));
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFrontRun.GetHash(), rogueKey, rogueBls, blkFrontRun.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K2)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, rogueKey, rogueBls, blkFrontRun.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFrontRun.GetHash(), rogueKey, rogueBls, blkFrontRun.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
         CValidationState st;
         BOOST_CHECK(!CheckBlock(blkFrontRun, st, false, true, true));
     }
@@ -840,8 +819,8 @@ BOOST_AUTO_TEST_CASE(adam_v12_pre_modeld_early_rotation_rejected_k2_test)
         CKey fbKey = findDetKey(activeFallback);
         BOOST_REQUIRE(fbKey.IsValid());
         CBLSSecretKey fbBls = DeriveBLSFromCKey(fbKey);
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, fbKey, fbBls, blkFallback.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3K2)));
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFallback.GetHash(), fbKey, fbBls, blkFallback.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K2)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, fbKey, fbBls, blkFallback.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blkFallback.GetHash(), fbKey, fbBls, blkFallback.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
         CValidationState st;
         BOOST_CHECK(CheckBlock(blkFallback, st, false, true, true));
     }
@@ -859,8 +838,8 @@ BOOST_AUTO_TEST_CASE(adam_zerocoin_mempool_check_no_abort_k3_test)
     CPubKey pubkey = key.GetPubKey();
     CBLSPubKey blsPk = DeriveTestBlsPubKey(key);
     uint256 challengeHash = uint256S("1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef");
-    uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), true);
-    uint32_t nonce = SolveZeroCoinPoWForTest(pubkey, challengeHash, zeroCoinTarget, true, &blsPk);
+    uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
+    uint32_t nonce = SolveZeroCoinPoWForTest(pubkey, challengeHash, zeroCoinTarget, blsPk);
     CScript regScript = BuildTestPoWLockScript(key, challengeHash, nonce, 3500);
 
     CMutableTransaction mtx;
@@ -957,10 +936,9 @@ BOOST_AUTO_TEST_CASE(adam_cooperative_pos_cosigning_roundtrip_k4_test)
     // 3. Coordinator signs VRF proof first, then header signature; Staker attaches and signs final vchBlockSig
     const uint256 adamSeed = uint256S("9999999999999999999999999999999999999999999999999999999999999999");
     CBLSSecretKey coordBls = DeriveBLSFromCKey(coordKey);
-    const bool fV3K4 = IsHardeningV3Active(chainActive.Tip() ? (chainActive.Height() + 1) : 0);
     CBlock coordSigned = draft;
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, coordSigned.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3K4)));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(coordSigned.GetHash(), coordKey, coordBls, coordSigned.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K4)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, coordSigned.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(coordSigned.GetHash(), coordKey, coordBls, coordSigned.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
 
     // Request hash must remain identical even after VRF/Coordinator signatures are attached
     BOOST_CHECK_EQUAL(reqHash.GetHex(), ComputePoSCoordRequestHash(coordSigned, coordPubKey).GetHex());
@@ -1002,7 +980,7 @@ BOOST_AUTO_TEST_CASE(adam_cooperative_pos_cosigning_roundtrip_k4_test)
     // Forged coordinator signature signed over a different hash (even with same BLS pubkey!) must fail header verification
     std::vector<unsigned char> forgedCoordSig;
     BOOST_REQUIRE(SignBLSWithECDSAFallback(uint256S("abababababababababababababababababababababababababababababababab"),
-                                           coordKey, coordBls, forgedCoordSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3K4)));
+                                           coordKey, coordBls, forgedCoordSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
     reconstructed.vAdamCoordinatorSig = forgedCoordSig;
     BOOST_CHECK(!VerifyAdamCoordinatorSig(reconstructed, trackedReq.targetCoordinator));
 
@@ -1061,20 +1039,20 @@ BOOST_AUTO_TEST_CASE(rev44_hardening_llmq_regcache_zerocoin_and_ping_test)
                 COutPoint out(uint256S("0101010101010101010101010101010101010101010101010101010101010101"), (uint32_t)i);
                 quorum.members.emplace_back(out, mnKeys[i].GetPubKey());
             }
-            const int threshold = (int)llmq::GetQuorumThreshold(qSize, quorum.nHeight);
+            const int threshold = (int)llmq::GetQuorumThreshold(qSize);
             llmq::CQuorumSignature qsig;
             qsig.blockHash = blockHash;
             for (int i = 0; i < threshold - 1; ++i) {
                 CBLSSecretKey blsSk = DeriveBLSFromCKey(mnKeys[i]);
                 std::vector<unsigned char> vchSig;
-                BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[i], blsSk, vchSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(quorum.nHeight))));
+                BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[i], blsSk, vchSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK)));
                 qsig.signatures.emplace_back(quorum.members[i].collateralOutpoint, vchSig);
             }
             BOOST_CHECK(!qsig.Verify(quorum)); // threshold - 1 must fail
 
             CBLSSecretKey blsThresh = DeriveBLSFromCKey(mnKeys[threshold - 1]);
             std::vector<unsigned char> vchThreshSig;
-            BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[threshold - 1], blsThresh, vchThreshSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(quorum.nHeight))));
+            BOOST_REQUIRE(SignBLSWithECDSAFallback(blockHash, mnKeys[threshold - 1], blsThresh, vchThreshSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK)));
             qsig.signatures.emplace_back(quorum.members[threshold - 1].collateralOutpoint, vchThreshSig);
             BOOST_CHECK(qsig.Verify(quorum)); // exact V4 threshold (4/5, 7/9, 8/11, 11/15) must pass!
         }
@@ -1153,11 +1131,11 @@ BOOST_AUTO_TEST_CASE(rev44_hardening_llmq_regcache_zerocoin_and_ping_test)
         badUnixLockKey.MakeNewKey(true);
 
         static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
-        const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), true);
+        const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
 
         auto makePoWRegScript = [&](const CKey& k, const uint256& chHash, int64_t lockHeight) -> CScript {
             const CBLSPubKey blsPk = DeriveTestBlsPubKey(k);
-            uint32_t nNonce = SolveZeroCoinPoWForTest(k.GetPubKey(), chHash, zeroCoinTarget, true, &blsPk);
+            uint32_t nNonce = SolveZeroCoinPoWForTest(k.GetPubKey(), chHash, zeroCoinTarget, blsPk);
             return BuildTestPoWLockScript(k, chHash, nNonce, lockHeight);
         };
 
@@ -1374,14 +1352,14 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
         }
         coinsView.SetBestBlock(tipHash);
         const uint256 chHash = uint256S("0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20");
-        const uint256 targetV2 = GetZeroCoinPoWLimit(Params().NetworkIDString(), true);
+        const uint256 targetV2 = GetZeroCoinPoWLimit(Params().NetworkIDString());
 
         // (a) Valid compressed key + HashX11KVS nonce (bound to V4 BLS) passes CheckInputs at nSpendHeight = 10
         CKey validKey;
         validKey.MakeNewKey(true);
         const CPubKey validPk = validKey.GetPubKey();
         const CBLSPubKey validBlsPk = DeriveTestBlsPubKey(validKey);
-        const uint32_t validNonce = SolveZeroCoinPoWForTest(validPk, chHash, targetV2, true, &validBlsPk);
+        const uint32_t validNonce = SolveZeroCoinPoWForTest(validPk, chHash, targetV2, validBlsPk);
         CMutableTransaction validMtx;
         validMtx.vin.push_back(CTxIn(zeroCoinSentinel));
         validMtx.vout.push_back(CTxOut(0, makeRegScriptWithNonce(validKey, chHash, validNonce, 300)));
@@ -1393,11 +1371,13 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
             BOOST_CHECK(CheckInputs(validTx, stValid, coinsView, false, 0, false, precomValid));
         }
 
-        // (b) Legacy SHA256d nonce (where V4 HashX11KVS > targetV2) MUST be rejected at nSpendHeight = 10
+        // (b) Legacy SHA256d-only nonce (where V4 HashX11KVS > targetV2) MUST be rejected
         uint32_t shaOnlyNonce = 0;
         for (;; ++shaOnlyNonce) {
-            if (ComputeZeroCoinRegistrationHash(shaOnlyNonce, chHash, validPk, false) <= targetV2 &&
-                ComputeZeroCoinRegistrationHash(shaOnlyNonce, chHash, validPk, true, &validBlsPk) > targetV2) {
+            CHashWriter ssLeg(SER_GETHASH, 0);
+            ssLeg << shaOnlyNonce << chHash << validPk;
+            if (ssLeg.GetHash() <= targetV2 &&
+                ComputeZeroCoinRegistrationHash(shaOnlyNonce, chHash, validPk, validBlsPk) > targetV2) {
                 break;
             }
         }
@@ -1459,7 +1439,7 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
         BOOST_REQUIRE(pBaseTip != nullptr);
         const int baseH = pBaseTip->nHeight;
 
-        const uint256 targetTestV2 = GetZeroCoinPoWLimit(Params().NetworkIDString(), true);
+        const uint256 targetTestV2 = GetZeroCoinPoWLimit(Params().NetworkIDString());
         std::vector<uint256> vHashes;
         std::vector<CBlockIndex*> vIndices;
         CBlockIndex* pPrev = pBaseTip;
@@ -1528,13 +1508,13 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
         txFresh10.vin.push_back(CTxIn(zeroCoinSentinel));
         txFresh10.vout.push_back(CTxOut(0, makeRegScriptWithNonce(
             freshKey10, hashAge10,
-            SolveZeroCoinPoWForTest(freshKey10.GetPubKey(), hashAge10, targetTestV2, true, &freshBls10),
+            SolveZeroCoinPoWForTest(freshKey10.GetPubKey(), hashAge10, targetTestV2, freshBls10),
             hRegChallengeTest + 2900))); // intentionally huge lockTime to also verify 240-block effective TTL cap!
 
         txStale11.vin.push_back(CTxIn(zeroCoinSentinel));
         txStale11.vout.push_back(CTxOut(0, makeRegScriptWithNonce(
             staleKey11, hashAge11,
-            SolveZeroCoinPoWForTest(staleKey11.GetPubKey(), hashAge11, targetTestV2, true, &staleBls11),
+            SolveZeroCoinPoWForTest(staleKey11.GetPubKey(), hashAge11, targetTestV2, staleBls11),
             hRegChallengeTest + 2900)));
 
         appendTestBlock({CTransaction(txFresh10), CTransaction(txStale11)});
@@ -1544,20 +1524,53 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
             BOOST_CHECK(std::find(poolAt13.begin(), poolAt13.end(), staleKey11.GetPubKey()) == poolAt13.end());
         }
 
-        // (2b) Verify 240-block effective TTL cap: advance to hRegChallengeTest + 239 (active) vs hRegChallengeTest + 240 (expired)
-        //      Note: On Testnet, UPGRADE_MODELD is at 2200, so below 2200 GetZeroCoinRegPeriod(h) == 240!
-        while (pPrev->nHeight < hRegChallengeTest + 239) {
+        // (2b) Verify Testnet TTL transitions cleanly at UPGRADE_MODELD (200): 240 blocks Pre-Model D -> 50 blocks Model D (while Mainnet stays 240).
+        while (pPrev->nHeight < 198) {
+            appendTestBlock({});
+        }
+        BOOST_CHECK_EQUAL(GetZeroCoinRegPeriod(198), ADAM_ZEROCOIN_POW_REG_PERIOD_V2);
+        {
+            std::vector<CPubKey> poolPreModelD = GetAdamMinerPool(198, &testCoins);
+            BOOST_CHECK(std::find(poolPreModelD.begin(), poolPreModelD.end(), freshKey10.GetPubKey()) != poolPreModelD.end());
+        }
+        while (pPrev->nHeight < 200) {
+            appendTestBlock({});
+        }
+        BOOST_REQUIRE_EQUAL(pPrev->nHeight, 200);
+        BOOST_CHECK_EQUAL(GetZeroCoinRegPeriod(200), 50);
+        {
+            std::vector<CPubKey> poolAtModelD = GetAdamMinerPool(200, &testCoins);
+            BOOST_CHECK(std::find(poolAtModelD.begin(), poolAtModelD.end(), freshKey10.GetPubKey()) == poolAtModelD.end());
+
+            ScopedChainParams mainTtlCheck(CBaseChainParams::MAIN);
+            BOOST_CHECK_EQUAL(GetZeroCoinRegPeriod(200), ADAM_ZEROCOIN_POW_REG_PERIOD_V2);
+        }
+
+        // Verify exact 50-block effective TTL cap under active Model D on Testnet
+        CKey freshModelDKey;
+        freshModelDKey.MakeNewKey(true);
+        const int hModelDReg = pPrev->nHeight + 1; // 201
+        const uint256 chModelDReg = pPrev->GetBlockHash();
+        const CBLSPubKey freshModelDBls = DeriveTestBlsPubKey(freshModelDKey);
+        CMutableTransaction txModelDReg;
+        txModelDReg.vin.push_back(CTxIn(zeroCoinSentinel));
+        txModelDReg.vout.push_back(CTxOut(0, makeRegScriptWithNonce(
+            freshModelDKey, chModelDReg,
+            SolveZeroCoinPoWForTest(freshModelDKey.GetPubKey(), chModelDReg, targetTestV2, freshModelDBls),
+            hModelDReg + 2900)));
+        appendTestBlock({CTransaction(txModelDReg)});
+        while (pPrev->nHeight < hModelDReg + 49) {
             appendTestBlock({});
         }
         {
-            std::vector<CPubKey> poolAt239 = GetAdamMinerPool(hRegChallengeTest + 239, &testCoins);
-            BOOST_CHECK(std::find(poolAt239.begin(), poolAt239.end(), freshKey10.GetPubKey()) != poolAt239.end());
+            std::vector<CPubKey> poolAt49 = GetAdamMinerPool(hModelDReg + 49, &testCoins);
+            BOOST_CHECK(std::find(poolAt49.begin(), poolAt49.end(), freshModelDKey.GetPubKey()) != poolAt49.end());
         }
         appendTestBlock({});
-        BOOST_REQUIRE_EQUAL(pPrev->nHeight, hRegChallengeTest + 240);
+        BOOST_REQUIRE_EQUAL(pPrev->nHeight, hModelDReg + 50);
         {
-            std::vector<CPubKey> poolAt240 = GetAdamMinerPool(hRegChallengeTest + 240, &testCoins);
-            BOOST_CHECK(std::find(poolAt240.begin(), poolAt240.end(), freshKey10.GetPubKey()) == poolAt240.end());
+            std::vector<CPubKey> poolAt50 = GetAdamMinerPool(hModelDReg + 50, &testCoins);
+            BOOST_CHECK(std::find(poolAt50.begin(), poolAt50.end(), freshModelDKey.GetPubKey()) == poolAt50.end());
         }
 
         // (2c) Submit 20 distinct Zero-Coin Sybil keys across 20 consecutive blocks -> under UPGRADE_FAIRNESS,
@@ -1575,7 +1588,7 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
             ztx.vin.push_back(CTxIn(zeroCoinSentinel));
             ztx.vout.push_back(CTxOut(0, makeRegScriptWithNonce(
                 sybilKeys[i], ch,
-                SolveZeroCoinPoWForTest(sybilKeys[i].GetPubKey(), ch, targetTestV2, true, &sybilBls),
+                SolveZeroCoinPoWForTest(sybilKeys[i].GetPubKey(), ch, targetTestV2, sybilBls),
                 hNext + 260)));
             appendTestBlock({CTransaction(ztx)});
         }
@@ -1603,7 +1616,7 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
         std::vector<CKey> fundedPoWKeysVec(6);
         std::set<CPubKey> fundedPoWSet;
         std::vector<CTransaction> fundedPoWTxs;
-        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString(), true);
+        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString());
         for (int idx = 0; idx < 6; ++idx) {
             const int hFunded = pPrev->nHeight + 1;
             const uint256 chFunded = pPrev->GetBlockHash();
@@ -1611,7 +1624,7 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
             const CPubKey pk = fundedPoWKeysVec[idx].GetPubKey();
             fundedPoWSet.insert(pk);
             const CBLSPubKey blsFunded = DeriveTestBlsPubKey(fundedPoWKeysVec[idx]);
-            const uint32_t nonceFunded = SolveMinerPoWForTest(pk, chFunded, targetMinerTest, true, &blsFunded);
+            const uint32_t nonceFunded = SolveMinerPoWForTest(pk, chFunded, targetMinerTest, blsFunded);
             CMutableTransaction ftx;
             ftx.vin.push_back(CTxIn(COutPoint(uint256S("5500000000000000000000000000000000000000000000000000000000000000"), (uint32_t)idx)));
             ftx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makeRegScriptWithNonce(fundedPoWKeysVec[idx], chFunded, nonceFunded, hFunded + 2900)));
@@ -1641,7 +1654,7 @@ BOOST_AUTO_TEST_CASE(rev45_hardening_v2_zerocoin_sybil_defense_test)
                 std::vector<CPubKey> vElected, vStandby;
                 CPubKey coord;
                 BOOST_REQUIRE(SelectAdamNodes(seed, Params().GetConsensus(), vElected, coord, pPrev->nHeight + 1, nullptr, &vStandby));
-                BOOST_CHECK_EQUAL(vElected.size(), 11U);
+                BOOST_CHECK_EQUAL(vElected.size(), (size_t)Params().GetConsensus().GetAdamMinersCount(pPrev->nHeight + 1));
                 if (fundedPoWSet.count(coord)) {
                     nFundedCoordinators++;
                 }
@@ -1925,12 +1938,12 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             appendTestBlock({ctx});
         }
 
-        // Verify legacy SHA256D nonce on a 10 KRISTA PoW-Lock output is strictly ignored under UPGRADE_HARDENING_V2
+        // Verify legacy SHA256D nonce on a 10 KRISTA PoW-Lock output is strictly ignored
         CPubKey legacyShaKey;
         {
             const int hLegacy = pPrev->nHeight + 1;
             const uint256 chLegacy = pPrev->GetBlockHash();
-            const uint256 legacyShaTarget = GetMinerPoWLimit(Params().NetworkIDString(), false);
+            const uint256 legacyShaTarget = GetMinerPoWLimit(Params().NetworkIDString());
             CKey kLeg;
             kLeg.MakeNewKey(true);
             legacyShaKey = kLeg.GetPubKey();
@@ -1940,7 +1953,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
                 CHashWriter ss(SER_GETHASH, 0);
                 ss << nonceSha << chLegacy << legacyShaKey;
                 if (ss.GetHash() <= legacyShaTarget &&
-                    ComputeMinerPoWRegistrationHash(nonceSha, chLegacy, legacyShaKey, true, &blsLeg) > GetMinerPoWLimit(Params().NetworkIDString(), true)) {
+                    ComputeMinerPoWRegistrationHash(nonceSha, chLegacy, legacyShaKey, blsLeg) > legacyShaTarget) {
                     break;
                 }
             }
@@ -1955,7 +1968,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             appendTestBlock({ctxLeg});
         }
 
-        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString(), true);
+        const uint256 targetMinerTest = GetMinerPoWLimit(Params().NetworkIDString());
         for (int j = 0; j < 6; ++j) {
             const int hFp = pPrev->nHeight + 1;
             const uint256 chFp = pPrev->GetBlockHash();
@@ -1964,7 +1977,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             const CPubKey pk = k.GetPubKey();
             fpKeysSet.insert(pk);
             const CBLSPubKey blsFp = DeriveTestBlsPubKey(k);
-            const uint32_t nonceFp = SolveMinerPoWForTest(pk, chFp, targetMinerTest, true, &blsFp);
+            const uint32_t nonceFp = SolveMinerPoWForTest(pk, chFp, targetMinerTest, blsFp);
             CMutableTransaction mtx;
             mtx.vin.push_back(CTxIn(COutPoint(uint256S("7300000000000000000000000000000000000000000000000000000000000000"), (uint32_t)j)));
             mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(k, chFp, nonceFp, hFp + 2900)));
@@ -2007,9 +2020,9 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         BOOST_CHECK_LT(nClCoord, 310);
         BOOST_CHECK_LT(nFpCoord, 20);
 
-        // (2b) Single-MN Anti-Domination Floor under UPGRADE_FAIRNESS (ADAM_FAIR_COORD_V4, active from Block 1):
+        // (2b) Single-MN Anti-Domination Floor under UPGRADE_FAIRNESS (ADAM_FAIR_COORD_V4, Pre-Model D at 75.0% MN floor):
         //      1 Active MN (4,200 weight) vs 16 Coin-Locks (4,000 weight) + 6 Funded PoW-Locks (60 weight) = 4,060 non-MN weight.
-        //      3 * 4,060 = 12,180 > 4,200 -> exact 75.0% Active MN floor (~1500 / 2000; std ~19.36).
+        //      Using preModelDParams (UPGRADE_MODELD=500 at h=229) verifies 3 * 4,060 = 12,180 > 4,200 -> exact 75.0% MN floor (~1500 / 2000).
         for (int i = 1; i < 7; ++i) {
             mapMasternodeLastActiveHeight.erase(vMnPubKeys[i]);
             mapMasternodeActiveHeights.erase(vMnPubKeys[i]);
@@ -2017,13 +2030,16 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         }
         BumpMasternodePingStateGen();
 
+        Consensus::Params preModelDParams = Params().GetConsensus();
+        preModelDParams.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight = 500;
+
         int nSingleMnCoord = 0, nSplitPoolCoord = 0;
         for (int round = 0; round < 2000; ++round) {
             CHashWriter ssSeed(SER_GETHASH, 0);
             ssSeed << uint256S("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") << round;
             std::vector<CPubKey> vElected;
             CPubKey coord;
-            BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, pPrev->nHeight + 1, &testCoins));
+            BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), preModelDParams, vElected, coord, pPrev->nHeight + 1, &testCoins));
             if (coord == vMnPubKeys[0]) nSingleMnCoord++;
             else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoord++;
         }
@@ -2031,24 +2047,18 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
         BOOST_CHECK_GT(nSingleMnCoord, 1410);
         BOOST_CHECK_LT(nSingleMnCoord, 1590);
 
-        // (2b-V2) Verify V2 parameter table (65 : 8 : 2 from Block 1 on Testnet) while UPGRADE_FAIRNESS supersedes
-        //         live SelectAdamNodes election at Block 1 with the exact 75.0% MN floor (~1500 / 2000).
+        // (2b-V2) Verify live SelectAdamNodes election from nAdamCoordWeightV2Height (Block 1) enforces exact 75.0% MN floor pre-Model D (~1500 / 2000).
         {
-            uint64_t wMn = 0, wCl = 0, wFp = 0;
             BOOST_CHECK_EQUAL(Params().GetConsensus().nAdamCoordWeightV2Height, 1);
-            Params().GetConsensus().GetAdamCoordinatorWeights(Params().GetConsensus().nAdamCoordWeightV2Height, wMn, wCl, wFp);
-            BOOST_CHECK_EQUAL(wMn, 65ULL);
-            BOOST_CHECK_EQUAL(wCl, 8ULL);
-            BOOST_CHECK_EQUAL(wFp, 2ULL);
 
             int nSingleMnCoordV2 = 0, nSplitPoolCoordV2 = 0;
-            const int hV2 = std::max(pPrev->nHeight + 1, Params().GetConsensus().nAdamCoordWeightV2Height);
+            const int hV2 = std::max(pPrev->nHeight + 1, preModelDParams.nAdamCoordWeightV2Height);
             for (int round = 0; round < 2000; ++round) {
                 CHashWriter ssSeed(SER_GETHASH, 0);
                 ssSeed << uint256S("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee") << round;
                 std::vector<CPubKey> vElected;
                 CPubKey coord;
-                BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, hV2, &testCoins));
+                BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), preModelDParams, vElected, coord, hV2, &testCoins));
                 if (coord == vMnPubKeys[0]) nSingleMnCoordV2++;
                 else if (clKeysSet.count(coord) || fpKeysSet.count(coord)) nSplitPoolCoordV2++;
             }
@@ -2056,10 +2066,10 @@ BOOST_AUTO_TEST_CASE(adam_fairness_overflow_and_weighted_coordinator_test)
             BOOST_CHECK_GT(nSingleMnCoordV2, 1410);
             BOOST_CHECK_LT(nSingleMnCoordV2, 1590);
 
-            // (2b-ModelD) Verify Balanced Model D (height 600 on Testnet >= UPGRADE_MODELD = 500) shifts the active MN
+            // (2b-ModelD) Verify Balanced Model D (active at UPGRADE_MODELD = 200 on Testnet) shifts the active MN
             //             Coordinator VRF floor cleanly from 75% to 55.0% (~1100 / 2000) under ADAM_FAIR_COORD_V5.
             int nSingleMnCoordModelD = 0, nSplitPoolCoordModelD = 0;
-            const int hModelDCord = std::max(600, Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight);
+            const int hModelDCord = std::max(pPrev->nHeight + 1, Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight);
             for (int round = 0; round < 2000; ++round) {
                 CHashWriter ssSeed(SER_GETHASH, 0);
                 ssSeed << uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff") << round;
@@ -2205,7 +2215,7 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
         pcoinsTip->SetBestBlock(pPrev->GetBlockHash());
 
         const uint256 chHash = pPrev->GetBlockHash();
-        const uint256 minerTarget = GetMinerPoWLimit(Params().NetworkIDString(), true);
+        const uint256 minerTarget = GetMinerPoWLimit(Params().NetworkIDString());
 
         // Add 2 mature (>= 100 confirmations) + 1 immature (< 100 confirmations) funded 10 KRISTA PoW-Lock txs
         for (int i = 0; i < 3; ++i) {
@@ -2221,7 +2231,7 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
             vAddedCoins.push_back(prevOut);
 
             const CBLSPubKey regBlsPk = DeriveTestBlsPubKey(regKey);
-            const uint32_t nonce = SolveMinerPoWForTest(regKey.GetPubKey(), chHash, minerTarget, true, &regBlsPk);
+            const uint32_t nonce = SolveMinerPoWForTest(regKey.GetPubKey(), chHash, minerTarget, regBlsPk);
             CMutableTransaction mtx;
             mtx.vin.push_back(CTxIn(prevOut));
             mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(regKey, chHash, nonce, pPrev->nHeight + 200)));
@@ -2337,13 +2347,13 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
         pcoinsTip->SetBestBlock(pPrev->GetBlockHash());
 
         const uint256 chHash = pPrev->GetBlockHash();
-        const uint256 zcTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), true);
-        const uint256 minerTarget = GetMinerPoWLimit(Params().NetworkIDString(), true);
+        const uint256 zcTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
+        const uint256 minerTarget = GetMinerPoWLimit(Params().NetworkIDString());
 
         CKey zcKey;
         zcKey.MakeNewKey(true);
         const CBLSPubKey zcBlsPk = DeriveTestBlsPubKey(zcKey);
-        const uint32_t zcNonce = SolveZeroCoinPoWForTest(zcKey.GetPubKey(), chHash, zcTarget, true, &zcBlsPk);
+        const uint32_t zcNonce = SolveZeroCoinPoWForTest(zcKey.GetPubKey(), chHash, zcTarget, zcBlsPk);
         CMutableTransaction zcMtx;
         zcMtx.vin.push_back(CTxIn(COutPoint(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0), CScript() << OP_0));
         zcMtx.vout.push_back(CTxOut(0, makePoWLockScript(zcKey, chHash, zcNonce, pPrev->nHeight + 50)));
@@ -2362,7 +2372,7 @@ BOOST_AUTO_TEST_CASE(adam_create_new_block_pow_lock_cap_and_depth_test)
             vAddedCoins.push_back(prevOut);
 
             const CBLSPubKey regBlsPk = DeriveTestBlsPubKey(regKey);
-            const uint32_t nonce = SolveMinerPoWForTest(regKey.GetPubKey(), chHash, minerTarget, true, &regBlsPk);
+            const uint32_t nonce = SolveMinerPoWForTest(regKey.GetPubKey(), chHash, minerTarget, regBlsPk);
             CMutableTransaction mtx;
             mtx.vin.push_back(CTxIn(prevOut));
             mtx.vout.push_back(CTxOut(POW_LOCK_REGISTRATION_AMOUNT, makePoWLockScript(regKey, chHash, nonce, pPrev->nHeight + 200)));
@@ -2466,7 +2476,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_17algo_and_compressed_pubkey_test)
     for (int i = 0; i < 500; ++i) {
         CHashWriter ss(SER_GETHASH, 0);
         ss << uint256S("fedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321") << i;
-        int algoV11 = GetAdamPuzzleAlgo(ss.GetHash(), samplePk, true);
+        int algoV11 = GetAdamPuzzleAlgo(ss.GetHash(), samplePk);
         BOOST_CHECK_NE(algoV11, 11);
         BOOST_CHECK(algoV11 >= 0 && algoV11 <= 17);
     }
@@ -2498,7 +2508,7 @@ BOOST_AUTO_TEST_CASE(adam_fairness_17algo_and_compressed_pubkey_test)
         uint256 pHash = CalculateAdamPuzzleHash(a1, h2.begin(), h2.begin() + 32);
 
         std::vector<unsigned char> vchSig;
-        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(500))));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(pHash, k, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
         CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
         ssSol << nNonce << vchSig;
         return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -2554,9 +2564,8 @@ BOOST_AUTO_TEST_CASE(model_d_pre_quorum_header_check_test)
         hdr.vAdamSolutions.emplace_back(64, static_cast<unsigned char>(i + 1));
     }
 
-    const bool fV3Hdr = IsHardeningV3Active(prevIdx.nHeight + 1);
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(prevHash, coordKey, coordBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fV3Hdr)));
-    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), coordKey, coordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fV3Hdr)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(prevHash, coordKey, coordBls, hdr.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+    BOOST_REQUIRE(SignBLSWithECDSAFallback(hdr.GetHash(), coordKey, coordBls, hdr.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
 
     // 1. Empty vQuorumSig must fail with missing-quorum-sig when fCheckQuorumSig=true
     CValidationState st1;
@@ -2615,7 +2624,6 @@ BOOST_AUTO_TEST_CASE(adam_phase2_coord_llmq_cache_regression_test)
         std::vector<COutPoint>& coins;
         std::vector<CPubKey>& legacyMns;
         ~Cleanup() {
-            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
             for (const CPubKey& pk : legacyMns) {
                 mapMasternodeLastActiveHeight.erase(pk);
                 mapMasternodeActiveHeights.erase(pk);
@@ -2663,7 +2671,7 @@ BOOST_AUTO_TEST_CASE(adam_phase2_coord_llmq_cache_regression_test)
             BOOST_REQUIRE(otherKey.IsValid());
             CBLSSecretKey otherBls = DeriveBLSFromCKey(otherKey);
             std::vector<unsigned char> vchTicketSig;
-            BOOST_REQUIRE(SignBLSWithECDSAFallback(fbSeed, otherKey, otherBls, vchTicketSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, false)));
+            BOOST_REQUIRE(SignBLSWithECDSAFallback(fbSeed, otherKey, otherBls, vchTicketSig, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
             CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
             ssSol << (uint32_t)1 << vchTicketSig;
             mapOnlyOther[otherMiner] = std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -2676,15 +2684,6 @@ BOOST_AUTO_TEST_CASE(adam_phase2_coord_llmq_cache_regression_test)
         BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(fbSeed, 500, 45, vMiners, mapEmpty, fb2, prevFb2, rot2));
         BOOST_CHECK(fb1 == fb2);
         BOOST_CHECK(fb1 == topRanked);
-
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-        CPubKey fbPre1, prevPre1, fbPre2, prevPre2;
-        int rotPre1 = -1, rotPre2 = -1;
-        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(fbSeed, 500, 45, vMiners, mapOnlyOther, fbPre1, prevPre1, rotPre1));
-        BOOST_REQUIRE(GetAdamFallbackCoordinatorForSlot(fbSeed, 500, 45, vMiners, mapEmpty, fbPre2, prevPre2, rotPre2));
-        BOOST_CHECK(fbPre1 == otherMiner);
-        BOOST_CHECK(fbPre1 != fbPre2);
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
     }
 
     // 2. C-2 & M-2: Testnet DIP3 + V3 pre-seed snapshot (seedHeight - 1), proTxHash sort, legacy ping cutoff, and SelectAdamNodes fOpenEntry cache isolation
@@ -2808,16 +2807,17 @@ BOOST_AUTO_TEST_CASE(adam_phase2_coord_llmq_cache_regression_test)
     BOOST_CHECK_EQUAL(mnPoolPks.count(legacyOnlyKey.GetPubKey()), 0U);
     BOOST_CHECK_EQUAL(std::count(fullPool.begin(), fullPool.end(), legacyOnlyKey.GetPubKey()), 0);
 
-    // M-2: Verify SelectAdamNodes cache key isolates across fOpenEntry boundary (nAdamOpenEntryHeight = 2500 on Mainnet)
+    // M-2: Mainnet enables nAdamOpenEntryHeight = 1 from genesis; also verify SelectAdamNodes cache key isolates across an explicit fOpenEntry boundary
     {
         const uint256 sameSeed = GetAdamSeed(pPrev);
         SelectParams(CBaseChainParams::MAIN);
+        BOOST_REQUIRE_EQUAL(Params().GetConsensus().nAdamOpenEntryHeight, 1);
+        Consensus::Params openEntryParams = Params().GetConsensus();
+        openEntryParams.nAdamOpenEntryHeight = 2500;
         std::vector<CPubKey> vPreOpen, vPostOpen;
         CPubKey cPreOpen, cPostOpen;
-        const int openH = Params().GetConsensus().nAdamOpenEntryHeight;
-        BOOST_REQUIRE_GT(openH, 1);
-        BOOST_CHECK(SelectAdamNodes(sameSeed, Params().GetConsensus(), vPreOpen, cPreOpen, openH - 1, pcoinsTip));
-        BOOST_CHECK(SelectAdamNodes(sameSeed, Params().GetConsensus(), vPostOpen, cPostOpen, openH, pcoinsTip));
+        BOOST_CHECK(SelectAdamNodes(sameSeed, openEntryParams, vPreOpen, cPreOpen, openEntryParams.nAdamOpenEntryHeight - 1, pcoinsTip));
+        BOOST_CHECK(SelectAdamNodes(sameSeed, openEntryParams, vPostOpen, cPostOpen, openEntryParams.nAdamOpenEntryHeight, pcoinsTip));
         BOOST_CHECK(!vPreOpen.empty() && !vPostOpen.empty());
     }
 }
@@ -2972,11 +2972,11 @@ BOOST_AUTO_TEST_CASE(hardening_v4_bls_reg_fork_maturity_and_cltv_test)
 
         // PoW registration puzzle hash commits to BLS public key under V4
         const uint256 ch = pPrev->GetBlockHash();
-        const uint256 targetMiner = GetMinerPoWLimit(Params().NetworkIDString(), true);
-        const uint32_t nonceBound = SolveMinerPoWForTest(kA.GetPubKey(), ch, targetMiner, true, &pkBlsA);
-        BOOST_CHECK(ComputeMinerPoWRegistrationHash(nonceBound, ch, kA.GetPubKey(), true, &pkBlsA) <= targetMiner);
-        BOOST_CHECK(ComputeMinerPoWRegistrationHash(nonceBound, ch, kA.GetPubKey(), true, &pkBlsB) !=
-                    ComputeMinerPoWRegistrationHash(nonceBound, ch, kA.GetPubKey(), true, &pkBlsA));
+        const uint256 targetMiner = GetMinerPoWLimit(Params().NetworkIDString());
+        const uint32_t nonceBound = SolveMinerPoWForTest(kA.GetPubKey(), ch, targetMiner, pkBlsA);
+        BOOST_CHECK(ComputeMinerPoWRegistrationHash(nonceBound, ch, kA.GetPubKey(), pkBlsA) <= targetMiner);
+        BOOST_CHECK(ComputeMinerPoWRegistrationHash(nonceBound, ch, kA.GetPubKey(), pkBlsB) !=
+                    ComputeMinerPoWRegistrationHash(nonceBound, ch, kA.GetPubKey(), pkBlsA));
     }
 
     // 2. H-6: Fork-safe pinned BLS lookup + UnpinBLSPubKeysAtHeight
@@ -3054,20 +3054,21 @@ BOOST_AUTO_TEST_CASE(hardening_v4_bls_reg_fork_maturity_and_cltv_test)
         }
         BumpMasternodePingStateGen();
 
-        ScopedChainParams tnParams(CBaseChainParams::TESTNET);
-        CCoinsView dummyViewTn;
-        CCoinsViewCache testCoinsTn(&dummyViewTn);
-        std::unique_ptr<CBlockIndex> tnGenesis(new CBlockIndex(Params().GenesisBlock()));
-        tnGenesis->nHeight = 0;
-        tnGenesis->pprev = nullptr;
-        uint256 tnGenHash = Params().GenesisBlock().GetHash();
-        auto tnIns = mapBlockIndex.insert(std::make_pair(tnGenHash, tnGenesis.get()));
-        tnGenesis->phashBlock = &(tnIns.first->first);
-        tnGenesis->BuildSkip();
-        chainActive.SetTip(tnGenesis.get());
-        pPrev = tnGenesis.get();
+        ScopedChainParams mainVrfParams(CBaseChainParams::MAIN);
+        CCoinsView dummyViewMain;
+        CCoinsViewCache testCoinsMain(&dummyViewMain);
+        std::unique_ptr<CBlockIndex> mainGenesis(new CBlockIndex(Params().GenesisBlock()));
+        mainGenesis->nHeight = 0;
+        mainGenesis->pprev = nullptr;
+        uint256 mainGenHash = Params().GenesisBlock().GetHash();
+        auto mainIns = mapBlockIndex.insert(std::make_pair(mainGenHash, mainGenesis.get()));
+        mainGenesis->phashBlock = &(mainIns.first->first);
+        mainGenesis->BuildSkip();
+        chainActive.SetTip(mainGenesis.get());
+        pPrev = mainGenesis.get();
+        InitializeAdamMinerRegCache(true);
 
-        auto appendTnBlock = [&](const std::vector<CTransaction>& extraTxs) -> CBlockIndex* {
+        auto appendMainBlock = [&](const std::vector<CTransaction>& extraTxs) -> CBlockIndex* {
             const int h = pPrev->nHeight + 1;
             CBlock blk;
             blk.nVersion = 12;
@@ -3095,30 +3096,37 @@ BOOST_AUTO_TEST_CASE(hardening_v4_bls_reg_fork_maturity_and_cltv_test)
             pIdx->nStatus |= BLOCK_HAVE_DATA;
             vIndices.push_back(pIdx);
             chainActive.SetTip(pIdx);
-            testCoinsTn.SetBestBlock(bh);
-            RegisterBlockMasternodeActivity(blk, h, &testCoinsTn);
+            testCoinsMain.SetBestBlock(bh);
+            RegisterBlockMasternodeActivity(blk, h, &testCoinsMain);
             pPrev = pIdx;
             return pIdx;
         };
 
-        CKey matKey, newKey1, newKey2;
-        matKey.MakeNewKey(true);
+        std::vector<CKey> matKeys(5);
+        for (int i = 0; i < 5; ++i) {
+            matKeys[i].MakeNewKey(true);
+        }
+        CKey newKey1, newKey2;
         newKey1.MakeNewKey(true);
         newKey2.MakeNewKey(true);
 
         const int hMat = pPrev->nHeight + 1;
-        CMutableTransaction mtxMat;
-        mtxMat.vin.push_back(CTxIn(COutPoint(uint256S("9911000000000000000000000000000000000000000000000000000000000000"), 1)));
-        mtxMat.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, BuildTestCoinLockScript(matKey, hMat + 2900)));
-        CTransaction txMat(mtxMat);
-        COutPoint outMat(txMat.GetHash(), 0);
-        testCoinsTn.AddCoin(outMat, Coin(txMat.vout[0], hMat, false, false), true);
-        vAddedCoins.push_back(outMat);
-        appendTnBlock({txMat});
+        std::vector<CTransaction> vMatTxs;
+        for (int i = 0; i < 5; ++i) {
+            CMutableTransaction mtxMat;
+            mtxMat.vin.push_back(CTxIn(COutPoint(uint256S("9911000000000000000000000000000000000000000000000000000000000000"), (uint32_t)(i + 1))));
+            mtxMat.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, BuildTestCoinLockScript(matKeys[i], hMat + 2900)));
+            CTransaction txMat(mtxMat);
+            COutPoint outMat(txMat.GetHash(), 0);
+            testCoinsMain.AddCoin(outMat, Coin(txMat.vout[0], hMat, false, false), true);
+            vAddedCoins.push_back(outMat);
+            vMatTxs.push_back(txMat);
+        }
+        appendMainBlock(vMatTxs);
 
-        // Advance to 202 on Testnet (nAdamDualTrackHeight=200, UPGRADE_MODELD=500 -> nRegPeriod=2880, matKey age >= 100)
+        // Advance to 202 on Mainnet (UPGRADE_MODELD=200, nRegPeriod=2880, matKeys age >= 100)
         while (pPrev->nHeight < 202) {
-            appendTnBlock({});
+            appendMainBlock({});
         }
         for (int idx = 0; idx < 2; ++idx) {
             CKey& nk = (idx == 0) ? newKey1 : newKey2;
@@ -3128,14 +3136,17 @@ BOOST_AUTO_TEST_CASE(hardening_v4_bls_reg_fork_maturity_and_cltv_test)
             mtxNew.vout.push_back(CTxOut(MINER_REGISTRATION_LOCK_AMOUNT, BuildTestCoinLockScript(nk, hNew + 2900)));
             CTransaction txNew(mtxNew);
             COutPoint outNew(txNew.GetHash(), 0);
-            testCoinsTn.AddCoin(outNew, Coin(txNew.vout[0], hNew, false, false), true);
+            testCoinsMain.AddCoin(outNew, Coin(txNew.vout[0], hNew, false, false), true);
             vAddedCoins.push_back(outNew);
-            appendTnBlock({txNew});
+            appendMainBlock({txNew});
         }
         const int evalH = pPrev->nHeight + 1;
         std::set<CPubKey> maturedSet;
-        GetAdamMinerPool(pPrev->nHeight, &testCoinsTn, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &maturedSet);
-        BOOST_CHECK(maturedSet.count(matKey.GetPubKey()) == 1U);
+        GetAdamMinerPool(pPrev->nHeight, &testCoinsMain, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, &maturedSet);
+        BOOST_CHECK_EQUAL(maturedSet.size(), 5U);
+        for (int i = 0; i < 5; ++i) {
+            BOOST_CHECK(maturedSet.count(matKeys[i].GetPubKey()) == 1U);
+        }
         BOOST_CHECK(maturedSet.count(newKey1.GetPubKey()) == 0U);
         BOOST_CHECK(maturedSet.count(newKey2.GetPubKey()) == 0U);
 
@@ -3144,18 +3155,19 @@ BOOST_AUTO_TEST_CASE(hardening_v4_bls_reg_fork_maturity_and_cltv_test)
             ssSeed << uint256S("1212121212121212121212121212121212121212121212121212121212121212") << round;
             std::vector<CPubKey> vElected;
             CPubKey coord;
-            BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, evalH, &testCoinsTn));
+            BOOST_REQUIRE(SelectAdamNodes(ssSeed.GetHash(), Params().GetConsensus(), vElected, coord, evalH, &testCoinsMain));
             BOOST_CHECK(maturedSet.count(coord) == 1U);
             BOOST_CHECK(coord != newKey1.GetPubKey());
             BOOST_CHECK(coord != newKey2.GetPubKey());
         }
 
         const Consensus::Params& mainParams = Params(CBaseChainParams::MAIN).GetConsensus();
+        BOOST_CHECK_EQUAL(mainParams.nAdamOpenEntryHeight, 1);
         BOOST_CHECK(mainParams.IsAdamOpenEntryActive(mainParams.nAdamOpenEntryHeight));
         BOOST_CHECK(!mainParams.IsAdamOpenEntryActive(mainParams.nAdamOpenEntryHeight - 1));
 
         for (const COutPoint& outp : vAddedCoins) {
-            if (testCoinsTn.HaveCoin(outp)) testCoinsTn.SpendCoin(outp);
+            if (testCoinsMain.HaveCoin(outp)) testCoinsMain.SpendCoin(outp);
         }
         vAddedCoins.clear();
         for (const uint256& h : vHashes) {
@@ -3167,8 +3179,11 @@ BOOST_AUTO_TEST_CASE(hardening_v4_bls_reg_fork_maturity_and_cltv_test)
         }
         vIndices.clear();
         chainActive.SetTip(nullptr);
-        mapBlockIndex.erase(tnGenHash);
+        if (mainIns.second) {
+            mapBlockIndex.erase(mainGenHash);
+        }
         BumpMasternodePingStateGen();
+        InitializeAdamMinerRegCache(true);
     }
 
     for (const COutPoint& outp : vAddedCoins) {
@@ -3420,7 +3435,7 @@ BOOST_AUTO_TEST_CASE(proposeblock_r35_1_omission_veto_5s_test)
             uint256 puzzleHash = CalculateAdamPuzzleHash(algo1, m2.begin(), m2.begin() + 32);
             if (UintToArith256(puzzleHash) <= bnTarget) {
                 std::vector<unsigned char> vchSig;
-                BOOST_REQUIRE(SignBLSOperatorOnly(puzzleHash, opSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, true)));
+                BOOST_REQUIRE(SignBLSOperatorOnly(puzzleHash, opSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
                 CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
                 ss << solNonce << vchSig;
                 std::vector<unsigned char> sol(ss.begin(), ss.end());
@@ -3457,8 +3472,8 @@ BOOST_AUTO_TEST_CASE(proposeblock_r35_1_omission_veto_5s_test)
         blk.vtx.push_back(CTransaction(cb));
         blk.hashMerkleRoot = BlockMerkleRoot(blk);
 
-        BOOST_REQUIRE(SignBLSOperatorOnly(adamSeed, coordOpSk, blk.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, true)));
-        BOOST_REQUIRE(SignBLSOperatorOnly(blk.GetHash(), coordOpSk, blk.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, true)));
+        BOOST_REQUIRE(SignBLSOperatorOnly(adamSeed, coordOpSk, blk.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+        BOOST_REQUIRE(SignBLSOperatorOnly(blk.GetHash(), coordOpSk, blk.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
         vPropBlocks.push_back(blk.GetHash());
         return blk;
     };
@@ -3522,7 +3537,7 @@ BOOST_AUTO_TEST_CASE(proposeblock_r35_1_omission_veto_5s_test)
         shareMsg.blockHash = hashVetoed;
         shareMsg.collateralOutpoint = quorum.members[1].collateralOutpoint;
         const CBLSSecretKey& member1OpSk = mapOpSks.at(quorum.members[1].pubKeyMasternode);
-        BOOST_REQUIRE(SignBLSOperatorOnly(hashVetoed, member1OpSk, shareMsg.vchSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, true)));
+        BOOST_REQUIRE(SignBLSOperatorOnly(hashVetoed, member1OpSk, shareMsg.vchSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK)));
         CDataStream ssShare(SER_NETWORK, PROTOCOL_VERSION);
         ssShare << shareMsg;
         pushMsgToNode(dummyNode, NetMsgType::QUORUMSIGSHARE, ssShare.str());
@@ -3555,6 +3570,387 @@ BOOST_AUTO_TEST_CASE(proposeblock_r35_1_omission_veto_5s_test)
 
     bool fUpdate = false;
     GetNodeSignals().FinalizeNode(dummyNode.GetId(), fUpdate);
+}
+
+BOOST_AUTO_TEST_CASE(mainnet_unified_200_boundary_transition_test)
+{
+    ScopedChainParams mainParams(CBaseChainParams::MAIN);
+    const Consensus::Params& consensus = Params().GetConsensus();
+
+    // 1. Verify unified Mainnet #200 upgrade schedule and preserved bootstrap limits
+    BOOST_CHECK_EQUAL(consensus.vUpgrades[Consensus::UPGRADE_ADAM].nActivationHeight, 200);
+    BOOST_CHECK_EQUAL(consensus.vUpgrades[Consensus::UPGRADE_STAKE_MIN_DEPTH_V2].nActivationHeight, 200);
+    BOOST_CHECK_EQUAL(consensus.vUpgrades[Consensus::UPGRADE_ADAM_V2].nActivationHeight, 200);
+    BOOST_CHECK_EQUAL(consensus.vUpgrades[Consensus::UPGRADE_POMBL].nActivationHeight, 200);
+    BOOST_CHECK_EQUAL(consensus.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight, 200);
+    BOOST_CHECK_EQUAL(consensus.nTreasuryGovernanceStartHeight, 200);
+    BOOST_CHECK_EQUAL(consensus.nAdamQuorumEnforcementHeight, 200);
+    BOOST_CHECK_EQUAL(consensus.nAdamOpenEntryHeight, 1);
+    BOOST_CHECK_EQUAL(consensus.nAdamBootstrapLimit, 2500);
+    BOOST_CHECK_EQUAL(consensus.nAdamThresholdBootstrapLimit, 50000);
+    BOOST_CHECK(NextEpoch(199, consensus) == Optional<int>(Consensus::UPGRADE_POS));
+    BOOST_CHECK(NextActivationHeight(199, consensus) == Optional<int>(200));
+    BOOST_CHECK_EQUAL(CurrentEpoch(200, consensus), (int)Consensus::UPGRADE_MODELD);
+    BOOST_CHECK(NextEpoch(200, consensus) == nullopt);
+    BOOST_CHECK(NextActivationHeight(200, consensus) == nullopt);
+
+    BOOST_CHECK(!consensus.HasStakeMinAgeOrDepth(199, 5000, 99, 5000 - 3599));
+    BOOST_CHECK(consensus.HasStakeMinAgeOrDepth(199, 5000, 99, 5000 - 3600));
+    BOOST_CHECK(!consensus.HasStakeMinAgeOrDepth(200, 100000, 1, 0));
+    BOOST_CHECK(!consensus.HasStakeMinAgeOrDepth(600, 100000, 1, 0));
+    BOOST_CHECK(consensus.HasStakeMinAgeOrDepth(601, 100000, 1, 100000));
+
+    // 2. Isolate global chain / DIP3 / ping / miner-reg state for a consecutive 0..202 Mainnet run with 0 MNs
+    CBlockIndex* const pOrigTip = chainActive.Tip();
+    BOOST_REQUIRE(pOrigTip != nullptr);
+    BOOST_REQUIRE_EQUAL(pOrigTip->nHeight, 0);
+    BOOST_REQUIRE(pOrigTip->GetBlockHash() == Params().GenesisBlock().GetHash());
+
+    std::unique_ptr<dip3::CDeterministicMNManager> origMgr = std::move(deterministicMNManager);
+    const bool fOrigPingInit = g_fMasternodePingStateInitialized;
+    std::vector<uint256> vCreatedHashes;
+    std::vector<CBlockIndex*> vCreatedIndices;
+
+    struct Cleanup {
+        CBlockIndex* origTip;
+        std::unique_ptr<dip3::CDeterministicMNManager> origM;
+        bool origPingInit;
+        std::vector<uint256>& hashes;
+        std::vector<CBlockIndex*>& indices;
+        ~Cleanup() {
+            g_fMasternodePingStateInitialized = origPingInit;
+            for (const uint256& h : hashes) {
+                mapBlockIndex.erase(h);
+                LOCK(cs_recent_vrf_proofs);
+                mapRecentVRFProofs.erase(h);
+            }
+            chainActive.SetTip(origTip);
+            for (CBlockIndex* p : indices) delete p;
+            deterministicMNManager = std::move(origM);
+            InitializeAdamMinerRegCache(true);
+            ClearPrevLlmqCache();
+            llmq::ClearQuorumCache();
+            boost::system::error_code ec;
+            fs::remove(GetBlockPosFilename(CDiskBlockPos(99, 0), "blk"), ec);
+        }
+    } cleanup{pOrigTip, std::move(origMgr), fOrigPingInit, vCreatedHashes, vCreatedIndices};
+
+    deterministicMNManager.reset(new dip3::CDeterministicMNManager(1 << 20, true, true));
+    InitializeAdamMinerRegCache(true);
+    ClearPrevLlmqCache();
+    llmq::ClearQuorumCache();
+    g_fMasternodePingStateInitialized = true;
+
+    std::vector<CKey> vBootKeys(8);
+    std::map<CPubKey, CKey> mapBootKeys;
+    for (int i = 0; i < 8; ++i) {
+        vBootKeys[i] = GetAdamDeterministicKey(i);
+        mapBootKeys[vBootKeys[i].GetPubKey()] = vBootKeys[i];
+    }
+    auto findBootKey = [&](const CPubKey& pk) -> CKey {
+        auto it = mapBootKeys.find(pk);
+        return (it != mapBootKeys.end()) ? it->second : CKey();
+    };
+
+    const int64_t baseTime = ((GetTime() / 15) * 15) - 210 * 30;
+    BOOST_REQUIRE_GT(baseTime, (int64_t)pOrigTip->nTime);
+    CBlockIndex* pPrev = pOrigTip;
+    unsigned int nextDiskPos = 0;
+
+    auto connectSyntheticBlock = [&](const CBlock& blk, int h) -> CBlockIndex* {
+        const uint256 blkHash = blk.GetHash();
+        vCreatedHashes.push_back(blkHash);
+        {
+            LOCK(cs_recent_vrf_proofs);
+            mapRecentVRFProofs[blkHash] = blk.vAdamVRFProof;
+        }
+        CBlockIndex* pIdx = new CBlockIndex(blk);
+        pIdx->nHeight = h;
+        pIdx->pprev = pPrev;
+        auto ins = mapBlockIndex.insert(std::make_pair(blkHash, pIdx));
+        pIdx->phashBlock = &(ins.first->first);
+        pIdx->BuildSkip();
+        CDiskBlockPos pos(99, nextDiskPos);
+        BOOST_REQUIRE(WriteBlockToDisk(blk, pos));
+        nextDiskPos = pos.nPos + ::GetSerializeSize(blk, SER_DISK, CLIENT_VERSION);
+        pIdx->nFile = pos.nFile;
+        pIdx->nDataPos = pos.nPos;
+        pIdx->nStatus |= BLOCK_HAVE_DATA;
+        vCreatedIndices.push_back(pIdx);
+        chainActive.SetTip(pIdx);
+        CValidationState stDip3;
+        BOOST_REQUIRE(deterministicMNManager->ProcessBlock(blk, pIdx, stDip3, *pcoinsTip, false));
+        RegisterBlockMasternodeActivity(blk, h, pcoinsTip, false);
+        pPrev = pIdx;
+        return pIdx;
+    };
+
+    // 3. Build blocks 1..199 with 8 P2PK bootstrap coinbase miners and 0 Masternodes
+    for (int h = 1; h <= 199; ++h) {
+        CBlock blk;
+        blk.nVersion = 7;
+        blk.hashPrevBlock = pPrev->GetBlockHash();
+        blk.nTime = static_cast<unsigned int>(baseTime + h * 30);
+        blk.nBits = GetNextWorkRequired(pPrev, &blk);
+        blk.nNonce = static_cast<uint32_t>(h);
+
+        const CPubKey& minerPk = vBootKeys[(h - 1) % 8].GetPubKey();
+        CMutableTransaction cb;
+        cb.vin.resize(1);
+        cb.vin[0].scriptSig = CScript() << h << OP_0;
+        cb.vout.resize(1);
+        cb.vout[0].scriptPubKey = CScript() << ToByteVector(minerPk) << OP_CHECKSIG;
+        cb.vout[0].nValue = 0;
+        FillBlockPayee(cb, pPrev, false);
+
+        blk.vtx.push_back(cb);
+        blk.hashMerkleRoot = BlockMerkleRoot(blk);
+
+        if (h == 198 || h == 199) {
+            BOOST_CHECK(!IsModelDActive(h));
+            BOOST_CHECK(!consensus.NetworkUpgradeActive(h, Consensus::UPGRADE_POMBL));
+            CValidationState stPre;
+            BOOST_CHECK_MESSAGE(ContextualCheckBlockHeader(blk, stPre, pPrev, true), stPre.GetRejectReason());
+            BOOST_CHECK(IsBlockPayeeValid(blk, h, pcoinsTip));
+        }
+
+        connectSyntheticBlock(blk, h);
+    }
+
+    BOOST_REQUIRE_EQUAL(pPrev->nHeight, 199);
+    BOOST_CHECK(deterministicMNManager->GetListAtChainTip().GetValidMNs().empty());
+    std::set<CPubKey> bootSet;
+    const std::vector<CPubKey> pool199 = GetAdamMinerPool(199, pcoinsTip, nullptr, nullptr, nullptr, nullptr, nullptr, &bootSet);
+    BOOST_REQUIRE_GE(bootSet.size(), 8U);
+    BOOST_REQUIRE_GE(pool199.size(), 8U);
+
+    // Multithreaded helper to solve a valid v12 ADAM PoW solution for minerIdx on Mainnet
+    auto solveV12AdamPoW = [&](const uint256& hashAdamSeed, const uint256& hashPrevBlock, unsigned int nBits, size_t minerIdx, const CKey& minerKey) -> std::vector<unsigned char> {
+        const CPubKey minerPk = minerKey.GetPubKey();
+        int algo1 = 0, algo2 = 0, algo3 = 0;
+        GetAdam3PermutationAlgos(hashPrevBlock, minerPk, algo1, algo2, algo3);
+
+        arith_uint256 scaledTarget;
+        scaledTarget.SetCompact(nBits);
+        scaledTarget = scaledTarget << consensus.nAdamDifficultyShiftV2;
+        const arith_uint256 powLim = UintToArith256(consensus.powLimit);
+        if (scaledTarget > powLim) {
+            scaledTarget = powLim;
+        }
+
+        std::vector<unsigned char> baseInput(70, 0);
+        std::memcpy(baseInput.data(), hashAdamSeed.begin(), 32);
+        baseInput[32] = 33;
+        std::memcpy(baseInput.data() + 33, minerPk.begin(), 33);
+
+        const unsigned int nWorkers = std::max(1U, std::min(16U, std::thread::hardware_concurrency()));
+        std::atomic<bool> found{false};
+        std::atomic<uint32_t> bestNonce{0};
+        uint256 bestPuzzleHash;
+        std::mutex hashMtx;
+
+        auto workerFn = [&](unsigned int offset, unsigned int step) {
+            std::vector<unsigned char> buf = baseInput;
+            for (uint32_t n = offset; !found.load(std::memory_order_relaxed); n += step) {
+                WriteLE32(buf.data() + 66, n);
+                uint256 h3 = CalculateAdamPuzzleHash(algo3, buf.data(), buf.data() + 70);
+                uint256 m1 = ArithToUint256(UintToArith256(h3) * (minerIdx + 1));
+                uint256 h2 = CalculateAdamPuzzleHash(algo2, m1.begin(), m1.begin() + 32);
+                uint256 m2 = ArithToUint256(UintToArith256(h2) * (minerIdx + 1));
+                uint256 pHash = CalculateAdamPuzzleHash(algo1, m2.begin(), m2.begin() + 32);
+                if (UintToArith256(pHash) <= scaledTarget) {
+                    if (!found.exchange(true)) {
+                        std::lock_guard<std::mutex> lk(hashMtx);
+                        bestNonce.store(n, std::memory_order_relaxed);
+                        bestPuzzleHash = pHash;
+                    }
+                    break;
+                }
+            }
+        };
+
+        if (nWorkers == 1) {
+            workerFn(0, 1);
+        } else {
+            std::vector<std::thread> threads;
+            threads.reserve(nWorkers);
+            for (unsigned int w = 0; w < nWorkers; ++w) {
+                threads.emplace_back(workerFn, w, nWorkers);
+            }
+            for (auto& t : threads) {
+                t.join();
+            }
+        }
+        BOOST_REQUIRE(found.load());
+
+        CBLSSecretKey blsSk = DeriveBLSFromCKey(minerKey);
+        std::vector<unsigned char> vchSig;
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(bestPuzzleHash, minerKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
+        CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
+        ssSol << bestNonce.load() << vchSig;
+        return std::vector<unsigned char>(ssSol.begin(), ssSol.end());
+    };
+
+    const CScript treasuryScript = GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()));
+    const CScript burnScript = GetScriptForDestination(DecodeDestination(consensus.mBurnAddresses.begin()->first));
+    std::map<int, std::vector<CPubKey>> mapBlockLlmqSigners;
+
+    // 4. Exercise unified #200 -> #201 -> #202 Mainnet transition with 0 Masternodes
+    for (int h = 200; h <= 202; ++h) {
+        BOOST_CHECK(IsModelDActive(h));
+        BOOST_CHECK(IsAdamActive(h, consensus));
+        BOOST_CHECK(consensus.NetworkUpgradeActive(h, Consensus::UPGRADE_ADAM_V2));
+        BOOST_CHECK(consensus.NetworkUpgradeActive(h, Consensus::UPGRADE_POMBL));
+        BOOST_CHECK_EQUAL(consensus.GetAdamThreshold(h, 0), 5);
+
+        const uint256 adamSeed = GetAdamSeed(pPrev);
+        BOOST_REQUIRE(!adamSeed.IsNull());
+
+        std::vector<CPubKey> vExpectedMiners;
+        CPubKey expectedCoordinator;
+        BOOST_REQUIRE(SelectAdamNodes(adamSeed, consensus, vExpectedMiners, expectedCoordinator, h, pcoinsTip));
+        BOOST_REQUIRE_GE(vExpectedMiners.size(), 5U);
+        CKey coordKey = findBootKey(expectedCoordinator);
+        BOOST_REQUIRE(coordKey.IsValid());
+        CBLSSecretKey coordBls = DeriveBLSFromCKey(coordKey);
+
+        const llmq::CQuorum quorum = llmq::GetActiveQuorum(h, pPrev, pcoinsTip);
+        BOOST_REQUIRE_EQUAL(quorum.members.size(), 5U);
+        BOOST_CHECK_EQUAL(quorum.nHeight, h); // fRotationActive == true at Mainnet #200+
+        const size_t qThreshold = llmq::GetQuorumThreshold(quorum.members.size());
+        BOOST_REQUIRE_EQUAL(qThreshold, 4U);
+
+        CBlock blk;
+        blk.nVersion = 12;
+        blk.hashPrevBlock = pPrev->GetBlockHash();
+        blk.nTime = static_cast<unsigned int>(baseTime + h * 30);
+        blk.nBits = GetNextWorkRequired(pPrev, &blk);
+        blk.nNonce = static_cast<uint32_t>(h);
+        blk.vAdamMiners = vExpectedMiners;
+        blk.vAdamSolutions.resize(vExpectedMiners.size());
+
+        std::vector<CPubKey> vValidMiners;
+        for (size_t i = 0; i < 5; ++i) {
+            CKey mk = findBootKey(vExpectedMiners[i]);
+            BOOST_REQUIRE(mk.IsValid());
+            blk.vAdamSolutions[i] = solveV12AdamPoW(adamSeed, blk.hashPrevBlock, blk.nBits, i, mk);
+            BOOST_REQUIRE(VerifyAdamSolution(blk.hashPrevBlock, adamSeed, vExpectedMiners[i], blk.vAdamSolutions[i], blk.nBits, blk.nVersion, h, static_cast<int>(i), pcoinsTip));
+            vValidMiners.push_back(vExpectedMiners[i]);
+        }
+
+        CMutableTransaction cb;
+        cb.vin.resize(1);
+        cb.vin[0].scriptSig = CScript() << h << OP_0;
+        cb.vout.resize(1);
+        cb.vout[0].scriptPubKey = GetScriptForDestination(expectedCoordinator.GetID());
+        cb.vout[0].nValue = 0;
+        FillBlockPayee(cb, pPrev, false, &vValidMiners, &expectedCoordinator);
+        blk.vtx.push_back(cb);
+        blk.hashMerkleRoot = BlockMerkleRoot(blk);
+
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(adamSeed, coordKey, coordBls, blk.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)));
+        BOOST_REQUIRE(SignBLSWithECDSAFallback(blk.GetHash(), coordKey, coordBls, blk.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD)));
+
+        if (h == 200) {
+            // Negative boundary assertions at unified #200 gate
+            {
+                CBlockHeader hdrV7 = blk;
+                hdrV7.nVersion = 7;
+                CValidationState stV7;
+                BOOST_CHECK(!ContextualCheckBlockHeader(hdrV7, stV7, pPrev, true));
+                BOOST_CHECK_EQUAL(stV7.GetRejectReason(), "bad-version");
+            }
+            {
+                CBlockHeader hdrV11 = blk;
+                hdrV11.nVersion = 11;
+                CValidationState stV11;
+                BOOST_CHECK(!ContextualCheckBlockHeader(hdrV11, stV11, pPrev, true));
+                BOOST_CHECK_EQUAL(stV11.GetRejectReason(), "bad-version");
+            }
+            {
+                CBlockHeader hdrBadTime = blk;
+                hdrBadTime.nTime += 1; // violates 15s V2 slot alignment
+                CValidationState stTime;
+                BOOST_CHECK(!ContextualCheckBlockHeader(hdrBadTime, stTime, pPrev, true));
+            }
+            BOOST_CHECK(!IsFutureBlockPreVerified(blk, pPrev));
+        } else if (h == 201) {
+            // Strict ContextualCheckBlockHeader missing-quorum-sig starts at > nAdamQuorumEnforcementHeight (201+)
+            CValidationState stNoQ;
+            BOOST_CHECK(!ContextualCheckBlockHeader(blk, stNoQ, pPrev, true));
+            BOOST_CHECK_EQUAL(stNoQ.GetRejectReason(), "missing-quorum-sig");
+            BOOST_CHECK(!IsFutureBlockPreVerified(blk, pPrev));
+        }
+
+        llmq::CQuorumSignature qsig;
+        qsig.blockHash = blk.GetHash();
+        std::vector<CPubKey> signedMembers;
+        for (size_t i = 0; i < qThreshold; ++i) {
+            CKey memKey = findBootKey(quorum.members[i].pubKeyMasternode);
+            BOOST_REQUIRE(memKey.IsValid());
+            CBLSSecretKey memBls = DeriveBLSFromCKey(memKey);
+            std::vector<unsigned char> memSig;
+            BOOST_REQUIRE(SignBLSWithECDSAFallback(qsig.blockHash, memKey, memBls, memSig, GetBLSDomainTag(BLSDomain::LLMQ_BLOCK)));
+            qsig.signatures.emplace_back(quorum.members[i].collateralOutpoint, std::move(memSig));
+            signedMembers.push_back(quorum.members[i].pubKeyMasternode);
+            if (i + 1 == qThreshold - 1) {
+                BOOST_CHECK(!qsig.Verify(quorum, pPrev, BLSDomain::LLMQ_BLOCK, h)); // 3-of-5 fails
+            }
+        }
+        BOOST_REQUIRE(qsig.Verify(quorum, pPrev, BLSDomain::LLMQ_BLOCK, h)); // 4-of-5 passes
+        mapBlockLlmqSigners[h] = signedMembers;
+        {
+            CDataStream ssQ(SER_NETWORK, PROTOCOL_VERSION);
+            ssQ << qsig;
+            blk.vQuorumSig.assign(ssQ.begin(), ssQ.end());
+        }
+
+        CValidationState stOk;
+        BOOST_CHECK_MESSAGE(ContextualCheckBlockHeader(blk, stOk, pPrev, true), stOk.GetRejectReason());
+        BOOST_CHECK(IsFutureBlockPreVerified(blk, pPrev));
+        BOOST_CHECK(VerifyAdamVRFProof(adamSeed, blk.vAdamVRFProof, expectedCoordinator, h, pPrev));
+        BOOST_CHECK(VerifyAdamCoordinatorSig(blk, expectedCoordinator, nullptr, h, pPrev));
+        BOOST_CHECK(IsBlockPayeeValid(blk, h, pcoinsTip));
+
+        if (h == 200) {
+            // #199 had no LLMQ sigs -> unclaimed LLMQ split is split 50/50 between Treasury and Burn
+            bool hasTreasury = false, hasBurn = false;
+            size_t treasuryIdx = 0;
+            for (size_t idx = 0; idx < blk.vtx[0].vout.size(); ++idx) {
+                if (blk.vtx[0].vout[idx].scriptPubKey == treasuryScript && blk.vtx[0].vout[idx].nValue > 0) {
+                    hasTreasury = true;
+                    treasuryIdx = idx;
+                }
+                if (blk.vtx[0].vout[idx].scriptPubKey == burnScript && blk.vtx[0].vout[idx].nValue > 0) {
+                    hasBurn = true;
+                }
+            }
+            BOOST_CHECK(hasTreasury);
+            BOOST_CHECK(hasBurn);
+
+            // Tampering treasury payout by 1 satoshi must be rejected
+            CBlock tampered = blk;
+            CMutableTransaction tamperedCb(tampered.vtx[0]);
+            tamperedCb.vout[treasuryIdx].nValue -= 1;
+            tampered.vtx[0] = tamperedCb;
+            BOOST_CHECK(!IsBlockPayeeValid(tampered, h, pcoinsTip));
+        } else {
+            // #201 and #202 pay all 4 LLMQ signers from the previous block (1-block lag)
+            for (const CPubKey& prevSigner : mapBlockLlmqSigners[h - 1]) {
+                const CScript signerScript = GetScriptForDestination(prevSigner.GetID());
+                bool paid = false;
+                for (const CTxOut& out : blk.vtx[0].vout) {
+                    if (out.scriptPubKey == signerScript && out.nValue > 0) {
+                        paid = true;
+                        break;
+                    }
+                }
+                BOOST_CHECK_MESSAGE(paid, "Expected 1-block-lag LLMQ signer payout");
+            }
+        }
+
+        connectSyntheticBlock(blk, h);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -10,13 +10,13 @@
 #include "chainparams.h"
 #include "crypto/bls.h"
 #include "wallet/wallet.h"
-#include "masternodeman.h"
+#include "activemasternodeman.h"
 
 bool SignBlockWithKey(CBlock& block, const CKey& key, const CBLSSecretKey& blsKey, int nHeight)
 {
     if (!blsKey.IsValid())
         return error("%s: invalid BLS key passed for signing", __func__);
-    const std::string dst = GetBLSDomainTag(BLSDomain::POS_BLOCK, IsHardeningV3Active(nHeight));
+    const std::string dst = GetBLSDomainTag(BLSDomain::POS_BLOCK);
     if (!SignBLSWithECDSAFallback(block.GetHash(), key, blsKey, block.vchBlockSig, dst))
         return error("%s: failed to sign block hash with key", __func__);
 
@@ -130,9 +130,7 @@ bool CheckBlockSignature(const CBlock& block, const bool enableP2PKH, int nHeigh
     if (!pubkey.IsValid())
         return error("%s: invalid pubkey %s", __func__, HexStr(pubkey));
 
-    const bool fHardeningV3 = IsHardeningV3Active(nHeight);
     return VerifyBLSWithECDSAFallback(block.GetHash(), pubkey, block.vchBlockSig,
-                                      GetBLSDomainTag(BLSDomain::POS_BLOCK, fHardeningV3),
-                                      fHardeningV3,
+                                      GetBLSDomainTag(BLSDomain::POS_BLOCK),
                                       MakeActiveChainPinPredicate(block.hashPrevBlock));
 }

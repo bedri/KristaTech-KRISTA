@@ -32,8 +32,6 @@
 #include "kernel.h"
 #include "llmq.h"
 #include "llmq_messages.h"
-#include "masternode-payments.h"
-#include "masternodeman.h"
 #include "merkleblock.h"
 #include "miner.h"
 #include "blockencodings.h"
@@ -43,8 +41,6 @@
 #include "netbase.h"
 #include "policy/policy.h"
 #include "pow.h"
-#include "spork.h"
-#include "sporkdb.h"
 #include "txdb.h"
 #include "txmempool.h"
 #include "guiinterface.h"
@@ -52,6 +48,10 @@
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
 #include "validationinterface.h"
+
+#ifdef ENABLE_WALLET
+#include "wallet/wallet.h"
+#endif
 
 #include "masternode-sync.h"
 #include <sstream>
@@ -798,22 +798,6 @@ bool static AlreadyHave(const CInv& inv) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
         auto itFuture = mapFutureBlocks.find(inv.hash);
         return itFuture != mapFutureBlocks.end() && !itFuture->second.block.vtx.empty();
     }
-    case MSG_SPORK:
-        return sporkManager.HaveSpork(inv.hash);
-    case MSG_MASTERNODE_WINNER:
-        if (masternodePayments.HasWinnerVote(inv.hash)) {
-            masternodeSync.AddedMasternodeWinner(inv.hash);
-            return true;
-        }
-        return false;
-    case MSG_MASTERNODE_ANNOUNCE:
-        if (mnodeman.HasSeenBroadcast(inv.hash)) {
-            masternodeSync.AddedMasternodeList(inv.hash);
-            return true;
-        }
-        return false;
-    case MSG_MASTERNODE_PING:
-        return mnodeman.HasSeenPing(inv.hash);
     }
     // Don't know what it is, just say we already got one
     return true;
@@ -962,48 +946,6 @@ void static ProcessGetData(CNode* pfrom, CConnman& connman, std::atomic<bool>& i
                         ss.reserve(1000);
                         ss << tx;
                         connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::TX, ss));
-                        pushed = true;
-                    }
-                }
-                if (!pushed && inv.type == MSG_SPORK) {
-                    CSporkMessage sporkMsg;
-                    if (sporkManager.GetSporkByHash(inv.hash, sporkMsg)) {
-                        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                        ss.reserve(1000);
-                        ss << sporkMsg;
-                        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::SPORK, ss));
-                        pushed = true;
-                    }
-                }
-                if (!pushed && inv.type == MSG_MASTERNODE_WINNER) {
-                    CMasternodePaymentWinner winner;
-                    if (masternodePayments.GetWinnerVote(inv.hash, winner)) {
-                        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                        ss.reserve(1000);
-                        ss << winner;
-                        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNWINNER, ss));
-                        pushed = true;
-                    }
-                }
-
-                if (!pushed && inv.type == MSG_MASTERNODE_ANNOUNCE) {
-                    CMasternodeBroadcast mnb;
-                    if (mnodeman.GetSeenBroadcast(inv.hash, mnb)) {
-                        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                        ss.reserve(1000);
-                        ss << mnb;
-                        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNBROADCAST, ss));
-                        pushed = true;
-                    }
-                }
-
-                if (!pushed && inv.type == MSG_MASTERNODE_PING) {
-                    CMasternodePing mnp;
-                    if (mnodeman.GetSeenPing(inv.hash, mnp)) {
-                        CDataStream ss(SER_NETWORK, PROTOCOL_VERSION);
-                        ss.reserve(1000);
-                        ss << mnp;
-                        connman.PushMessage(pfrom, msgMaker.Make(NetMsgType::MNPING, ss));
                         pushed = true;
                     }
                 }
@@ -1308,7 +1250,6 @@ bool ProcessHeadersMessage(CNode* pfrom, CDataStream& vRecv, CConnman& connman)
     return true;
 }
 
-bool fRequestedSporksIDB = false;
 bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vRecv, int64_t nTimeReceived, CConnman& connman, std::atomic<bool>& interruptMsgProc)
 {
     LogPrint(BCLog::NET, "received: %s (%u bytes) peer=%d\n", SanitizeString(strCommand), vRecv.size(), pfrom->id);
@@ -1349,12 +1290,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             connman.PushMessage(pfrom, CNetMsgMaker(INIT_PROTO_VERSION).Make(NetMsgType::REJECT, strCommand, REJECT_NONSTANDARD, strprintf("Expected to offer services %08x", pfrom->nServicesExpected)));
             pfrom->fDisconnect = true;
             return false;
-        }
-
-        if (nServices == NODE_NONE && sporkManager.IsSporkActive(SPORK_101_SERVICES_ENFORCEMENT)) {
-            LOCK(cs_main);
-            Misbehaving(pfrom->GetId(), 100);
-            return error("No services on version message");
         }
 
         if (pfrom->DisconnectOldProtocol(nVersion, ActiveProtocol(), strCommand))
@@ -1532,13 +1467,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         if (pfrom->fFeeler) {
             assert(pfrom->fInbound == false);
             pfrom->fDisconnect = true;
-        }
-
-        // KristaTech: Request active sporks once from the first connected peer on startup.
-        if (!fRequestedSporksIDB) {
-            LogPrintf("asking peer for sporks\n");
-            connman.PushMessage(pfrom, CNetMsgMaker(nSendVersion).Make(NetMsgType::GETSPORKS));
-            fRequestedSporksIDB = true;
         }
 
         return true;
@@ -2731,7 +2659,6 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         std::set<CPubKey> localMnKeys;
         std::set<CPubKey> localCoinLockKeys;
         bool fHasTrackKeys = false;
-        const bool fHardeningV3 = IsHardeningV3Active(nProposalHeight);
 
         // Phase 1 (LOCK(cs_main)): Verify tip match and snapshot deterministic ADAM pool / track keys
         {
@@ -2780,20 +2707,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 } else {
                     fCoordSigValid = VerifyAdamCoordinatorSig(msg.block, signingCoordinator, &blockHash, nProposalHeight, pindexPrev);
                     if (!fCoordSigValid && !fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                        std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                        if (!fHardeningV3) {
-                            for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                                if (!msg.block.vAdamSolutions[i].empty() &&
-                                    VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i, nullptr)) {
-                                    mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
-                                }
-                            }
-                        }
-                        const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedMiners.empty())
+                        const std::map<CPubKey, std::vector<unsigned char>> emptySolutions;
+                        const std::vector<CPubKey>& vFbMiners = !vExpectedMiners.empty()
                             ? vExpectedMiners : msg.block.vAdamMiners;
                         CPubKey activeFallback, prevFallback;
                         int rotationIndex = 0;
-                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
+                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, vFbMiners, emptySolutions, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
                             if (VerifyAdamCoordinatorSig(msg.block, activeFallback, &blockHash, nProposalHeight, pindexPrev)) {
                                 signingCoordinator = activeFallback;
                                 fCoordSigValid = true;
@@ -2990,7 +2909,7 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         }
 
         // Sign, cache locally, and broadcast signature shares to all peers (KTDIP3 pure BLS or hybrid ECDSA+BLS)
-        const std::string& quorumDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(nProposalHeight));
+        const std::string& quorumDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK);
         for (const auto& signer : vSigners) {
             std::vector<unsigned char> vchSig;
             if (!(signer.blsKey.IsValid() && SignAdamOrDip3(blockHash, signer.key, signer.blsKey, signer.fOperatorBlsOnly, vchSig, quorumDst))) {
@@ -3358,21 +3277,12 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
                 if (msg.targetCoordinator == expectedCoordinator) {
                     fValidTargetCoordinator = true;
                 } else if (nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                    const bool fHardeningV3 = IsHardeningV3Active(nProposalHeight);
-                    std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                    if (!fHardeningV3) {
-                        for (size_t i = 0; i < msg.block.vAdamMiners.size() && i < msg.block.vAdamSolutions.size(); ++i) {
-                            if (!msg.block.vAdamSolutions[i].empty() &&
-                                VerifyAdamSolution(msg.block.hashPrevBlock, adamSeed, msg.block.vAdamMiners[i], msg.block.vAdamSolutions[i], msg.block.nBits, msg.block.nVersion, nProposalHeight, (int)i, pcoinsTip)) {
-                                mapBlockSolutions[msg.block.vAdamMiners[i]] = msg.block.vAdamSolutions[i];
-                            }
-                        }
-                    }
-                    const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedMiners.empty())
+                    const std::map<CPubKey, std::vector<unsigned char>> emptySolutions;
+                    const std::vector<CPubKey>& vFbMiners = !vExpectedMiners.empty()
                         ? vExpectedMiners : msg.block.vAdamMiners;
                     CPubKey activeFallback, prevFallback;
                     int rotationIndex = 0;
-                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex, pindexPrev) &&
+                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nProposalHeight, nBlockTimeDiff, vFbMiners, emptySolutions, activeFallback, prevFallback, rotationIndex, pindexPrev) &&
                         (msg.targetCoordinator == activeFallback || msg.targetCoordinator == prevFallback)) {
                         fValidTargetCoordinator = true;
                     }
@@ -3433,9 +3343,8 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
         CBlock signedDraft = msg.block;
         signedDraft.vAdamVRFProof.clear();
         signedDraft.vAdamCoordinatorSig.clear();
-        const bool fHardeningV3 = IsHardeningV3Active(nProposalHeight);
-        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, signedDraft.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3)) ||
-            !SignAdamOrDip3(signedDraft.GetHash(), coordKey, blsKey, fOpOnly, signedDraft.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3))) {
+        if (!SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, signedDraft.vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF)) ||
+            !SignAdamOrDip3(signedDraft.GetHash(), coordKey, blsKey, fOpOnly, signedDraft.vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD))) {
             return true;
         }
 
@@ -3605,51 +3514,17 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             LogPrint(BCLog::NET, "Unparseable reject message received\n");
         }
     } else {
-        bool found = false;
-        const std::vector<std::string>& allMessages = getAllNetMessageTypes();
-        for (const std::string& msg : allMessages) {
-            if (msg == strCommand) {
-                found = true;
-                break;
-            }
-        }
-
-        if (found) {
-            //probably one the extensions
-            bool fDip3Active = false;
-            {
-                LOCK(cs_main);
-                const int nTipHeight = chainActive.Tip() ? chainActive.Height() : 0;
-                fDip3Active = Params().GetConsensus().NetworkUpgradeActive(nTipHeight, Consensus::UPGRADE_DIP3);
-            }
-            if (!fDip3Active) {
-                mnodeman.ProcessMessage(pfrom, strCommand, vRecv);
-            }
-            masternodePayments.ProcessMessageMasternodePayments(pfrom, strCommand, vRecv);
-            sporkManager.ProcessSpork(pfrom, strCommand, vRecv);
-            masternodeSync.ProcessMessage(pfrom, strCommand, vRecv);
-        } else {
-            // Ignore unknown commands for extensibility
-            LogPrint(BCLog::NET, "Unknown command \"%s\" from peer=%d\n", SanitizeString(strCommand), pfrom->id);
-        }
+        // Ignore unknown commands for extensibility (including retired spork/getsporks from unupgraded peers)
+        LogPrint(BCLog::NET, "Unknown command \"%s\" from peer=%d\n", SanitizeString(strCommand), pfrom->id);
     }
 
 
     return true;
 }
 
-// Note: whenever a protocol update is needed toggle between both implementations (comment out the formerly active one)
-//       so we can leave the existing clients untouched (old SPORK will stay on so they don't see even older clients).
-//       Those old clients won't react to the changes of the other (new) SPORK because at the time of their implementation
-//       it was the one which was commented out
 int ActiveProtocol()
 {
-    const int64_t nSporkProto = sporkManager.GetSporkValue(SPORK_14_MIN_PROTOCOL_ACCEPTED);
-    if (nSporkProto <= 0 || nSporkProto >= 4070908800LL) {
-        return MIN_PEER_PROTO_VERSION;
-    }
-    const int64_t nClamped = std::min<int64_t>(PROTOCOL_VERSION, std::max<int64_t>(MIN_PEER_PROTO_VERSION, nSporkProto));
-    return (int)nClamped;
+    return MIN_PEER_PROTO_VERSION;
 }
 
 void ProcessFutureBlocks(CConnman& connman) {

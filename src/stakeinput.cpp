@@ -132,7 +132,7 @@ bool CPivStake::CreateTxOuts(CWallet* pwallet, std::vector<CTxOut>& vout, CAmoun
         LOCK(cs_main);
         nNextHeight = chainActive.Tip() ? (chainActive.Height() + 1) : 0;
     }
-    const bool fKeepPoBSingleOut = IsHardeningV3Active(nNextHeight) && HasActiveOutpointBurn(GetOutPoint(), nNextHeight);
+    const bool fKeepPoBSingleOut = HasActiveOutpointBurn(GetOutPoint(), nNextHeight);
     if (whichType != TX_CLTV_TIMELOCK && !fKeepPoBSingleOut && pwallet->nStakeSplitThreshold > 0) {
         int nSplit = static_cast<int>(nTotal / pwallet->nStakeSplitThreshold);
         if (nSplit > 1) {

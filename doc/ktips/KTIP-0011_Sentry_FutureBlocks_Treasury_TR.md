@@ -13,7 +13,7 @@ Bu öneri, KRISTA Core içerisindeki üç altyapı ve yönetişim sıkılaştır
 ## Motivasyon
 1. **Doğrulayıcı IP Koruması**: Aktif Masternode ve Doğrulayıcı düğümleri konsensüs imzalama anahtarlarını (`activemasternode.conf`) taşır. Bu düğümlerin genel IP adreslerinin doğrudan güvenilmeyen eşlere açık olması, onları hacimsel DDoS saldırılarına karşı hedef haline getirir.
 2. **Gelecek Blok Kuyruğu Doldurma (Queue Stuffing) DoS Saldırısı (`SEC-04`)**: Düğümlerin küçük NTP saat farklarını tolere edebilmesi için yerel ayarlanmış saatten biraz ileride olan (`time-too-new`) blokları geçici kuyruğa alması gerekir. Yapısal başlık ön-doğrulaması, `+300 sn` üst sınırı ve boyut sınırı olmadığında bir saldırgan `mapFutureBlocks` kuyruğunu sahte uzak-gelecek bloklarıyla doldurarak meşru blokların kuyruğa alınmasını engelleyebilir.
-3. **Güven Gerektirmeyen (Trustless) Geliştirici Hazinesi Harcaması (`SEC-09`)**: %7,0 Geliştirici Hazinesi protokol geliştirme fonlarını zincir üstünde biriktirir. `Params().DeveloperFundAddress()` adresinden yapılan harcamalar (çok girdili işlemler dahil) tek taraflı bir anahtar yerine hem Spork ECDSA yetkisini hem de aktif LLMQ kurulunun dinamik `2/3` BFT eşik ($\lfloor 2N / 3 \rfloor + 1$: `UPGRADE_HARDENING_V4` altında `5 -> 9 -> 11 -> 15` ölçekli, `5'te 4` tabanlı ve `15'te 11`'e kadar; V4 öncesi `5'te 3`..`15'te 8`) kriptografik onayını gerektirmelidir.
+3. **Güven Gerektirmeyen (Trustless) Geliştirici Hazinesi Harcaması (`SEC-09`)**: %7,0 Geliştirici Hazinesi protokol geliştirme fonlarını zincir üstünde biriktirir. `Params().DeveloperFundAddress()` adresinden yapılan harcamalar (çok girdili işlemler dahil) tek taraflı bir anahtar yerine hem Hazine (Treasury) ECDSA yetkisini hem de aktif LLMQ kurulunun dinamik `2/3` BFT eşik ($\lfloor 2N / 3 \rfloor + 1$: `UPGRADE_HARDENING_V4` altında `5 -> 9 -> 11 -> 15` ölçekli, `5'te 4` tabanlı ve `15'te 11`'e kadar; V4 öncesi `5'te 3`..`15'te 8`) kriptografik onayını gerektirmelidir.
 
 ## Teknik Özellikler
 
@@ -35,15 +35,15 @@ Sentry Düğümleri, standart KRISTA Core P2P ve izolasyon parametreleriyle (`li
 ---
 
 ### 3. LLMQ Dinamik BFT Eşikli Geliştirici Hazinesi Yönetişimi (`SEC-09`)
-`consensus.nTreasuryGovernanceStartHeight` yüksekliğinden (`CMainParams` / Mainnet üzerinde `5.000`, `CTestNetParams` / Testnet üzerinde `200`, Regtest üzerinde `100`; bu yüksekliğin altındaki harcamalar `bad-txns-spend-devfund-early` ile reddedilir) itibaren `Params().DeveloperFundAddress()` (Mainnet üzerinde `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`, Testnet üzerinde `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy`) adresine ait bir veya daha fazla UTXO'yu harcayan her işlem `CheckInputs` ve `ConnectBlock` (`src/main.cpp`) tarafından şu şekilde doğrulanır:
+`consensus.nTreasuryGovernanceStartHeight` yüksekliğinden (`CMainParams` / Mainnet ve `CTestNetParams` / Testnet üzerinde `200`, Regtest üzerinde `100`; bu yüksekliğin altındaki harcamalar `bad-txns-spend-devfund-early` ile reddedilir) itibaren `Params().DeveloperFundAddress()` (Mainnet üzerinde `KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP`, Testnet üzerinde `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy`) adresine ait bir veya daha fazla UTXO'yu harcayan her işlem `CheckInputs` ve `ConnectBlock` (`src/main.cpp`) tarafından şu şekilde doğrulanır:
 
 1. **Çok Girdili `txTmp.GetHash()` Normalizasyonu (`SEC-09`)**:
    - `Params().DeveloperFundAddress()` harcayan her girdi, `scriptSig` alanında üç yığın (stack) verisi taşır: `<ecdsaSig> <pubKey> <qsig>` (3'ten az veri `bad-txns-missing-quorum-sig`, bozuk serileştirme ise `bad-txns-malformed-quorum-sig` ile reddedilir).
    - LLMQ kurulunun imzaladığı kanonik işlem özetini (`txHash`) hesaplamak için doğrulayıcı, `Params().DeveloperFundAddress()` harcayan **tüm** girdilerden 3. push (`<qsig>`) verisinin çıkarıldığı (yalnızca `<ecdsaSig> <pubKey>` bırakıldığı) normalize edilmiş bir `txTmp` kopyası oluşturur ve `txHash = txTmp.GetHash()` değerini hesaplar.
-2. **LLMQ Dinamik BFT Kurul İmzası ve Spork Anahtarı Doğrulaması**:
+2. **LLMQ Dinamik BFT Kurul İmzası ve Hazine Anahtarı Doğrulaması**:
    - `<qsig>` bayt dizisi `CQuorumSignature` nesnesine deserialize edilir ve `qsig.blockHash = txTmp.GetHash()` atanır.
    - `qsig.Verify(quorum)` fonksiyonu, harcama yüksekliğindeki aktif LLMQ kurulunun dinamik `2/3` BFT eşiği kadar (`llmq::GetQuorumThreshold(N, h)` / $\lfloor 2N / 3 \rfloor + 1$: `UPGRADE_HARDENING_V4` [Yükseklik `1`] altında `5 -> 9 -> 11 -> 15` ölçekli, `5'te 4` tabanlı ve `15'te 11`'e kadar; V4 öncesi $\lfloor N / 2 \rfloor + 1$: `5'te 3`..`15'te 8`) üyesinin BLS12-381 anahtarlarıyla `txHash` özetini imzaladığını (`CBLSSignature::Aggregate` eşleme kontrolüyle) doğrular; başarısız olursa işlem `bad-txns-invalid-quorum-sig` (`Misbehaving(100)`) ile reddedilir.
-   - Son olarak `<ecdsaSig> <pubKey>` (`scriptSigOverride`), `CScriptCheck` tarafından `Params().GetConsensus().strSporkPubKey` açık anahtarına karşı doğrulanır.
+   - Son olarak `<ecdsaSig> <pubKey>` (`scriptSigOverride`), `CScriptCheck` tarafından `Params().GetConsensus().strTreasuryPubKey` açık anahtarına karşı doğrulanır.
 
 ## Geriye Dönük Uyumluluk
 * Sentry Düğüm kurulumu tüm P2P eşleriyle uyumlu standart KRISTA Core yapılandırma parametrelerini kullanır.

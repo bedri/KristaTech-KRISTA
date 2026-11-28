@@ -127,7 +127,6 @@ BITCOIN_CORE_H = \
   httpserver.h \
   init.h \
   interface/wallet.h \
-  legacy/stakemodifier.h \
   kernel.h \
   key.h \
   key_io.h \
@@ -142,7 +141,6 @@ BITCOIN_CORE_H = \
   llmq_messages.h \
   masternode-payments.h \
   masternode-sync.h \
-  masternodeman.h \
   merkleblock.h \
   messagesigner.h \
   miner.h \
@@ -175,9 +173,6 @@ BITCOIN_CORE_H = \
   script/script_error.h \
   script/scriptdb.h \
   serialize.h \
-  spork.h \
-  sporkdb.h \
-  sporkid.h \
   stakeinput.h \
   script/ismine.h \
   streams.h \
@@ -259,7 +254,6 @@ libbitcoin_server_a_SOURCES = \
   rpc/server.cpp \
   script/sigcache.cpp \
   script/ismine.cpp \
-  sporkdb.cpp \
   script/scriptdb.cpp \
   timedata.cpp \
   torcontrol.cpp \
@@ -292,9 +286,7 @@ libbitcoin_wallet_a_SOURCES = \
   masternode.cpp \
   masternode-payments.cpp \
   masternode-sync.cpp \
-  masternodeman.cpp \
   messagesigner.cpp \
-  legacy/stakemodifier.cpp \
   kernel.cpp \
   wallet/db.cpp \
   wallet/rpcdump.cpp \
@@ -407,8 +399,6 @@ libbitcoin_common_a_SOURCES = \
   script/sign.cpp \
   script/standard.cpp \
   script/script_error.cpp \
-  spork.cpp \
-  sporkdb.cpp \
   $(BITCOIN_CORE_H)
 
 # util: shared between all executables.

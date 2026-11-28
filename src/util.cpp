@@ -95,8 +95,6 @@ const char * const KRISTATECH_ACTIVE_MASTERNODE_CONF_FILENAME = "activemasternod
 bool fMasterNode = false;
 bool fLiteMode = false;
 
-/** Spork enforcement enabled time */
-int64_t enforceMasternodePaymentsTime = 4085657524;
 bool fSucessfullyLoaded = false;
 
 std::map<std::string, std::string> mapArgs;

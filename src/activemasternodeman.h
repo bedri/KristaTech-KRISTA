@@ -25,9 +25,11 @@ public:
     void ResetStatus();
     std::vector<CActiveMasternode>& GetActiveMasternodes() { return vActiveMasternodes; }
     std::vector<CActiveMasternode> GetActiveMasternodesCopy() const;
-    void EnableHotColdForPubKey(const CPubKey& pubKey, const CTxIn& vin, const CService& addr);
-    bool CheckAndEnableHotCold(const CTxIn& vin, const CPubKey& pubKey, const CService& addr, int protocolVersion);
     void Add(CActiveMasternode activeMasternode);
 };
+
+extern CActiveMasternodeMan amnodeman;
+
+void ThreadCheckMasternodes();
 
 #endif //ACTIVEMASTERNODES_H

@@ -107,12 +107,9 @@ struct CBurnCoins {
     }
 };
 
-extern std::map<CTxDestination, std::vector<CBurnCoins>> mapAddressBurns;
 extern std::map<COutPoint, std::vector<CBurnCoins>> mapOutpointBurns;
 extern RecursiveMutex cs_burnCache;
 
-void AddBurnToCache(const CTxDestination& dest, CAmount nAmount, int nHeight);
-void RemoveBurnFromCache(const CTxDestination& dest, CAmount nAmount, int nHeight);
 void AddOutpointBurnToCache(const COutPoint& outpoint, CAmount nAmount, int nHeight);
 void RemoveOutpointBurnFromCache(const COutPoint& outpoint, CAmount nAmount, int nHeight);
 bool HasActiveOutpointBurn(const COutPoint& outpoint, int nHeight);
@@ -134,7 +131,6 @@ public:
     CBurnCacheScopedBackup(const CBurnCacheScopedBackup&) = delete;
     CBurnCacheScopedBackup& operator=(const CBurnCacheScopedBackup&) = delete;
 };
-CAmount GetActiveBurnWeight(const CTxDestination& dest, int nHeight);
 bool ResolveCoinOnBranch(const COutPoint& prevout, CTxOut& txoutOut, int& nHeightOut, CBlockIndex** ppindexFromOut = nullptr, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 bool IsValidPoLSelfRenewal(const CTransaction& tx, unsigned int nIn, const CTxOut& prevout, int nSpendHeight);
 CAmount CalculateMPAWeight(const COutPoint& prevout, CAmount nAmount, int nTimeTx, const CBlockIndex* pindexPrev, int& nWeightType, const CCoinsViewCache* pView = nullptr);

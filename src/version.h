@@ -21,7 +21,7 @@ static const int INIT_PROTO_VERSION = 209;
 //! In this version, 'getheaders' was introduced.
 static const int GETHEADERS_VERSION = 70000;
 
-//! minimum peer protocol version accepted by ActiveProtocol() when SPORK_14 is off
+//! minimum peer protocol version accepted by ActiveProtocol()
 static const int MIN_PEER_PROTO_VERSION = 70983;
 
 //! masternodes older than this proto version use old strMessage format for mnannounce

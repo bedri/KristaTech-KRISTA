@@ -30,15 +30,10 @@ class CDeterministicMNList;
 class CActiveMasternode
 {
 private:
-    /// Ping Masternode
-    bool SendMasternodePing(std::string& errorMessage);
-
     int status;
     std::string notCapableReason;
 
 public:
-    bool SendOnChainPing(std::string& errorMessage);
-
     CActiveMasternode()
     {
         vin = nullopt;
@@ -64,9 +59,6 @@ public:
     void ResetStatus();
     std::string GetStatusMessage() const;
     int GetStatus() const { return status; }
-
-    /// Enable cold wallet mode (run a Masternode with no funds)
-    bool EnableHotColdMasterNode(CTxIn& vin, CService& addr);
 };
 
 #endif //ACTIVEMASTERNODE_H

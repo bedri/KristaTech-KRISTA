@@ -11,9 +11,8 @@
 #include "db.h"
 #include "init.h"
 #include "main.h"
-#include "masternode-payments.h"
+#include "masternode.h"
 #include "masternode-sync.h"
-#include "masternodeman.h"
 #include "netbase.h"
 #include "rpc/server.h"
 #include "utilmoneystr.h"
@@ -29,8 +28,6 @@
 #endif
 
 #include <univalue.h>
-
-#include <boost/tokenizer.hpp>
 
 UniValue listmasternodes(const JSONRPCRequest& request)
 {
@@ -71,13 +68,11 @@ UniValue listmasternodes(const JSONRPCRequest& request)
     int nHeight = WITH_LOCK(cs_main, return chainActive.Height());
     if (nHeight < 0) return "[]";
 
-    std::set<COutPoint> seenDip3Collaterals;
     if (deterministicMNManager) {
         const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
         int rank = 0;
         for (const auto& kv : dip3List.mapMNs) {
             const dip3::CDeterministicMN& dmn = kv.second;
-            seenDip3Collaterals.insert(dmn.collateralOutpoint);
 
             const std::string strTxHash = dmn.collateralOutpoint.hash.ToString();
             const std::string strOwnerAddr = EncodeDestination(dmn.state.pubKeyOwner.GetID());
@@ -120,47 +115,6 @@ UniValue listmasternodes(const JSONRPCRequest& request)
         }
     }
 
-    std::vector<std::pair<int, CMasternode> > vMasternodeRanks = mnodeman.GetMasternodeRanks(nHeight);
-    for (PAIRTYPE(int, CMasternode) & s : vMasternodeRanks) {
-        if (seenDip3Collaterals.count(s.second.vin.prevout)) {
-            continue;
-        }
-        UniValue obj(UniValue::VOBJ);
-        std::string strVin = s.second.vin.prevout.ToStringShort();
-        std::string strTxHash = s.second.vin.prevout.hash.ToString();
-        uint32_t oIdx = s.second.vin.prevout.n;
-
-        CMasternode mn;
-        if (mnodeman.Get(s.second.vin, mn)) {
-            if (strFilter != "" && strTxHash.find(strFilter) == std::string::npos &&
-                mn.Status().find(strFilter) == std::string::npos &&
-                EncodeDestination(mn.pubKeyCollateralAddress.GetID()).find(strFilter) == std::string::npos) continue;
-
-            std::string strStatus = mn.Status();
-            std::string strHost;
-            int port;
-            SplitHostPort(mn.addr.ToString(), port, strHost);
-            CNetAddr node;
-            LookupHost(strHost.c_str(), node, false);
-            std::string strNetwork = GetNetworkName(node.GetNetwork());
-
-            obj.push_back(Pair("rank", (strStatus == "ENABLED" ? s.first : 0)));
-            obj.push_back(Pair("network", strNetwork));
-            obj.push_back(Pair("txhash", strTxHash));
-            obj.push_back(Pair("outidx", (uint64_t)oIdx));
-            obj.push_back(Pair("pubkey", HexStr(mn.pubKeyMasternode)));
-            obj.push_back(Pair("status", strStatus));
-            obj.push_back(Pair("addr", EncodeDestination(mn.pubKeyCollateralAddress.GetID())));
-            obj.push_back(Pair("ip", mn.addr.ToString()));
-            obj.push_back(Pair("version", mn.protocolVersion));
-            obj.push_back(Pair("lastseen", (int64_t)mn.lastPing.sigTime));
-            obj.push_back(Pair("activetime", (int64_t)(mn.lastPing.sigTime - mn.sigTime)));
-            obj.push_back(Pair("lastpaid", (int64_t)mn.GetLastPaid()));
-
-            ret.push_back(obj);
-        }
-    }
-
     return ret;
 }
 
@@ -183,83 +137,32 @@ UniValue getmasternodecount (const JSONRPCRequest& request)
             HelpExampleCli("getmasternodecount", "") + HelpExampleRpc("getmasternodecount", ""));
 
     UniValue obj(UniValue::VOBJ);
-    int nCount = 0;
     int ipv4 = 0, ipv6 = 0, onion = 0;
 
     int nChainHeight = WITH_LOCK(cs_main, return chainActive.Height());
     if (nChainHeight < 0) return "unknown";
 
+    int dip3Total = 0;
+    int dip3Valid = 0;
     if (deterministicMNManager) {
         const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
-        if (!dip3List.mapMNs.empty()) {
-            int dip3Total = 0;
-            int dip3Valid = 0;
-            for (const auto& kv : dip3List.mapMNs) {
-                const dip3::CDeterministicMN& dmn = kv.second;
-                ++dip3Total;
-                if (dmn.state.IsValid()) ++dip3Valid;
-                if (dmn.state.addr.IsIPv4()) ++ipv4;
-                else if (dmn.state.addr.IsTor()) ++onion;
-                else if (dmn.state.addr.IsIPv6()) ++ipv6;
-            }
-            obj.push_back(Pair("total", dip3Total));
-            obj.push_back(Pair("stable", dip3Valid));
-            obj.push_back(Pair("enabled", dip3Valid));
-            obj.push_back(Pair("inqueue", dip3Valid));
-            obj.push_back(Pair("ipv4", ipv4));
-            obj.push_back(Pair("ipv6", ipv6));
-            obj.push_back(Pair("onion", onion));
-            return obj;
+        for (const auto& kv : dip3List.mapMNs) {
+            const dip3::CDeterministicMN& dmn = kv.second;
+            ++dip3Total;
+            if (dmn.state.IsValid()) ++dip3Valid;
+            if (dmn.state.addr.IsIPv4()) ++ipv4;
+            else if (dmn.state.addr.IsTor()) ++onion;
+            else if (dmn.state.addr.IsIPv6()) ++ipv6;
         }
     }
-
-    mnodeman.GetNextMasternodeInQueueForPayment(nChainHeight, true, nCount);
-    mnodeman.CountNetworks(ActiveProtocol(), ipv4, ipv6, onion);
-
-    obj.push_back(Pair("total", mnodeman.size()));
-    obj.push_back(Pair("stable", mnodeman.stable_size()));
-    obj.push_back(Pair("enabled", mnodeman.CountEnabled()));
-    obj.push_back(Pair("inqueue", nCount));
+    obj.push_back(Pair("total", dip3Total));
+    obj.push_back(Pair("stable", dip3Valid));
+    obj.push_back(Pair("enabled", dip3Valid));
+    obj.push_back(Pair("inqueue", dip3Valid));
     obj.push_back(Pair("ipv4", ipv4));
     obj.push_back(Pair("ipv6", ipv6));
     obj.push_back(Pair("onion", onion));
-
     return obj;
-}
-
-UniValue masternodecurrent (const JSONRPCRequest& request)
-{
-    if (request.fHelp || (request.params.size() != 0))
-        throw std::runtime_error(
-            "masternodecurrent\n"
-            "\nGet current masternode winner (scheduled to be paid next).\n"
-
-            "\nResult:\n"
-            "{\n"
-            "  \"protocol\": xxxx,        (numeric) Protocol version\n"
-            "  \"txhash\": \"xxxx\",      (string) Collateral transaction hash\n"
-            "  \"pubkey\": \"xxxx\",      (string) MN Public key\n"
-            "  \"lastseen\": xxx,         (numeric) Time since epoch of last seen\n"
-            "  \"activeseconds\": xxx,    (numeric) Seconds MN has been active\n"
-            "}\n"
-
-            "\nExamples:\n" +
-            HelpExampleCli("masternodecurrent", "") + HelpExampleRpc("masternodecurrent", ""));
-
-    const int nHeight = WITH_LOCK(cs_main, return chainActive.Height() + 1);
-    int nCount = 0;
-    CMasternode winner;
-    if (mnodeman.GetNextMasternodeInQueueForPayment(nHeight, true, nCount, &winner)) {
-        UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("protocol", (int64_t)winner.protocolVersion));
-        obj.push_back(Pair("txhash", winner.vin.prevout.hash.ToString()));
-        obj.push_back(Pair("pubkey", EncodeDestination(winner.pubKeyCollateralAddress.GetID())));
-        obj.push_back(Pair("lastseen", winner.lastPing.IsNull() ? winner.sigTime : (int64_t)winner.lastPing.sigTime));
-        obj.push_back(Pair("activeseconds", winner.lastPing.IsNull() ? 0 : (int64_t)(winner.lastPing.sigTime - winner.sigTime)));
-        return obj;
-    }
-
-    throw std::runtime_error("unknown");
 }
 
 UniValue createmasternodekey (const JSONRPCRequest& request)
@@ -366,14 +269,7 @@ UniValue getmasternodestatus(const JSONRPCRequest& request)
         throw JSONRPCError(RPC_MISC_ERROR, _("This is not a masternode."));
 
     if (deterministicMNManager) {
-        int nTipHeight = 0;
-        {
-            LOCK(cs_main);
-            nTipHeight = chainActive.Height();
-        }
-        if (Params().GetConsensus().NetworkUpgradeActive(nTipHeight + 1, Consensus::UPGRADE_DIP3)) {
-            amnodeman.ManageStatus();
-        }
+        amnodeman.ManageStatus();
     }
 
     UniValue resultsObj(UniValue::VARR);
@@ -416,285 +312,10 @@ UniValue getmasternodestatus(const JSONRPCRequest& request)
             continue;
         }
 
-        CMasternode mn;
-        if (mnodeman.Get(*(activeMasternode.vin), mn)) {
-            UniValue mnObj(UniValue::VOBJ);
-            mnObj.push_back(Pair("alias", activeMasternode.strAlias));
-            mnObj.push_back(Pair("txhash", activeMasternode.vin->prevout.hash.ToString()));
-            mnObj.push_back(Pair("outputidx", (uint64_t)activeMasternode.vin->prevout.n));
-            mnObj.push_back(Pair("netaddr", activeMasternode.service.ToString()));
-            mnObj.push_back(Pair("addr", EncodeDestination(mn.pubKeyCollateralAddress.GetID())));
-            mnObj.push_back(Pair("status", activeMasternode.GetStatus()));
-            mnObj.push_back(Pair("message", activeMasternode.GetStatusMessage()));
-            resultsObj.push_back(mnObj);
-        } else {
-            throw std::runtime_error("Masternode not found in the list of available masternodes. Current status: " + activeMasternode.GetStatusMessage());
-        }
+        throw std::runtime_error("Masternode not found in KTDIP3 registered list. Current status: " + activeMasternode.GetStatusMessage());
     }
 
     return resultsObj;
-}
-
-UniValue getmasternodewinners (const JSONRPCRequest& request)
-{
-    if (request.fHelp || request.params.size() > 3)
-        throw std::runtime_error(
-            "getmasternodewinners ( blocks \"filter\" )\n"
-            "\nPrint the masternode winners for the last n blocks\n"
-
-            "\nArguments:\n"
-            "1. blocks      (numeric, optional) Number of previous blocks to show (default: 10)\n"
-            "2. filter      (string, optional) Search filter matching MN address\n"
-
-            "\nResult (single winner):\n"
-            "[\n"
-            "  {\n"
-            "    \"nHeight\": n,           (numeric) block height\n"
-            "    \"winner\": {\n"
-            "      \"address\": \"xxxx\",    (string) KRISTA MN Address\n"
-            "      \"nVotes\": n,          (numeric) Number of votes for winner\n"
-            "    }\n"
-            "  }\n"
-            "  ,...\n"
-            "]\n"
-
-            "\nResult (multiple winners):\n"
-            "[\n"
-            "  {\n"
-            "    \"nHeight\": n,           (numeric) block height\n"
-            "    \"winner\": [\n"
-            "      {\n"
-            "        \"address\": \"xxxx\",  (string) KRISTA MN Address\n"
-            "        \"nVotes\": n,        (numeric) Number of votes for winner\n"
-            "      }\n"
-            "      ,...\n"
-            "    ]\n"
-            "  }\n"
-            "  ,...\n"
-            "]\n"
-
-            "\nExamples:\n" +
-            HelpExampleCli("getmasternodewinners", "") + HelpExampleRpc("getmasternodewinners", ""));
-
-    int nHeight = WITH_LOCK(cs_main, return chainActive.Height());
-    if (nHeight < 0) return "[]";
-
-    int nLast = 10;
-    std::string strFilter = "";
-
-    if (request.params.size() >= 1) {
-        nLast = atoi(request.params[0].get_str());
-        if (nLast < 1 || nLast > 1000)
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Last blocks count must be between 1 and 1000");
-    }
-
-    if (request.params.size() == 2)
-        strFilter = request.params[1].get_str();
-
-    UniValue ret(UniValue::VARR);
-
-    for (int i = nHeight - nLast; i < nHeight + 20; i++) {
-        UniValue obj(UniValue::VOBJ);
-        obj.push_back(Pair("nHeight", i));
-
-        std::string strPayment = GetRequiredPaymentsString(i);
-        if (strFilter != "" && strPayment.find(strFilter) == std::string::npos) continue;
-
-        if (strPayment.find(',') != std::string::npos) {
-            UniValue winner(UniValue::VARR);
-            boost::char_separator<char> sep(",");
-            boost::tokenizer< boost::char_separator<char> > tokens(strPayment, sep);
-            for (const std::string& t : tokens) {
-                UniValue addr(UniValue::VOBJ);
-                std::size_t pos = t.find(":");
-                std::string strAddress = t.substr(0,pos);
-                uint64_t nVotes = atoi(t.substr(pos+1));
-                addr.push_back(Pair("address", strAddress));
-                addr.push_back(Pair("nVotes", nVotes));
-                winner.push_back(addr);
-            }
-            obj.push_back(Pair("winner", winner));
-        } else if (strPayment.find("Unknown") == std::string::npos) {
-            UniValue winner(UniValue::VOBJ);
-            std::size_t pos = strPayment.find(":");
-            std::string strAddress = strPayment.substr(0,pos);
-            uint64_t nVotes = atoi(strPayment.substr(pos+1));
-            winner.push_back(Pair("address", strAddress));
-            winner.push_back(Pair("nVotes", nVotes));
-            obj.push_back(Pair("winner", winner));
-        } else {
-            UniValue winner(UniValue::VOBJ);
-            winner.push_back(Pair("address", strPayment));
-            winner.push_back(Pair("nVotes", 0));
-            obj.push_back(Pair("winner", winner));
-        }
-
-            ret.push_back(obj);
-    }
-
-    return ret;
-}
-
-UniValue getmasternodescores (const JSONRPCRequest& request)
-{
-    if (request.fHelp || request.params.size() > 1)
-        throw std::runtime_error(
-            "getmasternodescores ( blocks )\n"
-            "\nPrint list of winning masternode by score\n"
-
-            "\nArguments:\n"
-            "1. blocks      (numeric, optional) Show the last n blocks (default 10)\n"
-
-            "\nResult:\n"
-            "{\n"
-            "  xxxx: \"xxxx\"   (numeric : string) Block height : Masternode hash\n"
-            "  ,...\n"
-            "}\n"
-
-            "\nExamples:\n" +
-            HelpExampleCli("getmasternodescores", "") + HelpExampleRpc("getmasternodescores", ""));
-
-    int nLast = 10;
-
-    if (request.params.size() == 1) {
-        try {
-            nLast = std::stoi(request.params[0].get_str());
-        } catch (const std::exception&) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid number of blocks");
-        }
-        if (nLast < 1 || nLast > 1000)
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Last blocks count must be between 1 and 1000");
-    }
-    int nChainHeight = WITH_LOCK(cs_main, return chainActive.Height());
-    if (nChainHeight < 0) return "unknown";
-    UniValue obj(UniValue::VOBJ);
-    std::vector<CMasternode> vMasternodes = mnodeman.GetFullMasternodeVector();
-    for (int nHeight = nChainHeight - nLast; nHeight < nChainHeight + 20; nHeight++) {
-        uint256 nHigh;
-        CMasternode* pBestMasternode = NULL;
-        for (CMasternode& mn : vMasternodes) {
-            uint256 n = mn.CalculateScore(1, nHeight - 100);
-            if (n > nHigh) {
-                nHigh = n;
-                pBestMasternode = &mn;
-            }
-        }
-        if (pBestMasternode)
-            obj.push_back(Pair(strprintf("%d", nHeight), pBestMasternode->vin.prevout.hash.ToString().c_str()));
-    }
-
-    return obj;
-}
-
-bool DecodeHexMnb(CMasternodeBroadcast& mnb, std::string strHexMnb) {
-
-    if (!IsHex(strHexMnb))
-        return false;
-
-    std::vector<unsigned char> mnbData(ParseHex(strHexMnb));
-    CDataStream ssData(mnbData, SER_NETWORK, PROTOCOL_VERSION);
-    try {
-        ssData >> mnb;
-    }
-    catch (const std::exception&) {
-        return false;
-    }
-
-    return true;
-}
-
-UniValue decodemasternodebroadcast(const JSONRPCRequest& request)
-{
-    if (request.fHelp || request.params.size() != 1)
-        throw std::runtime_error(
-            "decodemasternodebroadcast \"hexstring\"\n"
-            "\nCommand to decode masternode broadcast messages\n"
-
-            "\nArgument:\n"
-            "1. \"hexstring\"        (string) The hex encoded masternode broadcast message\n"
-
-            "\nResult:\n"
-            "{\n"
-            "  \"vin\": \"xxxx\"                (string) The unspent output which is holding the masternode collateral\n"
-            "  \"addr\": \"xxxx\"               (string) IP address of the masternode\n"
-            "  \"pubkeycollateral\": \"xxxx\"   (string) Collateral address's public key\n"
-            "  \"pubkeymasternode\": \"xxxx\"   (string) Masternode's public key\n"
-            "  \"vchsig\": \"xxxx\"             (string) Base64-encoded signature of this message (verifiable via pubkeycollateral)\n"
-            "  \"sigtime\": \"nnn\"             (numeric) Signature timestamp\n"
-            "  \"sigvalid\": \"xxx\"            (string) \"true\"/\"false\" whether or not the mnb signature checks out.\n"
-            "  \"protocolversion\": \"nnn\"     (numeric) Masternode's protocol version\n"
-            "  \"nlastdsq\": \"nnn\"            (numeric) The last time the masternode sent a DSQ message (for mixing) (DEPRECATED)\n"
-            "  \"nMessVersion\": \"nnn\"        (numeric) MNB Message version number\n"
-            "  \"lastping\" : {                 (object) JSON object with information about the masternode's last ping\n"
-            "      \"vin\": \"xxxx\"            (string) The unspent output of the masternode which is signing the message\n"
-            "      \"blockhash\": \"xxxx\"      (string) Current chaintip blockhash minus 12\n"
-            "      \"sigtime\": \"nnn\"         (numeric) Signature time for this ping\n"
-            "      \"sigvalid\": \"xxx\"        (string) \"true\"/\"false\" whether or not the mnp signature checks out.\n"
-            "      \"vchsig\": \"xxxx\"         (string) Base64-encoded signature of this ping (verifiable via pubkeymasternode)\n"
-            "      \"nMessVersion\": \"nnn\"    (numeric) MNP Message version number\n"
-            "  }\n"
-            "}\n"
-
-            "\nExamples:\n" +
-            HelpExampleCli("decodemasternodebroadcast", "hexstring") + HelpExampleRpc("decodemasternodebroadcast", "hexstring"));
-
-    CMasternodeBroadcast mnb;
-
-    if (!DecodeHexMnb(mnb, request.params[0].get_str()))
-        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Masternode broadcast message decode failed");
-
-    UniValue resultObj(UniValue::VOBJ);
-
-    resultObj.push_back(Pair("vin", mnb.vin.prevout.ToString()));
-    resultObj.push_back(Pair("addr", mnb.addr.ToString()));
-    resultObj.push_back(Pair("pubkeycollateral", EncodeDestination(mnb.pubKeyCollateralAddress.GetID())));
-    resultObj.push_back(Pair("pubkeymasternode", EncodeDestination(mnb.pubKeyMasternode.GetID())));
-    resultObj.push_back(Pair("vchsig", mnb.GetSignatureBase64()));
-    resultObj.push_back(Pair("sigtime", mnb.sigTime));
-    resultObj.push_back(Pair("sigvalid", mnb.CheckSignature() ? "true" : "false"));
-    resultObj.push_back(Pair("protocolversion", mnb.protocolVersion));
-    resultObj.push_back(Pair("nlastdsq", mnb.nLastDsq));
-    resultObj.push_back(Pair("nMessVersion", mnb.nMessVersion));
-
-    UniValue lastPingObj(UniValue::VOBJ);
-    lastPingObj.push_back(Pair("vin", mnb.lastPing.vin.prevout.ToString()));
-    lastPingObj.push_back(Pair("blockhash", mnb.lastPing.blockHash.ToString()));
-    lastPingObj.push_back(Pair("sigtime", mnb.lastPing.sigTime));
-    lastPingObj.push_back(Pair("sigvalid", mnb.lastPing.CheckSignature(mnb.pubKeyMasternode) ? "true" : "false"));
-    lastPingObj.push_back(Pair("vchsig", mnb.lastPing.GetSignatureBase64()));
-    lastPingObj.push_back(Pair("nMessVersion", mnb.lastPing.nMessVersion));
-
-    resultObj.push_back(Pair("lastping", lastPingObj));
-
-    return resultObj;
-}
-
-UniValue relaymasternodebroadcast(const JSONRPCRequest& request)
-{
-    if (request.fHelp || request.params.size() != 1)
-        throw std::runtime_error(
-            "relaymasternodebroadcast \"hexstring\"\n"
-            "\nCommand to relay masternode broadcast messages\n"
-
-            "\nArguments:\n"
-            "1. \"hexstring\"        (string) The hex encoded masternode broadcast message\n"
-
-            "\nExamples:\n" +
-            HelpExampleCli("relaymasternodebroadcast", "hexstring") + HelpExampleRpc("relaymasternodebroadcast", "hexstring"));
-
-
-    CMasternodeBroadcast mnb;
-
-    if (!DecodeHexMnb(mnb, request.params[0].get_str()))
-        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "Masternode broadcast message decode failed");
-
-    if(!mnb.CheckSignature())
-        throw JSONRPCError(RPC_INVALID_PARAMETER, "Masternode broadcast signature verification failed");
-
-    mnodeman.UpdateMasternodeList(mnb);
-    mnb.Relay();
-
-    return strprintf("Masternode broadcast sent (service %s, vin %s)", mnb.addr.ToString(), mnb.vin.ToString());
 }
 
 UniValue getactivequorum(const JSONRPCRequest& request)
@@ -726,9 +347,9 @@ UniValue getactivequorum(const JSONRPCRequest& request)
 
     bool fRotationActive = false;
     if (Params().NetworkID() == CBaseChainParams::MAIN) {
-        fRotationActive = (quorum.nHeight >= 1400);
+        fRotationActive = (quorum.nHeight >= 200);
     } else if (Params().NetworkID() == CBaseChainParams::TESTNET) {
-        fRotationActive = (quorum.nHeight >= 1000);
+        fRotationActive = (quorum.nHeight >= 200);
     } else {
         fRotationActive = (quorum.nHeight >= 800);
     }
@@ -744,9 +365,12 @@ UniValue getactivequorum(const JSONRPCRequest& request)
         seed = GetAdamSeed(chainActive[seedHeight]);
     }
 
-    const size_t threshold = llmq::GetQuorumThreshold(quorum.members.size(), quorum.nHeight);
+    const size_t threshold = llmq::GetQuorumThreshold(quorum.members.size());
 
     UniValue membersArr(UniValue::VARR);
+    const dip3::CDeterministicMNList tipMnList = deterministicMNManager
+        ? deterministicMNManager->GetListAtChainTip()
+        : dip3::CDeterministicMNList();
     for (size_t i = 0; i < quorum.members.size(); ++i) {
         const llmq::CQuorumMember& m = quorum.members[i];
         UniValue mObj(UniValue::VOBJ);
@@ -765,17 +389,16 @@ UniValue getactivequorum(const JSONRPCRequest& request)
                 }
             }
         }
-        CMasternode mn;
-        const bool hasMn = mnodeman.Get(CTxIn(m.collateralOutpoint), mn);
-        if (strAddr == EncodeDestination(m.pubKeyMasternode.GetID()) && hasMn && mn.pubKeyCollateralAddress.IsValid()) {
-            strAddr = EncodeDestination(mn.pubKeyCollateralAddress.GetID());
+        const dip3::CDeterministicMN* dmn = tipMnList.GetMNByCollateral(m.collateralOutpoint);
+        if (strAddr == EncodeDestination(m.pubKeyMasternode.GetID()) && dmn && dmn->state.pubKeyOwner.IsValid()) {
+            strAddr = EncodeDestination(dmn->state.pubKeyOwner.GetID());
         }
         mObj.push_back(Pair("addr", strAddr));
         mObj.push_back(Pair("status", "ENABLED"));
 
         std::string strIp = "On-Chain MN";
-        if (hasMn && mn.addr.IsValid()) {
-            strIp = mn.addr.ToString();
+        if (dmn && dmn->state.addr.IsValid()) {
+            strIp = dmn->state.addr.ToString();
         }
         mObj.push_back(Pair("ip", strIp));
         membersArr.push_back(mObj);
@@ -791,7 +414,7 @@ UniValue getactivequorum(const JSONRPCRequest& request)
     ret.push_back(Pair("seed", seed.ToString()));
     ret.push_back(Pair("threshold", (int)threshold));
     ret.push_back(Pair("developerFundAddress", Params().DeveloperFundAddress()));
-    ret.push_back(Pair("sporkPubKey", Params().GetConsensus().strSporkPubKey));
+    ret.push_back(Pair("treasuryPubKey", Params().GetConsensus().strTreasuryPubKey));
     ret.push_back(Pair("treasuryGovernanceStartHeight", Params().GetConsensus().nTreasuryGovernanceStartHeight));
     ret.push_back(Pair("members", membersArr));
     return ret;
@@ -898,12 +521,6 @@ static uint256 CreateAndSendProTx(const CScript& dummyScript, SignPayloadFn sign
         throw JSONRPCError(RPC_WALLET_ERROR, res.ToString());
     }
     return wtxSigned.GetHash();
-}
-
-static int GetProTxNextHeight()
-{
-    LOCK(cs_main);
-    return chainActive.Tip() ? (chainActive.Height() + 1) : 0;
 }
 
 static bool TryResolveLocalOperatorPoP(const COutPoint* pColOut, const CBLSPubKey& opPubKey, CBLSSignature& popOut)
@@ -1069,9 +686,6 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
         scriptPayout = GetScriptForDestination(payoutDest);
     }
 
-    const int nNextHeight = GetProTxNextHeight();
-    const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
-
     CBLSSignature blsPoP;
     if (pBlsPoP && pBlsPoP->IsValid()) {
         if (!pBlsPoP->VerifyPoP(opPubKey)) {
@@ -1082,13 +696,13 @@ bool RegisterDip3MasternodeFromWallet(const COutPoint& colOut,
     } else {
         TryResolveLocalOperatorPoP(&colOut, opPubKey, blsPoP);
     }
-    if (fHardeningV3 && (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey))) {
+    if (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey)) {
         strErrOut = "KTDIP3 ProRegTx v2 requires a valid BLS operator Proof-of-Possession (generate <public, pop> with 'protx bls_generate' or 'protx bls_pop').";
         return false;
     }
 
     dip3::CProRegTx ptx;
-    ptx.nVersion = (fHardeningV3 || blsPoP.IsValid()) ? 2 : 1;
+    ptx.nVersion = 2;
     ptx.collateralOutpoint = colOut;
     ptx.addr = addr;
     ptx.pubKeyOwner = ownerKey.GetPubKey();
@@ -1288,8 +902,6 @@ UniValue protx(const JSONRPCRequest& request)
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid payoutAddress");
         }
 
-        const int nNextHeight = GetProTxNextHeight();
-        const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
         CBLSSignature blsPoP;
         if (request.params.size() > 9 && !request.params[9].get_str().empty()) {
             std::vector<unsigned char> vchPoP = ParseHexV(request.params[9], "operatorBlsPoP");
@@ -1299,12 +911,12 @@ UniValue protx(const JSONRPCRequest& request)
         } else {
             TryResolveLocalOperatorPoP(&colOut, opPubKey, blsPoP);
         }
-        if (fHardeningV3 && (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey))) {
+        if (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey)) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "KTDIP3 ProRegTx v2 requires <operatorBlsPoP> (9th param) or local operator secret key");
         }
 
         dip3::CProRegTx ptx;
-        ptx.nVersion = (fHardeningV3 || blsPoP.IsValid()) ? 2 : 1;
+        ptx.nVersion = 2;
         ptx.collateralOutpoint = colOut;
         ptx.addr = addr;
         ptx.pubKeyOwner = ownerKey.GetPubKey();
@@ -1395,8 +1007,7 @@ UniValue protx(const JSONRPCRequest& request)
         ptx.proTxHash = proTxHash;
         ptx.addr = addr;
         ptx.scriptOperatorPayout = opPayout;
-        const int nNextHeight = GetProTxNextHeight();
-        const std::string& servDst = GetBLSDomainTag(BLSDomain::PROTX_UPSERV, IsHardeningV3Active(nNextHeight));
+        const std::string& servDst = GetBLSDomainTag(BLSDomain::PROTX_UPSERV);
         CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_UPSERV, ptx);
         uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
             ptx.inputsHash = inputsHash;
@@ -1443,8 +1054,6 @@ UniValue protx(const JSONRPCRequest& request)
         CTxDestination payoutDest = DecodeDestination(request.params[4].get_str());
         if (!IsValidDestination(payoutDest)) throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid payoutAddress");
 
-        const int nNextHeight = GetProTxNextHeight();
-        const bool fHardeningV3 = IsHardeningV3Active(nNextHeight);
         CBLSSignature blsPoP;
         if (request.params.size() > 5 && !request.params[5].get_str().empty()) {
             std::vector<unsigned char> vchPoP = ParseHexV(request.params[5], "operatorBlsPoP");
@@ -1454,12 +1063,12 @@ UniValue protx(const JSONRPCRequest& request)
         } else {
             TryResolveLocalOperatorPoP(&pmn->collateralOutpoint, opPubKey, blsPoP);
         }
-        if (fHardeningV3 && (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey))) {
+        if (!blsPoP.IsValid() || !blsPoP.VerifyPoP(opPubKey)) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "KTDIP3 ProUpRegTx v2 requires <operatorBlsPoP> (5th param) or local operator secret key");
         }
 
         dip3::CProUpRegTx ptx;
-        ptx.nVersion = (fHardeningV3 || blsPoP.IsValid()) ? 2 : 1;
+        ptx.nVersion = 2;
         ptx.proTxHash = proTxHash;
         ptx.blsPubKeyOperator = opPubKey;
         ptx.blsPoP = blsPoP;
@@ -1500,8 +1109,7 @@ UniValue protx(const JSONRPCRequest& request)
         ptx.nVersion = 1;
         ptx.proTxHash = proTxHash;
         ptx.nReason = (uint16_t)reason;
-        const int nNextHeight = GetProTxNextHeight();
-        const std::string& revDst = GetBLSDomainTag(BLSDomain::PROTX_UPREV, IsHardeningV3Active(nNextHeight));
+        const std::string& revDst = GetBLSDomainTag(BLSDomain::PROTX_UPREV);
         CScript dummyScript = dip3::BuildProTxScript(dip3::PROTX_UPREV, ptx);
         uint256 txHash = CreateAndSendProTx(dummyScript, [&](const uint256& inputsHash) {
             ptx.inputsHash = inputsHash;

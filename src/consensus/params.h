@@ -148,17 +148,6 @@ struct Params {
         }
     }
 
-    void GetAdamCoordinatorWeights(int nBlockHeight, uint64_t& wMnOut, uint64_t& wCoinLockOut, uint64_t& wPoWLockOut) const
-    {
-        wMnOut = ADAM_COORD_WEIGHT_MASTERNODE;
-        if (nAdamCoordWeightV2Height > 0 && nBlockHeight >= nAdamCoordWeightV2Height) {
-            wCoinLockOut = ADAM_COORD_WEIGHT_COIN_LOCK_V2;
-            wPoWLockOut = ADAM_COORD_WEIGHT_POW_LOCK_V2;
-        } else {
-            wCoinLockOut = ADAM_COORD_WEIGHT_COIN_LOCK;
-            wPoWLockOut = ADAM_COORD_WEIGHT_POW_LOCK;
-        }
-    }
     int nAdamQuorumEnforcementHeight;
     int nAdamDualTrackHeight;
     int nAdamOpenEntryHeight;
@@ -171,18 +160,12 @@ struct Params {
         const bool fModelD = (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_MODELD));
         const int nBaseTarget = fModelD ? nAdamThresholdModelD : nAdamThreshold;
         const int nMnQuota = fModelD ? ADAM_MODELD_MASTERNODE_TRACK_QUOTA : ADAM_MASTERNODE_TRACK_QUOTA;
-        if (nHeight >= 0 && NetworkUpgradeActive(nHeight, UPGRADE_HARDENING_V4)) {
-            if (nHeight < nAdamThresholdBootstrapLimit) {
-                // Under Model D + V4, enforce 8 > 7 non-MN seats as soon as the active MN quota exists.
-                if (fModelD && nActiveMasternodes >= nMnQuota) {
-                    return nAdamThresholdModelD;
-                }
-                return (nBaseTarget < 5) ? nBaseTarget : 5;
+        if (nHeight >= 0 && nHeight < nAdamThresholdBootstrapLimit) {
+            // Under Model D, enforce 8 > 7 non-MN seats as soon as the active MN quota exists.
+            if (fModelD && nActiveMasternodes >= nMnQuota) {
+                return nAdamThresholdModelD;
             }
-            return nBaseTarget;
-        }
-        if (nHeight < nAdamThresholdBootstrapLimit && nHeight >= 0) {
-            return 5; // Bootstrap threshold for Mainnet/Regtest
+            return (nBaseTarget < 5) ? nBaseTarget : 5;
         }
         return nBaseTarget;
     }
@@ -221,11 +204,8 @@ struct Params {
     // burn addresses
     std::map<std::string, int> mBurnAddresses = {};
 
-    // spork keys
-    std::string strSporkPubKey;
-    std::string strSporkPubKeyOld;
-    int64_t nTime_EnforceNewSporkKey;
-    int64_t nTime_RejectOldSporkKey;
+    // developer treasury key
+    std::string strTreasuryPubKey;
 
     // Map with network updates
     NetworkUpgrade vUpgrades[MAX_NETWORK_UPGRADES];

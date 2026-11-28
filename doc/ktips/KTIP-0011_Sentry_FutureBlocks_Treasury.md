@@ -13,7 +13,7 @@ This proposal specifies three infrastructure and governance hardening mechanisms
 ## Motivation
 1. **Validator IP Protection**: Active Masternodes and Validators hold consensus signing keys (`activemasternode.conf`). Exposing their public IP addresses directly to untrusted peers makes them vulnerable to volumetric DDoS attacks.
 2. **Future-Block Queue Stuffing DoS (`SEC-04`)**: Nodes must tolerate minor NTP clock drift by queuing blocks whose timestamp is slightly ahead of local adjusted time (`time-too-new`). Without structural header pre-verification, a `+300s` drift ceiling, and bounded eviction, an attacker could fill `mapFutureBlocks` with fake far-future blocks and prevent legitimate blocks from being queued.
-3. **Trustless Developer Treasury Spending (`SEC-09`)**: The 7.0% Developer Treasury accumulates protocol development funds on-chain. Spending from `Params().DeveloperFundAddress()` must require both Spork ECDSA authorization and cryptographic dynamic `2/3` BFT threshold authorization ($\lfloor 2N / 3 \rfloor + 1$: `4-of-5` baseline scaling `5->9->11->15` up to `11-of-15` under `UPGRADE_HARDENING_V4`; pre-V4 `3-of-5`..`8-of-15`) from the active LLMQ quorum rather than a single unilateral key, including across multi-input transactions.
+3. **Trustless Developer Treasury Spending (`SEC-09`)**: The 7.0% Developer Treasury accumulates protocol development funds on-chain. Spending from `Params().DeveloperFundAddress()` must require both Treasury ECDSA authorization and cryptographic dynamic `2/3` BFT threshold authorization ($\lfloor 2N / 3 \rfloor + 1$: `4-of-5` baseline scaling `5->9->11->15` up to `11-of-15` under `UPGRADE_HARDENING_V4`; pre-V4 `3-of-5`..`8-of-15`) from the active LLMQ quorum rather than a single unilateral key, including across multi-input transactions.
 
 ## Specification
 
@@ -35,15 +35,15 @@ When `ProcessMessage` (`"headers"` or `"block"` in `src/main.cpp`) encounters a 
 ---
 
 ### 3. LLMQ Dynamic BFT Threshold Developer Treasury Governance (`SEC-09`)
-Starting at `consensus.nTreasuryGovernanceStartHeight` (`5,000` on `CMainParams` / Mainnet, `200` on `CTestNetParams` / Testnet, `100` on Regtest; spends below this height fail with `bad-txns-spend-devfund-early`), any transaction spending one or more UTXOs from `Params().DeveloperFundAddress()` (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` on Mainnet, `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` on Testnet) is validated by `CheckInputs` and `ConnectBlock` (`src/main.cpp`) as follows:
+Starting at `consensus.nTreasuryGovernanceStartHeight` (`200` on `CMainParams` / Mainnet and `CTestNetParams` / Testnet, `100` on Regtest; spends below this height fail with `bad-txns-spend-devfund-early`), any transaction spending one or more UTXOs from `Params().DeveloperFundAddress()` (`KTeRC2Kj8hXcuzRohxPp2LtYFRJm2BceRoP` on Mainnet, `ktEooARF3HdV8w59LUc5jaHrS7GBL7974Uy` on Testnet) is validated by `CheckInputs` and `ConnectBlock` (`src/main.cpp`) as follows:
 
 1. **Multi-Input `txTmp.GetHash()` Normalization (`SEC-09`)**:
    - Each input spending from `Params().DeveloperFundAddress()` carries a `scriptSig` with three stack pushes: `<ecdsaSig> <pubKey> <qsig>` (fewer than 3 pushes fails with `bad-txns-missing-quorum-sig`; invalid serialization fails with `bad-txns-malformed-quorum-sig`).
    - To compute the canonical transaction hash (`txHash`) that the LLMQ quorum signed, the verifier constructs a normalized copy `txTmp` in which the 3rd push (`<qsig>`) is stripped from **every** input spending `Params().DeveloperFundAddress()`, leaving only `<ecdsaSig> <pubKey>`, and computes `txHash = txTmp.GetHash()`.
-2. **LLMQ Dynamic BFT Quorum Signature & Spork Key Verification**:
+2. **LLMQ Dynamic BFT Quorum Signature & Treasury Key Verification**:
    - The `<qsig>` byte vector is deserialized into `CQuorumSignature` with `qsig.blockHash = txTmp.GetHash()`.
    - `qsig.Verify(quorum)` verifies that a dynamic `2/3` BFT threshold (`llmq::GetQuorumThreshold(N, h)` / $\lfloor 2N / 3 \rfloor + 1$: `4-of-5` baseline scaling `5->9->11->15` up to `11-of-15` under `UPGRADE_HARDENING_V4` [Height `1`]; pre-V4 $\lfloor N / 2 \rfloor + 1$: `3-of-5`..`8-of-15`) of active LLMQ members at the spend height signed `txHash` using their BLS12-381 keys (`CBLSSignature::Aggregate` pairing check); failure rejects the transaction with `bad-txns-invalid-quorum-sig` (`Misbehaving(100)`).
-   - Finally, `<ecdsaSig> <pubKey>` (`scriptSigOverride`) is verified by `CScriptCheck` against `Params().GetConsensus().strSporkPubKey`.
+   - Finally, `<ecdsaSig> <pubKey>` (`scriptSigOverride`) is verified by `CScriptCheck` against `Params().GetConsensus().strTreasuryPubKey`.
 
 ## Backward Compatibility
 * Sentry Node deployment uses standard KRISTA Core configuration flags compatible with all P2P peers.

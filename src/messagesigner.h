@@ -9,7 +9,6 @@
 #define MESSAGESIGNER_H
 
 #include "key.h"
-#include "primitives/transaction.h" // for CTxIn
 
 enum MessageVersion {
         MESS_VER_STRMESS    = 0,
@@ -44,50 +43,6 @@ public:
     static bool VerifyHash(const uint256& hash, const CPubKey& pubkey, const std::vector<unsigned char>& vchSig, std::string& strErrorRet);
     /// Verify the hash signature, returns true if successful
     static bool VerifyHash(const uint256& hash, const CKeyID& keyID, const std::vector<unsigned char>& vchSig, std::string& strErrorRet);
-};
-
-/** Base Class for all signed messages on the network
- */
-class CSignedMessage
-{
-protected:
-    std::vector<unsigned char> vchSig;
-    void swap(CSignedMessage& first, CSignedMessage& second); // Swap two messages
-
-public:
-    int nMessVersion;
-
-    CSignedMessage() :
-        vchSig(),
-        nMessVersion(MessageVersion::MESS_VER_HASH)
-    {}
-    CSignedMessage(const CSignedMessage& other)
-    {
-        vchSig = other.GetVchSig();
-        nMessVersion = other.nMessVersion;
-    }
-    virtual ~CSignedMessage() {};
-
-    // Sign-Verify message
-    bool Sign(const CKey& key, const CPubKey& pubKey);
-    bool Sign(const std::string strSignKey);
-    bool CheckSignature(const CPubKey& pubKey) const;
-    bool CheckSignature() const;
-
-    // Pure virtual functions (used in Sign-Verify functions)
-    // Must be implemented in child classes
-    virtual uint256 GetSignatureHash() const = 0;
-    virtual std::string GetStrMessage() const = 0;
-    virtual const CTxIn GetVin() const = 0;
-
-    // GetPublicKey defaults to public key of masternode with vin from GetVin.
-    // Child classes can override if public key is directly accessible.
-    virtual const CPubKey GetPublicKey(std::string& strErrorRet) const;
-
-    // Setters and getters
-    void SetVchSig(const std::vector<unsigned char>& vchSigIn) { vchSig = vchSigIn; }
-    std::vector<unsigned char> GetVchSig() const { return vchSig; }
-    std::string GetSignatureBase64() const;
 };
 
 #endif

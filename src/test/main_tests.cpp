@@ -21,10 +21,7 @@
 #include "consensus/validation.h"
 #include <limits>
 #include "kernel.h"
-#include "legacy/stakemodifier.h"
 #include "policy/policy.h"
-#include "spork.h"
-#include "sporkdb.h"
 #include "stakeinput.h"
 
 BOOST_FIXTURE_TEST_SUITE(main_tests, TestingSetup)
@@ -232,24 +229,27 @@ BOOST_AUTO_TEST_CASE(debug_block_hashing)
 
 BOOST_AUTO_TEST_CASE(adam_pow_limits_test)
 {
-    // Test GetZeroCoinPoWLimit for Mainnet
+    // Test GetZeroCoinPoWLimit for Mainnet, Testnet, Regtest (HashX11KVS + Fairness)
     uint256 mainZeroLimit = GetZeroCoinPoWLimit("main");
-    BOOST_CHECK_EQUAL(mainZeroLimit.GetHex(), uint256S("000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    BOOST_CHECK_EQUAL(mainZeroLimit.GetHex(), uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
-    // Test GetZeroCoinPoWLimit for Testnet
     uint256 testZeroLimit = GetZeroCoinPoWLimit("test");
-    BOOST_CHECK_EQUAL(testZeroLimit.GetHex(), uint256S("00007fffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    BOOST_CHECK_EQUAL(testZeroLimit.GetHex(), uint256S("000fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
-    // Test GetZeroCoinPoWLimit for Regtest
     uint256 regtestZeroLimit = GetZeroCoinPoWLimit("regtest");
     BOOST_CHECK_EQUAL(regtestZeroLimit.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
 
-    // Verify GetZeroCoinPoWLimit is a larger target (fewer leading zero bits) than GetMinerPoWLimit (both legacy and V2)
-    uint256 mainMinerLimit = GetMinerPoWLimit("main", false);
-    BOOST_CHECK(mainZeroLimit > mainMinerLimit);
-    uint256 mainZeroLimitV2 = GetZeroCoinPoWLimit("main", true);
-    uint256 mainMinerLimitV2 = GetMinerPoWLimit("main", true);
-    BOOST_CHECK(mainZeroLimitV2 > mainMinerLimitV2);
+    // Test GetMinerPoWLimit for Mainnet, Testnet, Regtest (HashX11KVS)
+    uint256 mainMinerLimit = GetMinerPoWLimit("main");
+    BOOST_CHECK_EQUAL(mainMinerLimit.GetHex(), uint256S("0001ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    uint256 testMinerLimit = GetMinerPoWLimit("test");
+    BOOST_CHECK_EQUAL(testMinerLimit.GetHex(), uint256S("0007ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+    uint256 regtestMinerLimit = GetMinerPoWLimit("regtest");
+    BOOST_CHECK_EQUAL(regtestMinerLimit.GetHex(), uint256S("00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff").GetHex());
+
+    // Mainnet equalizes Zero-Coin and Funded PoW-Lock registration work (15 zero bits); Testnet Zero-Coin is larger target
+    BOOST_CHECK(mainZeroLimit == mainMinerLimit);
+    BOOST_CHECK(testZeroLimit > testMinerLimit);
 }
 
 BOOST_AUTO_TEST_CASE(adam_pow_registration_script_matching_test)
@@ -396,42 +396,21 @@ BOOST_AUTO_TEST_CASE(phase2_m3_m7_l1_regression_test)
     const CBaseChainParams::Network prevNet = Params().NetworkID();
     const CAmount savedSupply = nMoneySupply;
     CBlockIndex* const pOrigTip = chainActive.Tip();
-    CSporkDB* const origSporkDb = pSporkDB;
-    std::vector<uint256> vHashes;
-    std::vector<CBlockIndex*> vIndices;
     struct Cleanup {
         CBaseChainParams::Network net;
         CAmount supply;
         CBlockIndex* tip;
-        CSporkDB* sporkDb;
-        std::vector<uint256>& hashes;
-        std::vector<CBlockIndex*>& idxs;
         ~Cleanup() {
-            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
             nMoneySupply = supply;
-            pSporkDB = sporkDb;
             chainActive.SetTip(tip);
-            for (size_t i = 0; i < idxs.size(); ++i) {
-                mapBlockIndex.erase(hashes[i]);
-                delete idxs[i];
-            }
-            sporkManager.Clear();
             SelectParams(net);
         }
-    } cleanup{prevNet, savedSupply, pOrigTip, origSporkDb, vHashes, vIndices};
+    } cleanup{prevNet, savedSupply, pOrigTip};
 
-    // 1. L-1: CMasternode::GetBlockValue under UPGRADE_HARDENING_V3 is height-pure and independent of global nMoneySupply
+    // 1. L-1: CMasternode::GetBlockValue is height-pure and independent of global nMoneySupply
     nMoneySupply = Params().GetConsensus().nMaxMoneyOut + 1000 * COIN;
     BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 17 * COIN);
     BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(259202), 1663450000LL);
-    {
-        SelectParams(CBaseChainParams::REGTEST);
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-        nMoneySupply = Params().GetConsensus().nMaxMoneyOut;
-        BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 0); // Pre-V3 still checked mutable nMoneySupply
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
-        SelectParams(CBaseChainParams::MAIN);
-    }
     nMoneySupply = 0;
     BOOST_CHECK_EQUAL(CMasternode::GetBlockValue(2), 17 * COIN);
 
@@ -487,54 +466,16 @@ BOOST_AUTO_TEST_CASE(phase2_m3_m7_l1_regression_test)
         BOOST_CHECK(!CheckProofOfStake(posBlk, posErr, &idxNoV2, pcoinsTip));
         BOOST_CHECK_EQUAL(posErr, "missing-v2-stake-modifier");
         pcoinsTip->SpendCoin(stakePrevOut);
-
-        // M-3 Fork/Branch Isolation in ComputeNextStakeModifier (chainActive vs non-active fork)
-        CBlock forkBlk;
-        CBlockIndex* pFork1 = new CBlockIndex(forkBlk);
-        pFork1->nHeight = pOrigTip->nHeight + 1;
-        pFork1->pprev = pOrigTip;
-        pFork1->SetStakeModifier(0x123456789abcdef0ULL, true);
-        vHashes.push_back(GetRandHash());
-        auto ins1 = mapBlockIndex.insert(std::make_pair(vHashes.back(), pFork1));
-        pFork1->phashBlock = &(ins1.first->first);
-        pFork1->BuildSkip();
-        vIndices.push_back(pFork1);
-
-        uint64_t nextMod = 0;
-        bool fGenMod = false;
-        BOOST_CHECK(ComputeNextStakeModifier(pFork1, nextMod, fGenMod));
     }
 
-    // 3. M-7: Spork mutex/DB safety & SPORK_105_MAX_BLOCK_SIZE ignored after UPGRADE_HARDENING_V3
+    // 3. Treasury key integrity: consensus strTreasuryPubKey is valid across Mainnet, Testnet, and Regtest
     {
-        SelectParams(CBaseChainParams::REGTEST);
-        CSporkDB memSporkDb(0, true, false);
-        pSporkDB = &memSporkDb;
-        CSporkMessage corrupt(SPORK_105_MAX_BLOCK_SIZE, 1000, GetTime());
-        corrupt.SetVchSig({0x01, 0x02, 0x03});
-        BOOST_REQUIRE(pSporkDB->WriteSpork(SPORK_105_MAX_BLOCK_SIZE, corrupt));
-        sporkManager.Clear();
-        sporkManager.LoadSporksFromDB();
-        // Corrupt spork entry must NOT be loaded as active
-        BOOST_CHECK(!sporkManager.HaveSpork(corrupt.GetHash()));
-
-        // ProcessSpork ignores SPORK_105_MAX_BLOCK_SIZE after UPGRADE_HARDENING_V3
-        CBlockIndex* pRecent = new CBlockIndex();
-        pRecent->nHeight = 10;
-        pRecent->pprev = pOrigTip;
-        pRecent->nTime = static_cast<unsigned int>(GetTime());
-        vHashes.push_back(GetRandHash());
-        auto ins = mapBlockIndex.insert(std::make_pair(vHashes.back(), pRecent));
-        pRecent->phashBlock = &(ins.first->first);
-        vIndices.push_back(pRecent);
-        chainActive.SetTip(pRecent);
-
-        CSporkMessage p2pSpork105(SPORK_105_MAX_BLOCK_SIZE, 262144, GetTime());
-        CDataStream ssSpk(SER_NETWORK, PROTOCOL_VERSION);
-        ssSpk << p2pSpork105;
-        std::string cmd = NetMsgType::SPORK;
-        sporkManager.ProcessSpork(nullptr, cmd, ssSpk);
-        BOOST_CHECK(!sporkManager.HaveSpork(p2pSpork105.GetHash()));
+        for (const auto net : {CBaseChainParams::MAIN, CBaseChainParams::TESTNET, CBaseChainParams::REGTEST}) {
+            const std::string& hexKey = Params(net).GetConsensus().strTreasuryPubKey;
+            BOOST_CHECK(!hexKey.empty());
+            CPubKey pubKey(ParseHex(hexKey));
+            BOOST_CHECK(pubKey.IsValid());
+        }
     }
 
     // 4. V4 Stage 1 regressions: C-1 out-of-order StakeModifier guard, H-3 PoW coinstake ban, H-1/M-6 overflow guards

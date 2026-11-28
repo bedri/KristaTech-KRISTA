@@ -28,14 +28,11 @@ std::map<CPubKey, PinnedBLSEntry> g_mapPinnedBLSPubKeys;
 
 const std::string BLS_DST = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_";
 
-const std::string& GetBLSDomainTag(BLSDomain domain, bool fHardeningV3)
+const std::string& GetBLSDomainTag(BLSDomain domain)
 {
     static const std::string kPopDst = "BLS_POP_BLS12381G2_XMD:SHA-256_SSWU_RO_POP_KRISTA_DIP3_POP_V1_";
     if (domain == BLSDomain::PROTX_POP) {
         return kPopDst;
-    }
-    if (!fHardeningV3) {
-        return BLS_DST;
     }
     static const std::string kAdamVrfDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_ADAM_VRF_V1_";
     static const std::string kAdamCoordDst = "BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_KRISTA_ADAM_COORD_V1_";
@@ -227,7 +224,7 @@ bool CBLSSignature::SignPoP(const CBLSSecretKey& sk) {
         bls_sk.from_bendian(sk.begin());
 
         blst::P2 sig;
-        sig.hash_to(pk.begin(), 48, GetBLSDomainTag(BLSDomain::PROTX_POP, true));
+        sig.hash_to(pk.begin(), 48, GetBLSDomainTag(BLSDomain::PROTX_POP));
         sig.sign_with(bls_sk);
         sig.compress(data);
         memory_cleanse(&bls_sk, sizeof(bls_sk));
@@ -245,7 +242,7 @@ bool CBLSSignature::VerifyPoP(const CBLSPubKey& pk) const {
         blst::P2_Affine sig_affine(data, 96);
         blst::P1_Affine pk_affine(pk.begin(), 48);
 
-        blst::BLST_ERROR err = sig_affine.core_verify(pk_affine, true, pk.begin(), 48, GetBLSDomainTag(BLSDomain::PROTX_POP, true));
+        blst::BLST_ERROR err = sig_affine.core_verify(pk_affine, true, pk.begin(), 48, GetBLSDomainTag(BLSDomain::PROTX_POP));
         return err == blst::BLST_SUCCESS;
     } catch (...) {
         return false;
@@ -395,7 +392,7 @@ bool HasExactBLSSignedDataEncoding(const std::vector<unsigned char>& vchData) {
     }
 }
 
-bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsSigOut, const std::string& dst, bool fRequireEmptyEcdsa) {
+bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperatorBlsPubKey, const std::vector<unsigned char>& vchSig, CBLSPubKey* pBlsPubKeyOut, CBLSSignature* pBlsSigOut, const std::string& dst) {
     if (vchSig.empty() || !expectedOperatorBlsPubKey.IsValid()) return false;
     try {
         CDataStream ss(vchSig, SER_NETWORK, PROTOCOL_VERSION);
@@ -404,7 +401,7 @@ bool VerifyDip3OperatorBLS(const uint256& hash, const CBLSPubKey& expectedOperat
         if (!ss.empty()) {
             return false;
         }
-        if (fRequireEmptyEcdsa && !signedData.ecdsaSig.empty()) {
+        if (!signedData.ecdsaSig.empty()) {
             return false;
         }
         if (!signedData.blsPubKey.IsValid() || !signedData.blsSig.IsValid()) {
@@ -634,7 +631,7 @@ void ImportPinnedBLSPubKeys(const std::map<CPubKey, std::pair<CBLSPubKey, int>>&
     ImportPinnedBLSPubKeysWithHashes(mapIn, std::map<CPubKey, uint256>(), nMaxHeight);
 }
 
-bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig, const std::string& dst, bool fStrictDER, const PinActivePredicate& fnIsPinActive) {
+bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey, const std::vector<unsigned char>& vchSig, const std::string& dst, const PinActivePredicate& fnIsPinActive) {
     if (vchSig.empty() || !ecdsaPubKey.IsValid()) {
         return false;
     }
@@ -650,10 +647,7 @@ bool VerifyBLSWithECDSAFallback(const uint256& hash, const CPubKey& ecdsaPubKey,
         // Verify BLS12-381 signature with secp256k1 ownership authorization and on-chain BLS key pinning
         if (signedData.blsPubKey.IsValid() && signedData.blsSig.IsValid()) {
             uint256 hashPubKey = Hash(signedData.blsPubKey.begin(), signedData.blsPubKey.end());
-            const bool fEcdsaOk = fStrictDER
-                ? ecdsaPubKey.VerifyStrictDER(hashPubKey, signedData.ecdsaSig)
-                : ecdsaPubKey.Verify(hashPubKey, signedData.ecdsaSig);
-            if (!fEcdsaOk) {
+            if (!ecdsaPubKey.VerifyStrictDER(hashPubKey, signedData.ecdsaSig)) {
                 return false;
             }
             CBLSPubKey pinnedBlsPubKey;

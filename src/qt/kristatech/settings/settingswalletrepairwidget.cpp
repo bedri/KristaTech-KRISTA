@@ -494,7 +494,7 @@ void SettingsWalletRepairWidget::walletReindex()
 void SettingsWalletRepairWidget::walletResync()
 {
     QString resyncWarning = tr("<b>Delete Local Blockchain &amp; Resync (-resync)</b><br/><br/>"
-                               "This will erase your local <code>blocks</code>, <code>chainstate</code>, and <code>sporks</code> folders and synchronize the entire KristaTech blockchain from scratch.<br/><br/>"
+                               "This will erase your local <code>blocks</code> and <code>chainstate</code> folders and synchronize the entire KristaTech blockchain from scratch.<br/><br/>"
                                "Your <code>wallet.dat</code> keys are NOT deleted, and your funds will reappear once synchronization completes.<br/><br/>"
                                "Are you sure you want to delete local chain data and resync?");
     if (!confirmRepairAction(tr("Confirm Full Blockchain Resync"), resyncWarning, tr("DELETE && RESYNC"), true)) {

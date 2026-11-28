@@ -23,7 +23,6 @@
 #include "main.h"
 #include "miner.h"
 #include "rpc/server.h"
-#include "spork.h"
 #include "sync.h"
 #include "guiinterface.h"
 #include "wallet/wallet.h"

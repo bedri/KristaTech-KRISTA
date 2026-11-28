@@ -25,7 +25,7 @@
 #include "evo/deterministicmns.h"
 #include "init.h"
 #include "masternode-sync.h"
-#include "masternodeman.h"
+#include "masternode.h"
 #include "wallet/wallet.h"
 
 #include <algorithm>
@@ -823,18 +823,8 @@ void TopBar::setNumBlocks(int count)
             refreshStatus();
             return;
         } else {
-            // TODO: Show out of sync warning
-            int nAttempt = masternodeSync.RequestedMasternodeAttempt < MASTERNODE_SYNC_THRESHOLD ?
-                               masternodeSync.RequestedMasternodeAttempt + 1 :
-                               MASTERNODE_SYNC_THRESHOLD;
-            int progress = nAttempt + (masternodeSync.RequestedMasternodeAssets - 1) * MASTERNODE_SYNC_THRESHOLD;
-            if (progress >= 0) {
-                // todo: MN progress..
-                text = strprintf("%s - Block: %d", masternodeSync.GetSyncStatus(), count);
-                //progressBar->setMaximum(4 * MASTERNODE_SYNC_THRESHOLD);
-                //progressBar->setValue(progress);
-                needState = false;
-            }
+            text = strprintf("%s - Block: %d", masternodeSync.GetSyncStatus(), count);
+            needState = false;
         }
     } else {
         Q_EMIT walletSynced(false);
@@ -983,7 +973,6 @@ void TopBar::refreshMasternodeStatus(bool force)
             for (const CMasternodeWalletRecord& rec : pwalletMain->GetAllMasternodeMeta()) {
                 if (rec.collateralOutpoint.IsNull()) continue;
                 nMNCount++;
-                CTxIn txIn(rec.collateralOutpoint);
                 const dip3::CDeterministicMN* dip3Mn = dip3List.GetMNByCollateral(rec.collateralOutpoint);
                 if (dip3Mn) {
                     seenDip3Collaterals.insert(rec.collateralOutpoint);
@@ -992,15 +981,6 @@ void TopBar::refreshMasternodeStatus(bool force)
                         nMNActive++;
                     }
                     continue;
-                }
-                if (!isSynced) continue;
-
-                CMasternode mn;
-                if (!mnodeman.Get(txIn, mn)) continue;
-
-                int activeState = mn.activeState;
-                if (activeState == CMasternode::MASTERNODE_PRE_ENABLED || activeState == CMasternode::MASTERNODE_ENABLED) {
-                    nMNActive++;
                 }
             }
         }

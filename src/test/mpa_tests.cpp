@@ -10,7 +10,8 @@
 #include "main.h"
 #include "chainparams.h"
 #include "masternode-payments.h"
-#include "masternodeman.h"
+#include "masternode.h"
+#include "messagesigner.h"
 #include "core_io.h"
 #include "consensus/merkle.h"
 #include "consensus/validation.h"
@@ -72,19 +73,20 @@ BOOST_AUTO_TEST_CASE(mpa_weight_decay_and_decay_limit_test)
     BOOST_CHECK_EQUAL(weight, 50 * COIN);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
 
-    // Test Proof of Burn (PoB) decay logic
-    // Add burn transaction to burn cache at height 450
-    AddBurnToCache(dest, 10 * COIN, 450);
+    // Test outpoint Proof of Burn (PoB) decay logic
+    COutPoint pobDecayOut(uint256S("0x5555666677778888555566667777888855556666777788885555666677778888"), 0);
+    AddOutpointBurnToCache(pobDecayOut, 10 * COIN, 450);
 
     // Height 500: T = 50. Decay should be: 1.0 - 50 / nBurnDecayBlocks.
     int nBurnDecayBlocks = Params().GetConsensus().nBurnDecayBlocks;
     double decay = 1.0 - 50.0 / (double)nBurnDecayBlocks;
-    weight = GetActiveBurnWeight(dest, 500);
+    weight = GetOutpointBurnWeight(pobDecayOut, 500);
     BOOST_CHECK_EQUAL(weight, (CAmount)(10 * COIN * 5.0 * decay));
 
     // Height past decay limit: T = nBurnDecayBlocks + 50. Weight must be 0
-    weight = GetActiveBurnWeight(dest, 450 + nBurnDecayBlocks + 50);
+    weight = GetOutpointBurnWeight(pobDecayOut, 450 + nBurnDecayBlocks + 50);
     BOOST_CHECK_EQUAL(weight, 0);
+    RemoveOutpointBurnFromCache(pobDecayOut, 10 * COIN, 450);
 }
 
 BOOST_AUTO_TEST_CASE(mescal_drop_compilation_test)
@@ -179,7 +181,7 @@ BOOST_AUTO_TEST_CASE(taproot_rpc_hang_test)
 
 BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
 {
-    // Height 5500 -> nHeight = 5501 (above UPGRADE_POMBL activation height 4800 on Mainnet)
+    // Height 5500 -> nHeight = 5501 (above UPGRADE_POMBL activation height 200 on Mainnet)
     CBlockIndex indexPrev;
     indexPrev.nHeight = 5500;
     const int nHeight = indexPrev.nHeight + 1;
@@ -233,55 +235,6 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pol_and_pob_integration_test)
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
     pcoinsTip->SpendCoin(otherSameAddrOut);
 
-    // 3b & 4. Pre-V3 address-based PoB + Multi-UTXO Splitting Invariance (scoped Regtest !UPGRADE_HARDENING_V3)
-    {
-        struct ScopedPreV3Guard {
-            CBaseChainParams::Network prevNet;
-            explicit ScopedPreV3Guard() : prevNet(Params().NetworkID()) {
-                SelectParams(CBaseChainParams::REGTEST);
-                UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-            }
-            ~ScopedPreV3Guard() {
-                UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
-                SelectParams(prevNet);
-            }
-        } preV3Guard;
-
-        AddBurnToCache(dest, 20 * COIN, 5451);
-        CAmount expectedBurnWeight = GetActiveBurnWeight(dest, nHeight);
-        BOOST_CHECK_GT(expectedBurnWeight, 0);
-
-        CAmount totalPobWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
-        BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POB);
-        BOOST_CHECK_EQUAL(totalPobWeight, 100 * COIN + expectedBurnWeight);
-
-        RemoveBurnFromCache(dest, 20 * COIN, 5451);
-        BOOST_CHECK_EQUAL(GetActiveBurnWeight(dest, nHeight), 0);
-        CAmount posFallbackWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
-        BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POS);
-        BOOST_CHECK_EQUAL(posFallbackWeight, 100 * COIN);
-
-        AddBurnToCache(dest, 100 * COIN, nHeight);
-        BOOST_CHECK_EQUAL(GetActiveBurnWeight(dest, nHeight), 500 * COIN);
-        const CAmount singleHundredWeight = CalculateMPAWeight(pobOut, 100 * COIN, GetTime(), &indexPrev, weightType);
-        BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POB);
-        BOOST_CHECK_EQUAL(singleHundredWeight, 600 * COIN);
-
-        CAmount splitSumWeight = 0;
-        for (uint32_t idx = 0; idx < 100; ++idx) {
-            COutPoint splitOut(uint256S("1111000011110000111100001111000011110000111100001111000011110099"), idx);
-            pcoinsTip->AddCoin(splitOut, Coin(CTxOut(1 * COIN, p2pkhScript), 5400, false, false), true);
-            int splitType = -1;
-            const CAmount wSplit = CalculateMPAWeight(splitOut, 1 * COIN, GetTime(), &indexPrev, splitType);
-            BOOST_CHECK_EQUAL(splitType, MPA_WEIGHT_POB);
-            BOOST_CHECK_EQUAL(wSplit, 6 * COIN); // 1 COIN + min(500 COIN, 1 COIN * 5) = 6 COIN
-            splitSumWeight += wSplit;
-            pcoinsTip->SpendCoin(splitOut);
-        }
-        BOOST_CHECK_EQUAL(splitSumWeight, singleHundredWeight);
-        RemoveBurnFromCache(dest, 100 * COIN, nHeight);
-    }
-
     // 5. C-04: OP_CHECKSEQUENCEVERIFY PoL decays dynamically with remaining relative lock blocks (coin height -> chain height)
     {
         CScript csvScript = CScript() << CScriptNum(1000) << OP_CHECKSEQUENCEVERIFY << OP_DROP
@@ -320,37 +273,38 @@ BOOST_AUTO_TEST_CASE(mpa_weight_pom_test)
     COutPoint mnOutpoint(uint256S("2222000022220000222200002222000022220000222200002222000022220001"), 0);
 
     CScript mnCoinScript = GetScriptForDestination(mnKey.GetPubKey().GetID());
-    pcoinsTip->AddCoin(mnOutpoint, Coin(CTxOut(10000 * COIN, mnCoinScript), 5000, false, false), true);
+    const CAmount nCollAmt = CMasternode::GetMasternodeNodeCollateral(5000);
+    pcoinsTip->AddCoin(mnOutpoint, Coin(CTxOut(nCollAmt, mnCoinScript), 5000, false, false), true);
 
-    CMasternode mn;
-    mn.vin = CTxIn(mnOutpoint);
-    mn.pubKeyMasternode = mnKey.GetPubKey();
-    mn.sigTime = GetTime() - 3600;
-    mn.protocolVersion = PROTOCOL_VERSION;
-    mn.nBlockEnabled = 5000;
-    mnodeman.Add(mn);
+    BOOST_CHECK(RegisterOnChainMasternodePing(mnKey.GetPubKey(), mnOutpoint, 5000));
+    BOOST_CHECK(RegisterOnChainMasternodePing(mnKey.GetPubKey(), mnOutpoint, 5500));
 
     int weightType = -1;
-    CAmount pomWeight = CalculateMPAWeight(mnOutpoint, 10000 * COIN, GetTime(), &indexPrev, weightType);
+    CAmount pomWeight = CalculateMPAWeight(mnOutpoint, nCollAmt, GetTime(), &indexPrev, weightType);
     // Under UPGRADE_FAIRNESS, PoM is active with reduced alpha = 0.25 (max 1.25x uptime loyalty bonus)
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
-    BOOST_CHECK_GT(pomWeight, 10000 * COIN);
-    BOOST_CHECK_LE(pomWeight, 12500 * COIN);
+    BOOST_CHECK_GT(pomWeight, nCollAmt);
+    BOOST_CHECK_LE(pomWeight, nCollAmt + nCollAmt / 4);
 
     // Half-limit uptime on Mainnet (limit = 100,000; coinHeight = 5,000; nHeight = 55,000 -> t_active = 50,000) => 1.125x
     indexPrev.nHeight = 54999;
-    CAmount pomHalf = CalculateMPAWeight(mnOutpoint, 10000 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK(RegisterOnChainMasternodePing(mnKey.GetPubKey(), mnOutpoint, 54900));
+    CAmount pomHalf = CalculateMPAWeight(mnOutpoint, nCollAmt, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
-    BOOST_CHECK_EQUAL(pomHalf, 11250 * COIN);
+    BOOST_CHECK_EQUAL(pomHalf, nCollAmt + nCollAmt / 8);
 
     // Saturated uptime (nHeight = 200,001 -> t_active >= limit) => capped at 1.25x
     indexPrev.nHeight = 200000;
-    CAmount pomCap = CalculateMPAWeight(mnOutpoint, 10000 * COIN, GetTime(), &indexPrev, weightType);
+    BOOST_CHECK(RegisterOnChainMasternodePing(mnKey.GetPubKey(), mnOutpoint, 199990));
+    CAmount pomCap = CalculateMPAWeight(mnOutpoint, nCollAmt, GetTime(), &indexPrev, weightType);
     BOOST_CHECK_EQUAL(weightType, MPA_WEIGHT_POM);
-    BOOST_CHECK_EQUAL(pomCap, 12500 * COIN);
+    BOOST_CHECK_EQUAL(pomCap, nCollAmt + nCollAmt / 4);
 
+    mapMasternodeLastActiveHeight.erase(mnKey.GetPubKey());
+    mapMasternodeActiveHeights.erase(mnKey.GetPubKey());
+    mapMasternodeCollateralOutpoints.erase(mnKey.GetPubKey());
+    BumpMasternodePingStateGen();
     pcoinsTip->SpendCoin(mnOutpoint);
-    mnodeman.Clear();
 }
 
 BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
@@ -384,7 +338,7 @@ BOOST_AUTO_TEST_CASE(llmq_quorum_election_and_signature_verify_test)
     llmq::CQuorumSignature qsig;
     qsig.blockHash = blockHash;
 
-    const std::string& llmqDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(customQuorum.nHeight));
+    const std::string& llmqDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK);
 
     // Sign with only 2 members (below 3/5 threshold) -> must fail
     for (int i = 0; i < 2; ++i) {
@@ -986,18 +940,6 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         std::vector<CPubKey> rankedEmpty = RankValidatorsByPoBLSDistance(seedH, 1000, vMiners, mapEmptySols);
         BOOST_CHECK_EQUAL(rankedWithSol.size(), 2U);
         BOOST_CHECK(rankedWithSol == rankedEmpty);
-
-        // Pre-V3 behavior (scoped Regtest !UPGRADE_HARDENING_V3): active ticket holder in mapSols ranked first
-        {
-            const CBaseChainParams::Network prevNet = Params().NetworkID();
-            SelectParams(CBaseChainParams::REGTEST);
-            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-            std::vector<CPubKey> rankedPreV3 = RankValidatorsByPoBLSDistance(seedH, 1000, vMiners, mapSols);
-            BOOST_CHECK_EQUAL(rankedPreV3.size(), 2U);
-            BOOST_CHECK(rankedPreV3[0] == valKey1.GetPubKey());
-            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
-            SelectParams(prevNet);
-        }
     }
 
     // 9. Hybrid BLS12-381 LLMQ Quorum Signatures & BLS12-381 Aggregation
@@ -1015,8 +957,8 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         qsig.blockHash = Hash(std::string("llmq_bls_block_1000").begin(), std::string("llmq_bls_block_1000").end());
 
         // Sign with 4 out of 5 members (V4 floor(2*5/3)+1 = 4) using ephemeral BLS12-381 + secp256k1 authorization
-        const std::string& llmqDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(quorum.nHeight));
-        const size_t threshold = llmq::GetQuorumThreshold(quorum.members.size(), quorum.nHeight);
+        const std::string& llmqDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK);
+        const size_t threshold = llmq::GetQuorumThreshold(quorum.members.size());
         for (size_t i = 0; i < threshold; ++i) {
             CBLSSecretKey blsSk = DeriveEphemeralBLSFromCKey(memberKeys[i], qsig.blockHash);
             std::vector<unsigned char> vchMemberSig;
@@ -1109,23 +1051,24 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
         Coin hotColdCoin(CTxOut(4200 * COIN, GetScriptForDestination(coldCollateralKey.GetPubKey().GetID())), 100, false, false);
         pcoinsTip->AddCoin(hotColdOut, std::move(hotColdCoin), true);
 
-        CMasternode mnDelegated;
-        mnDelegated.vin = CTxIn(hotColdOut);
-        mnDelegated.pubKeyCollateralAddress = coldCollateralKey.GetPubKey();
-        mnDelegated.pubKeyMasternode = hotMnKey.GetPubKey();
-        mnDelegated.protocolVersion = PROTOCOL_VERSION;
-        CMasternodeBroadcast mnbDelegated(mnDelegated);
-        BOOST_CHECK(mnbDelegated.Sign(coldCollateralKey, coldCollateralKey.GetPubKey()));
-        BOOST_CHECK(mnbDelegated.CheckSignature());
+        auto makeDelegationProof = [](const CKey& colKey, const CPubKey& mnPubKey, int nMessVerOut) {
+            COnChainMasternodeDelegation del;
+            del.pubKeyCollateralAddress = colKey.GetPubKey();
+            del.pubKeyMasternode = mnPubKey;
+            del.sigTime = GetAdjustedTime();
+            del.protocolVersion = PROTOCOL_VERSION;
+            del.nMessVersion = nMessVerOut;
 
-        COnChainMasternodeDelegation delProof;
-        delProof.pubKeyCollateralAddress = mnbDelegated.pubKeyCollateralAddress;
-        delProof.pubKeyMasternode = mnbDelegated.pubKeyMasternode;
-        delProof.addr = mnbDelegated.addr;
-        delProof.sigTime = mnbDelegated.sigTime;
-        delProof.protocolVersion = mnbDelegated.protocolVersion;
-        delProof.nMessVersion = MessageVersion::MESS_VER_HASH; // Simulate mncache.dat deserialization where nMessVersion defaulted to 1
-        delProof.vchCollateralSig = mnbDelegated.GetVchSig();
+            const std::string vchPubKey(del.pubKeyCollateralAddress.begin(), del.pubKeyCollateralAddress.end());
+            const std::string vchPubKey2(del.pubKeyMasternode.begin(), del.pubKeyMasternode.end());
+            const std::string oldStrMessage = del.addr.ToString() + std::to_string(del.sigTime) + vchPubKey + vchPubKey2 + std::to_string(del.protocolVersion);
+            CHashWriter ss(SER_GETHASH, 0);
+            ss << strMessageMagic << oldStrMessage;
+            BOOST_CHECK(colKey.SignCompact(ss.GetHash(), del.vchCollateralSig));
+            return del;
+        };
+
+        COnChainMasternodeDelegation delProof = makeDelegationProof(coldCollateralKey, hotMnKey.GetPubKey(), MessageVersion::MESS_VER_HASH);
 
         CMutableTransaction hotPingTx;
         hotPingTx.vin.push_back(CTxIn(COutPoint(uint256S("0x55"), 0)));
@@ -1164,23 +1107,7 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
             Coin uncompCoin(CTxOut(4200 * COIN, GetScriptForDestination(coldCollateralKey.GetPubKey().GetID())), 100, false, false);
             pcoinsTip->AddCoin(uncompHotOut, std::move(uncompCoin), true);
 
-            CMasternode mnUncomp;
-            mnUncomp.vin = CTxIn(uncompHotOut);
-            mnUncomp.pubKeyCollateralAddress = coldCollateralKey.GetPubKey();
-            mnUncomp.pubKeyMasternode = uncompHotMnKey.GetPubKey();
-            mnUncomp.protocolVersion = PROTOCOL_VERSION;
-            CMasternodeBroadcast mnbUncomp(mnUncomp);
-            BOOST_CHECK(mnbUncomp.Sign(coldCollateralKey, coldCollateralKey.GetPubKey()));
-            BOOST_CHECK(mnbUncomp.CheckSignature());
-
-            COnChainMasternodeDelegation uncompDel;
-            uncompDel.pubKeyCollateralAddress = mnbUncomp.pubKeyCollateralAddress;
-            uncompDel.pubKeyMasternode = mnbUncomp.pubKeyMasternode;
-            uncompDel.addr = mnbUncomp.addr;
-            uncompDel.sigTime = mnbUncomp.sigTime;
-            uncompDel.protocolVersion = mnbUncomp.protocolVersion;
-            uncompDel.nMessVersion = mnbUncomp.nMessVersion;
-            uncompDel.vchCollateralSig = mnbUncomp.GetVchSig();
+            COnChainMasternodeDelegation uncompDel = makeDelegationProof(coldCollateralKey, uncompHotMnKey.GetPubKey(), MessageVersion::MESS_VER_STRMESS);
 
             CScript uncompPingScript = GetMasternodePingScript(uncompHotMnKey.GetPubKey());
             BOOST_CHECK_EQUAL(uncompPingScript.size(), 68U);
@@ -1232,10 +1159,8 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
 
         // 11. Test LevelDB Burn Cache V3 Persistence (FlushBurnCacheToDisk / ReadBurnCacheV3)
         if (pblocktree) {
-            CTxDestination burnDest = mnOwnerKey.GetPubKey().GetID();
             COutPoint burnOut(uint256S("0x7766554433221100776655443322110077665544332211007766554433221100"), 1);
             uint256 testTipHash = uint256S("0x9988776655443322110099887766554433221100998877665544332211009988");
-            AddBurnToCache(burnDest, 50 * COIN, 1234);
             AddOutpointBurnToCache(burnOut, 25 * COIN, 1235);
             BOOST_CHECK(FlushBurnCacheToDisk(testTipHash));
 
@@ -1244,17 +1169,12 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
             std::map<COutPoint, std::vector<CBurnCoins>> readOutBurnMap;
             BOOST_REQUIRE(pblocktree->ReadBurnCacheV3(readTipHash, readBurnMap, readOutBurnMap));
             BOOST_CHECK(readTipHash == testTipHash);
-            std::string strBurnAddr = EncodeDestination(burnDest);
-            BOOST_REQUIRE(readBurnMap.count(strBurnAddr) > 0);
-            BOOST_REQUIRE(!readBurnMap[strBurnAddr].empty());
-            BOOST_CHECK_EQUAL(readBurnMap[strBurnAddr].back().nAmount, 50 * COIN);
-            BOOST_CHECK_EQUAL(readBurnMap[strBurnAddr].back().nHeight, 1234);
+            BOOST_CHECK(readBurnMap.empty());
             BOOST_REQUIRE(readOutBurnMap.count(burnOut) > 0);
             BOOST_REQUIRE(!readOutBurnMap[burnOut].empty());
             BOOST_CHECK_EQUAL(readOutBurnMap[burnOut].back().nAmount, 25 * COIN);
             BOOST_CHECK_EQUAL(readOutBurnMap[burnOut].back().nHeight, 1235);
 
-            RemoveBurnFromCache(burnDest, 50 * COIN, 1234);
             RemoveOutpointBurnFromCache(burnOut, 25 * COIN, 1235);
         }
 
@@ -1361,9 +1281,11 @@ BOOST_AUTO_TEST_CASE(mescal_and_core_security_hardening_test)
                 BOOST_CHECK(prevFb1 == activeFb0);
 
                 // Balanced Model D net 5% passive Masternode payment after 7% Treasury deduction
-                // Height 2500 (< UPGRADE_MODELD = 5000 on Mainnet -> 0 MN payment)
-                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 0LL);
-                // Height 5000, 7500, 15000 (17 KRISTA block value -> 15.81 KRISTA net -> 0.7905 KRISTA passive MN share)
+                // Height 199 (< UPGRADE_MODELD = 200 on Mainnet -> 0 MN payment)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(199), 0LL);
+                // Height 200, 2500, 5000, 7500, 15000 (17 KRISTA block value -> 15.81 KRISTA net -> 0.7905 KRISTA passive MN share)
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(200), 79050000LL);
+                BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(2500), 79050000LL);
                 BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(5000), 79050000LL);
                 BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(7500), 79050000LL);
                 BOOST_CHECK_EQUAL(CMasternode::GetMasternodePayment(15000), 79050000LL);
@@ -1449,18 +1371,8 @@ BOOST_AUTO_TEST_CASE(treasury_portal_quorum_signature_interop_test)
 
     BOOST_CHECK_EQUAL(qsig.blockHash.ToString(), "11223344556677889900aabbccddeeff11223344556677889900aabbccddeeff");
     BOOST_CHECK_EQUAL(qsig.signatures.size(), 3U);
-    // Legacy empty-DST 3-of-5 fixture is rejected under V3/V4, and passes pre-V3/pre-V4
+    // 3-of-5 signature is always rejected under mandatory 2/3+1 BFT threshold (4-of-5)
     BOOST_CHECK(!qsig.Verify(quorum));
-    {
-        const CBaseChainParams::Network prevNet = Params().NetworkID();
-        SelectParams(CBaseChainParams::REGTEST);
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V4, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-        BOOST_CHECK(qsig.Verify(quorum));
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V4, 1);
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V3, 1);
-        SelectParams(prevNet);
-    }
 }
 
 BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
@@ -1495,7 +1407,6 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
     BOOST_CHECK_EQUAL(expiredWeight, 100 * COIN);
 
     // 3. On-chain Masternode collateral deterministically receives MPA_WEIGHT_POM without mnodeman
-    mnodeman.Clear();
     COutPoint onChainMnOut(uint256S("3333000033330000333300003333000033330000333300003333000033330003"), 0);
     CScript mnCollScript = GetScriptForDestination(pubKey.GetID());
     CAmount nCollAmt = CMasternode::GetMasternodeNodeCollateral(nHeight);
@@ -1654,7 +1565,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 uint256 puzzleHash = CalculateAdamPuzzleHash(algo1, multiplied2.begin(), multiplied2.begin() + 32);
 
                 std::vector<unsigned char> vchSig;
-                BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHash, minerPrivKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nPostBootstrapHeight))));
+                BOOST_CHECK(SignBLSWithECDSAFallback(puzzleHash, minerPrivKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
 
                 CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
                 ssSol << nNonce << vchSig;
@@ -1765,14 +1676,16 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
             BOOST_CHECK_EQUAL(Params(CBaseChainParams::MAIN).GetConsensus().GetAdamThreshold(10000, 4), 5);
             BOOST_CHECK_EQUAL(Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(10000, 600, 4), 3);
 
-            // Pre-Model D bootstrap window (h = 205): floor 5 with 7 MNs, floor 4/3 with 0 MNs
-            const int nFloorBootstrapWith7Mns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600, 7);
+            // Pre-Model D bootstrap window (explicit UPGRADE_MODELD=500 baseline at h = 205): floor 5 with 7 MNs, floor 4/3 with 0 MNs
+            Consensus::Params preModelDMainParams = Params(CBaseChainParams::MAIN).GetConsensus();
+            preModelDMainParams.vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight = 500;
+            const int nFloorBootstrapWith7Mns = preModelDMainParams.GetAdamEffectiveThreshold(205, 600, 7);
             BOOST_CHECK_EQUAL(nFloorBootstrapWith7Mns, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD);
             BOOST_CHECK_EQUAL(nFloorBootstrapWith7Mns, 5);
 
-            const int nRelaxedBootstrapNoMns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS, 0);
+            const int nRelaxedBootstrapNoMns = preModelDMainParams.GetAdamEffectiveThreshold(205, ADAM_THRESHOLD_RELAXATION_TIMEOUT_SECS, 0);
             BOOST_CHECK_EQUAL(nRelaxedBootstrapNoMns, 4);
-            const int nFloorBootstrapNoMns = Params(CBaseChainParams::MAIN).GetConsensus().GetAdamEffectiveThreshold(205, 600, 0);
+            const int nFloorBootstrapNoMns = preModelDMainParams.GetAdamEffectiveThreshold(205, 600, 0);
             BOOST_CHECK_EQUAL(nFloorBootstrapNoMns, Consensus::Params::ADAM_MIN_RELAXED_THRESHOLD_BOOTSTRAP);
             BOOST_CHECK_EQUAL(nFloorBootstrapNoMns, 3);
 
@@ -1838,7 +1751,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                     uint256 pHash = CalculateAdamPuzzleHash(a1, m2.begin(), m2.begin() + 32);
 
                     std::vector<unsigned char> vchSig;
-                    BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nModelDTestHeight))));
+                    BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
                     CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
                     ssSol << nNonce << vchSig;
                     testBlock.vAdamSolutions[seat] = std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -1924,7 +1837,7 @@ BOOST_AUTO_TEST_CASE(mpa_security_hardening_test)
                 badDivertBlock.vtx[0] = badTx;
                 BOOST_CHECK(!IsBlockPayeeValid(badDivertBlock, nModelDTestHeight, pcoinsTip));
 
-                // Rev 44 (Section 1): Even if SPORK_8 were absent/bypassed, Model D payouts are unconditionally enforced in consensus
+                // Rev 44 (Section 1): Model D payouts are unconditionally enforced in consensus
                 // once UPGRADE_HARDENING_V1 is active: stripping MN/LLMQ/Validator outputs to pay only Producer+Treasury MUST fail!
                 CBlock badProducerOnlyBlock = testBlock;
                 CMutableTransaction badProdTx;
@@ -2028,13 +1941,13 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
             const uint32_t nNonce = 700 + seat;
             CDataStream ssIn(SER_GETHASH, 0);
             ssIn << seed << seatPk << nNonce;
-            const int algoIdx = GetAdamPuzzleAlgo(seed, seatPk, true);
+            const int algoIdx = GetAdamPuzzleAlgo(seed, seatPk);
             const uint256 pHash = CalculateAdamPuzzleHash(algoIdx,
                 reinterpret_cast<const unsigned char*>(&ssIn[0]),
                 reinterpret_cast<const unsigned char*>(&ssIn[0]) + ssIn.size());
 
             std::vector<unsigned char> vchSig;
-            BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nTestHeight))));
+            BOOST_CHECK(SignBLSWithECDSAFallback(pHash, seatKey, blsSk, vchSig, GetBLSDomainTag(BLSDomain::ADAM_SOL)));
             CDataStream ssSol(SER_NETWORK, PROTOCOL_VERSION);
             ssSol << nNonce << vchSig;
             v11Block.vAdamSolutions[seat] = std::vector<unsigned char>(ssSol.begin(), ssSol.end());
@@ -2208,7 +2121,7 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
         }
 
         // Blocks 248..250: Register 3 Funded PoW-Locks (10 KRISTA each, 1 per block, UPGRADE_HARDENING_V2 HashX11KVS + V4 BLS)
-        const uint256 targetReg = GetMinerPoWLimit(Params().NetworkIDString(), true);
+        const uint256 targetReg = GetMinerPoWLimit(Params().NetworkIDString());
         for (int i = 0; i < 3; ++i) {
             const int hFp = pPrev->nHeight + 1;
             const uint256 chFp = pPrev->GetBlockHash();
@@ -2219,7 +2132,7 @@ BOOST_AUTO_TEST_CASE(pre_modeld_adam_validator_split_and_tier_payout_test)
             const CBLSPubKey blsPk(DeriveBLSFromCKey(k));
             uint32_t nonce = 0;
             for (;; ++nonce) {
-                if (ComputeMinerPoWRegistrationHash(nonce, chFp, pk, true, &blsPk) <= targetReg) break;
+                if (ComputeMinerPoWRegistrationHash(nonce, chFp, pk, blsPk) <= targetReg) break;
             }
             CMutableTransaction mtx;
             mtx.vin.push_back(CTxIn(COutPoint(uint256S("8200000000000000000000000000000000000000000000000000000000000000"), (uint32_t)i)));
@@ -2623,7 +2536,7 @@ BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
     auto makeQsigBytes = [&](const uint256& blockHash, const llmq::CQuorum& q, const std::vector<size_t>& signerIndices) -> std::vector<unsigned char> {
         llmq::CQuorumSignature qsig;
         qsig.blockHash = blockHash;
-        const std::string& dst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, true);
+        const std::string& dst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK);
         for (size_t idx : signerIndices) {
             const COutPoint& col = q.members[idx].collateralOutpoint;
             CBLSSecretKey opSk;
@@ -2794,7 +2707,17 @@ BOOST_AUTO_TEST_CASE(llmq_signer_only_payout_and_pose_test)
 
 BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
 {
-    ScopedMpaChainParams testParams(CBaseChainParams::TESTNET);
+    ScopedMpaChainParams regParams(CBaseChainParams::REGTEST);
+    const int origRegModelD = Params().GetConsensus().vUpgrades[Consensus::UPGRADE_MODELD].nActivationHeight;
+    struct RegModelDGuard {
+        int prevHeight;
+        explicit RegModelDGuard(int h) : prevHeight(h) {}
+        ~RegModelDGuard() {
+            UpdateNetworkUpgradeParameters(Consensus::UPGRADE_MODELD, prevHeight);
+        }
+    } regModelDGuard(origRegModelD);
+    UpdateNetworkUpgradeParameters(Consensus::UPGRADE_MODELD, 500);
+
     std::unique_ptr<dip3::CDeterministicMNManager> origMgr = std::move(deterministicMNManager);
     deterministicMNManager.reset(new dip3::CDeterministicMNManager(1 << 20, true, true));
 
@@ -2901,7 +2824,7 @@ BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
     const CScript stakerScript = GetScriptForDestination(stakerKey.GetPubKey().GetID());
     const CAmount nStakeIn = 1000 * COIN;
 
-    // 1. Pre-Model D PoS (height 251 on Testnet): 20% Staker / 5% Coordinator / 75% Validators
+    // 1. Pre-Model D PoS (height 251 on Regtest with temporary UPGRADE_MODELD=500): 20% Staker / 5% Coordinator / 75% Validators
     {
         const int h = 251;
         CBlockIndex* pIdx250 = pPrev;
@@ -2963,7 +2886,7 @@ BOOST_AUTO_TEST_CASE(pos_coordinator_share_and_fees_test)
         BOOST_CHECK(!IsBlockPayeeValid(blkPre, h, pcoinsTip));
     }
 
-    // 2. Balanced Model D PoS (height 505 on Testnet): 22% Staker (+ symmetric nFees) / 3% Coordinator / 5% Passive MN / 10% LLMQ / 60% Validators (15 seats)
+    // 2. Balanced Model D PoS (height 505 on Regtest): 22% Staker (+ symmetric nFees) / 3% Coordinator / 5% Passive MN / 10% LLMQ / 60% Validators (15 seats)
     advanceTo(504);
     InitializeAdamMinerRegCache(true);
     {
@@ -3157,16 +3080,14 @@ BOOST_AUTO_TEST_CASE(mpa_pob_outpoint_and_burnbackup_phase2_test)
     }
 #endif
 
-    // 4. M-8 CBurnCacheScopedBackup restores address & outpoint burn maps on scope exit
+    // 4. M-8 CBurnCacheScopedBackup restores outpoint burn map on scope exit
     const COutPoint extraOut(GetRandHash(), 0);
-    const CTxDestination backupDest = destKey.GetPubKey().GetID();
     {
         CBurnCacheScopedBackup backup;
-        AddBurnToCache(backupDest, 77 * COIN, 5501);
         AddOutpointBurnToCache(extraOut, 33 * COIN, 5501);
-        BOOST_CHECK_GT(GetActiveBurnWeight(backupDest, 5502), 0);
+        BOOST_CHECK_GT(GetOutpointBurnWeight(extraOut, 5502), 0);
     }
-    BOOST_CHECK_EQUAL(GetActiveBurnWeight(backupDest, 5502), 0);
+    BOOST_CHECK_EQUAL(GetOutpointBurnWeight(extraOut, 5502), 0);
     int wtExtra = -1;
     pcoinsTip->AddCoin(extraOut, Coin(CTxOut(50 * COIN, destSpk), 5500, false, false), true);
     BOOST_CHECK_EQUAL(CalculateMPAWeight(extraOut, 50 * COIN, GetTime(), &idxPrev, wtExtra), 50 * COIN);
@@ -3183,18 +3104,10 @@ BOOST_AUTO_TEST_CASE(hardening_v4_quorum_threshold_equivocation_and_standby_pose
     ScopedMpaChainParams testParams(CBaseChainParams::REGTEST);
 
     // 1. H-7: V4 Byzantine threshold floor(2N/3)+1 vs pre-V4 majority N/2+1
-    BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(5, 1), 4U);
-    BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(9, 1), 7U);
-    BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(11, 1), 8U);
-    BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(15, 1), 11U);
-    {
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V4, Consensus::NetworkUpgrade::NO_ACTIVATION_HEIGHT);
-        BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(5, 1), 3U);
-        BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(9, 1), 5U);
-        BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(11, 1), 6U);
-        BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(15, 1), 8U);
-        UpdateNetworkUpgradeParameters(Consensus::UPGRADE_HARDENING_V4, 1);
-    }
+    BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(5), 4U);
+    BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(9), 7U);
+    BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(11), 8U);
+    BOOST_CHECK_EQUAL(llmq::GetQuorumThreshold(15), 11U);
 
     // 2. H-7: AllowQuorumSignature anti-equivocation & 45s competing-coordinator guard
     {

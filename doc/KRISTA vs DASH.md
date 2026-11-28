@@ -14,10 +14,10 @@ This document provides a detailed technical comparison between the **KristaTech 
 | **ASIC Resistance** | None (X11 ASICs dominate the network) | Comprehensive Architecture-level Resistance (Permuted Hash Chain) |
 | **Masternode Collateral** | **1000 DASH** (4000 DASH for Evonodes) | **4200 KRISTA** (Unified across network) |
 | **Quorum Signature Type** | BLS Threshold Signature | Aggregated BLS12-381 (`blst`) Dynamic 2/3 BFT Quorum Signature (`CQuorumSignature`, `4-of-5`..`11-of-15` across `5->9->11->15` under `UPGRADE_HARDENING_V4`) pinned to `secp256k1` MN identity (or KTDIP3 `blsPubKeyOperator` under `UPGRADE_DIP3`) |
-| **Treasury Allocation** | 20% of block reward (Superblock Bounties) | **7.0% `DeveloperFund`** (Dynamic BFT LLMQ + Spork Dual-Authorization) |
+| **Treasury Allocation** | 20% of block reward (Superblock Bounties) | **7.0% `DeveloperFund`** (Dynamic BFT LLMQ + Treasury Key Dual-Authorization) |
 | **Smart Contracts** | None (Data schemas only on Platform layer) | **MESCAL** (Secure stack-based JSON templates) |
-| **Governance Locks** | None (Voted proposal payees spend directly) | Enforce start height + Spork and LLMQ Dual-Signature authorization |
-| **Network Upgrades** | Sporks + BIP9/BIP135 Hard Forks | Deterministic height-gated `Consensus::UPGRADE_*` activations + administrative Sporks |
+| **Governance Locks** | None (Voted proposal payees spend directly) | Enforce start height + Treasury Key and LLMQ Dual-Signature authorization |
+| **Network Upgrades** | Sporks + BIP9/BIP135 Hard Forks | Deterministic height-gated `Consensus::UPGRADE_*` activations (no centralized sporks) |
 | **Energy Consumption** | High (Continuous competitive global PoW) | Ultra-Low (Only elected block slot miners perform work) |
 
 ---
@@ -45,8 +45,8 @@ This document provides a detailed technical comparison between the **KristaTech 
 ### 4. Developer Treasury Governance
 * **Dash Core:** Superblock payments are determined by proposal voting. Masternodes vote on proposals, and once a proposal is passed, the funds are paid directly to the payee address during the Superblock.
 * **KRISTA:** Implements a system-level secure **Developer Fund** address. Spending from the Developer Fund address is strictly controlled at the consensus layer (enforced in `ConnectBlock` and `CheckInputs`):
-  * **Time-Lock:** Spends are blocked before block height 5,000 on Mainnet (200 on Testnet).
-  * **Dual-Signature Authorization:** The transaction must contain a valid LLMQ Quorum Signature (verifying that the active masternode quorum approved the spend) and must be signed by the private key matching the network's administrative Spork Public Key.
+  * **Time-Lock:** Spends are blocked before block height 200 on Mainnet and Testnet.
+  * **Dual-Signature Authorization:** The transaction must contain a valid LLMQ Quorum Signature (verifying that the active masternode quorum approved the spend) and must be signed by the private key matching the network's consensus Developer Treasury Public Key (`strTreasuryPubKey`).
 
 ### 5. Smart Contracts (MESCAL)
 * **Dash Core:** Dash Core does not support smart contracts on the base layer. Dash Platform provides a decentralized document and data store, but it does not execute smart contract logic.

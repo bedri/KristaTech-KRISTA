@@ -9,7 +9,6 @@
 #include "hash.h"
 #include "main.h" // For strMessageMagic
 #include "messagesigner.h"
-#include "masternodeman.h"  // For GetPublicKey (of MN from its vin)
 #include "tinyformat.h"
 #include "utilstrencodings.h"
 
@@ -72,101 +71,5 @@ bool CHashSigner::VerifyHash(const uint256& hash, const CKeyID& keyID, const std
     }
 
     return true;
-}
-
-/** CSignedMessage Class
- *  Functions inherited by network signed-messages
- */
-
-bool CSignedMessage::Sign(const CKey& key, const CPubKey& pubKey)
-{
-    std::string strError = "";
-
-    if (nMessVersion == MessageVersion::MESS_VER_HASH) {
-        uint256 hash = GetSignatureHash();
-        if (!CHashSigner::SignHash(hash, key, vchSig)) {
-            return error("%s : SignHash() failed", __func__);
-        }
-        if (!CHashSigner::VerifyHash(hash, pubKey, vchSig, strError)) {
-            return error("%s : VerifyHash() failed, error: %s\n", __func__, strError);
-        }
-        return true;
-    }
-
-    nMessVersion = MessageVersion::MESS_VER_STRMESS;
-    std::string strMessage = GetStrMessage();
-
-    if (!CMessageSigner::SignMessage(strMessage, vchSig, key)) {
-        return error("%s : SignMessage() failed", __func__);
-    }
-
-    if (!CMessageSigner::VerifyMessage(pubKey, vchSig, strMessage, strError)) {
-        return error("%s : VerifyMessage() failed, error: %s\n", __func__, strError);
-    }
-
-    return true;
-}
-
-bool CSignedMessage::Sign(const std::string strSignKey)
-{
-    CKey key;
-    CPubKey pubkey;
-
-    if (!CMessageSigner::GetKeysFromSecret(strSignKey, key, pubkey)) {
-        return error("%s : Invalid strSignKey", __func__);
-    }
-
-    return Sign(key, pubkey);
-}
-
-bool CSignedMessage::CheckSignature(const CPubKey& pubKey) const
-{
-    std::string strError = "";
-
-    if (nMessVersion == MessageVersion::MESS_VER_HASH) {
-        uint256 hash = GetSignatureHash();
-        return CHashSigner::VerifyHash(hash, pubKey, vchSig, strError);
-    }
-
-    std::string strMessage = GetStrMessage();
-    return CMessageSigner::VerifyMessage(pubKey, vchSig, strMessage, strError);
-}
-
-bool CSignedMessage::CheckSignature() const
-{
-    std::string strError = "";
-
-    const CPubKey pubkey = GetPublicKey(strError);
-    if (pubkey == CPubKey())
-        return error("%s : %s", __func__, strError);
-
-    return CheckSignature(pubkey);
-}
-
-const CPubKey CSignedMessage::GetPublicKey(std::string& strErrorRet) const
-{
-    const CTxIn vin = GetVin();
-    CMasternode mn;
-    if (mnodeman.Get(vin, mn)) {
-        return mn.pubKeyMasternode;
-    }
-    strErrorRet = strprintf("Unable to find masternode vin %s", vin.prevout.hash.GetHex());
-    return CPubKey();
-}
-
-std::string CSignedMessage::GetSignatureBase64() const
-{
-    return EncodeBase64(&vchSig[0], vchSig.size());
-}
-
-void CSignedMessage::swap(CSignedMessage& first, CSignedMessage& second) // nothrow
-{
-    // enable ADL (not necessary in our case, but good practice)
-    using std::swap;
-
-    // by swapping the members of two classes,
-    // the two classes are effectively swapped
-    swap(first.vchSig, second.vchSig);
-    swap(first.nMessVersion, second.nMessVersion);
 }
 

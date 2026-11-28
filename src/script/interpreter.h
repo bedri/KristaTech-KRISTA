@@ -126,7 +126,7 @@ enum SigVersion
 };
 
 uint256 SignatureHash(const CScript &scriptCode, const CTransaction& txTo, unsigned int nIn, int nHashType, const CAmount& amount, SigVersion sigversion, const PrecomputedTransactionData* cache = nullptr);
-bool ComputeTaprootSighash(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData& cache, uint256& hashOut, bool fStrictBip341 = true, const uint256* tapleaf_hash = nullptr, uint32_t codesep_pos = 0xffffffff);
+bool ComputeTaprootSighash(const CTransaction& txTo, unsigned int nIn, int nHashType, SigVersion sigversion, const PrecomputedTransactionData& cache, uint256& hashOut, const uint256* tapleaf_hash = nullptr, uint32_t codesep_pos = 0xffffffff);
 
 class TapscriptSignatureChecker;
 

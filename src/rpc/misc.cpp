@@ -16,7 +16,6 @@
 #include "net.h"
 #include "netbase.h"
 #include "rpc/server.h"
-#include "spork.h"
 #include "timedata.h"
 #include "util.h"
 #ifdef ENABLE_WALLET
@@ -29,8 +28,6 @@
 #include <boost/assign/list_of.hpp>
 
 #include <univalue.h>
-
-extern std::vector<CSporkDef> sporkDefs;
 
 
 /**
@@ -166,14 +163,8 @@ UniValue mnsync(const JSONRPCRequest& request)
             "\nResult ('status' mode):\n"
             "{\n"
             "  \"IsBlockchainSynced\": true|false,    (boolean) 'true' if blockchain is synced\n"
-            "  \"lastMasternodeList\": xxxx,        (numeric) Timestamp of last MN list message\n"
-            "  \"lastMasternodeWinner\": xxxx,      (numeric) Timestamp of last MN winner message\n"
             "  \"lastFailure\": xxxx,           (numeric) Timestamp of last failed sync\n"
             "  \"nCountFailures\": n,           (numeric) Number of failed syncs (total)\n"
-            "  \"sumMasternodeList\": n,        (numeric) Number of MN list messages (total)\n"
-            "  \"sumMasternodeWinner\": n,      (numeric) Number of MN winner messages (total)\n"
-            "  \"countMasternodeList\": n,      (numeric) Number of MN list messages (local)\n"
-            "  \"countMasternodeWinner\": n,    (numeric) Number of MN winner messages (local)\n"
             "  \"RequestedMasternodeAssets\": n, (numeric) Status code of last sync phase\n"
             "  \"RequestedMasternodeAttempt\": n, (numeric) Status code of last sync attempt\n"
             "}\n"
@@ -189,14 +180,8 @@ UniValue mnsync(const JSONRPCRequest& request)
         UniValue obj(UniValue::VOBJ);
 
         obj.push_back(Pair("IsBlockchainSynced", masternodeSync.IsBlockchainSynced()));
-        obj.push_back(Pair("lastMasternodeList", masternodeSync.lastMasternodeList));
-        obj.push_back(Pair("lastMasternodeWinner", masternodeSync.lastMasternodeWinner));
         obj.push_back(Pair("lastFailure", masternodeSync.lastFailure));
         obj.push_back(Pair("nCountFailures", masternodeSync.nCountFailures));
-        obj.push_back(Pair("sumMasternodeList", masternodeSync.sumMasternodeList));
-        obj.push_back(Pair("sumMasternodeWinner", masternodeSync.sumMasternodeWinner));
-        obj.push_back(Pair("countMasternodeList", masternodeSync.countMasternodeList));
-        obj.push_back(Pair("countMasternodeWinner", masternodeSync.countMasternodeWinner));
         obj.push_back(Pair("RequestedMasternodeAssets", masternodeSync.RequestedMasternodeAssets));
         obj.push_back(Pair("RequestedMasternodeAttempt", masternodeSync.RequestedMasternodeAttempt));
 
@@ -274,69 +259,6 @@ public:
     }
 };
 #endif
-
-/*
-    Used for updating/reading spork settings on the network
-*/
-UniValue spork(const JSONRPCRequest& request)
-{
-    if (request.params.size() == 1 && request.params[0].get_str() == "show") {
-        UniValue ret(UniValue::VOBJ);
-        for (const auto& sporkDef : sporkDefs) {
-            ret.push_back(Pair(sporkDef.name, sporkManager.GetSporkValue(sporkDef.sporkId)));
-        }
-        return ret;
-    } else if (request.params.size() == 1 && request.params[0].get_str() == "active") {
-        UniValue ret(UniValue::VOBJ);
-        for (const auto& sporkDef : sporkDefs) {
-            ret.push_back(Pair(sporkDef.name, sporkManager.IsSporkActive(sporkDef.sporkId)));
-        }
-        return ret;
-    } else if (request.params.size() == 2) {
-        // advanced mode, update spork values
-        SporkId nSporkID = sporkManager.GetSporkIDByName(request.params[0].get_str());
-        if (nSporkID == SPORK_INVALID) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid spork name");
-        }
-
-        // SPORK VALUE
-        int64_t nValue = request.params[1].get_int64();
-
-        //broadcast new spork
-        if (sporkManager.UpdateSpork(nSporkID, nValue)) {
-            return "success";
-        } else {
-            return "failure";
-        }
-    }
-
-    throw std::runtime_error(
-        "spork \"name\" ( value )\n"
-        "\nReturn spork values or their active state.\n"
-
-        "\nArguments:\n"
-        "1. \"name\"        (string, required)  \"show\" to show values, \"active\" to show active state.\n"
-        "                       When set up as a spork signer, the name of the spork can be used to update it's value.\n"
-        "2. value           (numeric, required when updating a spork) The new value for the spork.\n"
-
-        "\nResult (show):\n"
-        "{\n"
-        "  \"spork_name\": nnn      (key/value) Key is the spork name, value is it's current value.\n"
-        "  ,...\n"
-        "}\n"
-
-        "\nResult (active):\n"
-        "{\n"
-        "  \"spork_name\": true|false      (key/value) Key is the spork name, value is a boolean for it's active state.\n"
-        "  ,...\n"
-        "}\n"
-
-        "\nResult (name):\n"
-        " \"success|failure\"       (string) Whether or not the update succeeded.\n"
-
-        "\nExamples:\n" +
-        HelpExampleCli("spork", "show") + HelpExampleRpc("spork", "show"));
-}
 
 class DescribePaymentAddressVisitor : public boost::static_visitor<UniValue>
 {
@@ -694,7 +616,7 @@ UniValue getstakingstatus(const JSONRPCRequest& request)
             "  \"staking_status\": true|false,      (boolean) whether the wallet is staking or not\n"
             "  \"staking_enabled\": true|false,     (boolean) whether staking is enabled/disabled in kristatech.conf\n"
             "  \"haveconnections\": true|false,     (boolean) whether network connections are present\n"
-            "  \"mnsync\": true|false,              (boolean) whether the required masternode/spork data is synced\n"
+            "  \"mnsync\": true|false,              (boolean) whether the required masternode sync state is complete\n"
             "  \"walletunlocked\": true|false,      (boolean) whether the wallet is unlocked\n"
             "  \"stakeablecoins\": n                (numeric) number of stakeable UTXOs\n"
             "  \"stakingbalance\": d                (numeric) KRISTA value of the stakeable coins (minus reserve balance, if any)\n"

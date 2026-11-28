@@ -222,40 +222,6 @@ extern const char* REJECT;
  * @see https://bitcoin.org/en/developer-reference#sendheaders
  */
 extern const char* SENDHEADERS;
-/**
- * The spork message is used to send spork values to connected
- * peers
- */
-extern const char* SPORK;
-/**
- * The getsporks message is used to request spork data from connected peers
- */
-extern const char* GETSPORKS;
-/**
- * The mnbroadcast message is used to broadcast masternode startup data to connected peers
- */
-extern const char* MNBROADCAST;
-/**
- * The mnping message is used to ensure a masternode is still active
- */
-extern const char* MNPING;
-/**
- * The mnwinner message is used to relay and distribute consensus for masternode
- * payout ordering
- */
-extern const char* MNWINNER;
-/**
- * The getmnwinners message is used to request winning masternode data from connected peers
- */
-extern const char* GETMNWINNERS;
-/**
-* The dseg message is used to request the Masternode list or an specific entry
-*/
-extern const char* GETMNLIST;
-/**
- * The syncstatuscount message is used to track the layer 2 syncing process
- */
-extern const char* SYNCSTATUSCOUNT;
 extern const char* ADAMSOL;
 extern const char* PROPOSEBLOCK;
 extern const char* QUORUMSIGSHARE;
@@ -379,12 +345,7 @@ enum {
     MSG_FILTERED_BLOCK              = 3,
     // MSG_TXLOCK_REQUEST              = 4,
     // MSG_TXLOCK_VOTE                 = 5,
-    MSG_SPORK                       = 6,
-    MSG_MASTERNODE_WINNER           = 7,
-    MSG_MASTERNODE_SCANNING_ERROR   = 8,
-    MSG_MASTERNODE_QUORUM           = 13,
-    MSG_MASTERNODE_ANNOUNCE         = 14,
-    MSG_MASTERNODE_PING             = 15,
+    // MSG_SPORK                       = 6, (retired — do not reuse wire ID)
     MSG_DSTX                        = 16,
     MSG_CMPCT_BLOCK                 = 20,
 };

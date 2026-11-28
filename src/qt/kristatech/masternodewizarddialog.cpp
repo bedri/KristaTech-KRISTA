@@ -243,20 +243,12 @@ void MasterNodeWizardDialog::updateAddressValidation()
     const int portNum = portStr.toInt(&portOk);
     portOk = portOk && portNum > 0 && portNum <= 65535;
 
-    const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(
-        chainActive.Height() + 1, Consensus::UPGRADE_DIP3);
-
     bool keyOk = true;
     if (!privKeyStr.isEmpty()) {
-        if (fDip3Active) {
-            std::vector<unsigned char> vchOpPub = ParseHex(privKeyStr.toStdString());
-            CBLSPubKey testPk;
-            keyOk = IsHex(privKeyStr.toStdString()) && vchOpPub.size() == 48 &&
-                    testPk.SetBuf(vchOpPub.data(), vchOpPub.size()) && testPk.IsValid();
-        } else {
-            CKey testKey = DecodeSecret(privKeyStr.toStdString());
-            keyOk = testKey.IsValid();
-        }
+        std::vector<unsigned char> vchOpPub = ParseHex(privKeyStr.toStdString());
+        CBLSPubKey testPk;
+        keyOk = IsHex(privKeyStr.toStdString()) && vchOpPub.size() == 48 &&
+                testPk.SetBuf(vchOpPub.data(), vchOpPub.size()) && testPk.IsValid();
     }
 
     setCssEditLineDialog(ui->lineEditIpAddress, ipStr.isEmpty() || ipOk, true);
@@ -269,9 +261,7 @@ void MasterNodeWizardDialog::updateAddressValidation()
 
     if (ipStr.isEmpty() && privKeyStr.isEmpty()) {
         labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Neutral));
-        labelAddressStatus->setText(fDip3Active
-            ? tr("Default P2P port is %1 (Rule 8 supports custom ports). Leave BLS key blank to auto-generate.").arg(Params().GetDefaultPort())
-            : tr("Default P2P port is %1. Leave private key blank to auto-generate.").arg(Params().GetDefaultPort()));
+        labelAddressStatus->setText(tr("Default P2P port is %1 (Rule 8 supports custom ports). Leave BLS key blank to auto-generate.").arg(Params().GetDefaultPort()));
     } else if (!ipStr.isEmpty() && !ipOk) {
         labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
         labelAddressStatus->setText(tr("Enter a valid public IPv4 or IPv6 address."));
@@ -280,18 +270,12 @@ void MasterNodeWizardDialog::updateAddressValidation()
         labelAddressStatus->setText(tr("Port must be between 1 and 65535."));
     } else if (!keyOk) {
         labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Error));
-        labelAddressStatus->setText(fDip3Active
-            ? tr("Invalid 48-byte (96 hex chars) BLS operator public key.")
-            : tr("Invalid masternodeprivkey format."));
+        labelAddressStatus->setText(tr("Invalid 48-byte (96 hex chars) BLS operator public key."));
     } else {
         labelAddressStatus->setStyleSheet(WizardStatusCss(WizardStatusTone::Success));
-        labelAddressStatus->setText(fDip3Active
-            ? (privKeyStr.isEmpty()
-                ? tr("Ready: a new BLS12-381 operator keypair will be generated.")
-                : tr("Ready: using provided BLS operator public key."))
-            : (privKeyStr.isEmpty()
-                ? tr("Ready: a new masternodeprivkey will be generated.")
-                : tr("Ready: using provided masternodeprivkey.")));
+        labelAddressStatus->setText(privKeyStr.isEmpty()
+            ? tr("Ready: a new BLS12-381 operator keypair will be generated.")
+            : tr("Ready: using provided BLS operator public key."));
     }
 }
 

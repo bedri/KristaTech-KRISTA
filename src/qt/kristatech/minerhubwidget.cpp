@@ -19,7 +19,7 @@
 #include "miner.h"
 #include "adam.h"
 #include "key_io.h"
-#include "masternodeman.h"
+#include "masternode.h"
 #include "activemasternodeman.h"
 #include "evo/deterministicmns.h"
 #include "llmq.h"
@@ -1210,8 +1210,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                     if (nTxHeight >= e.nRegHeight) {
                         e.nRegHeight = nTxHeight;
                         const bool fZeroCoinReg = !isCoinLock && vout.nValue == 0;
-                        const bool fHardeningV2Tip = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nTipHeight), Consensus::UPGRADE_HARDENING_V2);
-                        if (fZeroCoinReg && fHardeningV2Tip) {
+                        if (fZeroCoinReg) {
                             const int nBaseH = (nTxDepth == 0) ? (nTipHeight + 1) : nTxHeight;
                             e.nUnlockHeight = (int)std::min<int64_t>(lockTime, (int64_t)nBaseH + GetZeroCoinRegPeriod(nBaseH));
                         } else {
@@ -2135,7 +2134,7 @@ void MinerHubWidget::refreshMinerHubStatus()
                             .arg(QString::fromStdString(GetAdamPuzzleAlgoName(a2)).left(5))
                             .arg(QString::fromStdString(GetAdamPuzzleAlgoName(a3)).left(5));
                     } else {
-                        int algoIdx = GetAdamPuzzleAlgo(nextSeed, e.pubKey, true);
+                        int algoIdx = GetAdamPuzzleAlgo(nextSeed, e.pubKey);
                         algoText = QString::fromStdString(GetAdamPuzzleAlgoName(algoIdx));
                     }
                     if (isRemoteMN) {

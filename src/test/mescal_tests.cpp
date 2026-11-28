@@ -523,14 +523,18 @@ BOOST_AUTO_TEST_CASE(mescal_taproot_ptlc_script_path_boundary_test)
         txEcdsaTap.vin.push_back(CTxIn(COutPoint(uint256S("03"), 0), CScript(), CTxIn::SEQUENCE_FINAL - 1));
         txEcdsaTap.vout.push_back(CTxOut(5 * COIN, CScript() << OP_TRUE));
 
-        uint256 sighash = SignatureHash(sigLeafScript, txEcdsaTap, 0, SIGHASH_ALL, 5 * COIN, SIGVERSION_BASE);
+        CTransaction txPreSign(txEcdsaTap);
+        PrecomputedTransactionData txdataSign(txPreSign);
+        txdataSign.Init(txPreSign, {CTxOut(5 * COIN, sigTaprootSpk)});
+        uint256 sighash;
+        BOOST_REQUIRE(ComputeTaprootSighash(txPreSign, 0, SIGHASH_ALL, SIGVERSION_TAPSCRIPT, txdataSign, sighash, &sigMerkleRoot));
         std::vector<unsigned char> vchDerSig;
         BOOST_REQUIRE(ecdsaKey.Sign(sighash, vchDerSig));
         vchDerSig.push_back((unsigned char)SIGHASH_ALL);
 
         txEcdsaTap.vin[0].scriptSig = CScript() << vchDerSig << ToByteVector(ecdsaPubKey) << sigLeafBytes << sigControlBlock;
 
-        const unsigned int strictTapFlags = tapFlags | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC;
+        const unsigned int strictTapFlags = tapFlags | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC | SCRIPT_VERIFY_TAPROOT_BIP341;
         ScriptError serror = SCRIPT_ERR_OK;
         CTransaction txConst(txEcdsaTap);
         PrecomputedTransactionData txdataVerify(txConst);
@@ -1314,7 +1318,6 @@ BOOST_AUTO_TEST_CASE(mescal_taproot_bip341_and_policy_phase2_test)
         precom.Init(tx, {CTxOut(3 * COIN, tapSpk), CTxOut(3 * COIN, tapSpk)});
 
         const unsigned int flagsBip341 = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_TAPROOT | SCRIPT_VERIFY_TAPROOT_BIP341;
-        const unsigned int flagsPreV3 = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_TAPROOT;
         ScriptError serror = SCRIPT_ERR_OK;
 
         // 1a. 64-byte SIGHASH_DEFAULT (0x00) passes under BIP 341
@@ -1387,13 +1390,13 @@ BOOST_AUTO_TEST_CASE(mescal_taproot_bip341_and_policy_phase2_test)
                 TransactionSignatureChecker(&txNoSpent, 0, 3 * COIN, uninitPrecom), &serror));
         }
 
-        // 1e. Pre-V3 legacy sighash (hashType=0x01 with input_index) on 64-byte sig passes without SCRIPT_VERIFY_TAPROOT_BIP341 and fails with it
+        // 1e. Legacy non-BIP341 sighash (hashType=0x01 with input_index) on 64-byte sig MUST fail under BIP 341 & mandatory flags
         {
             const uint256 hLeg = computeKeyPathBip341Sighash(tx, 1, SIGHASH_ALL, precom, true);
             CMutableTransaction mtxRun(tx);
             mtxRun.vin[1].scriptSig = CScript() << signKeyPath(hLeg);
             CTransaction txLeg(mtxRun);
-            BOOST_CHECK(VerifyScript(txLeg.vin[1].scriptSig, tapSpk, flagsPreV3,
+            BOOST_CHECK(!VerifyScript(txLeg.vin[1].scriptSig, tapSpk, MANDATORY_SCRIPT_VERIFY_FLAGS,
                 TransactionSignatureChecker(&txLeg, 1, 3 * COIN, precom), &serror));
             BOOST_CHECK(!VerifyScript(txLeg.vin[1].scriptSig, tapSpk, flagsBip341,
                 TransactionSignatureChecker(&txLeg, 1, 3 * COIN, precom), &serror));
@@ -1567,7 +1570,7 @@ BOOST_AUTO_TEST_CASE(taproot_branch_lex_ecdsa_sigcache_and_mescal_hardening_test
     precom.Init(txTmp, {CTxOut(5 * COIN, tapSpk)});
 
     uint256 bip341TapSighash;
-    BOOST_REQUIRE(ComputeTaprootSighash(txTmp, 0, SIGHASH_ALL, SIGVERSION_TAPSCRIPT, precom, bip341TapSighash, true, &hashA, 0xffffffff));
+    BOOST_REQUIRE(ComputeTaprootSighash(txTmp, 0, SIGHASH_ALL, SIGVERSION_TAPSCRIPT, precom, bip341TapSighash, &hashA, 0xffffffff));
     std::vector<unsigned char> tapSig;
     BOOST_REQUIRE(ecdsaKey.Sign(bip341TapSighash, tapSig));
     tapSig.push_back(static_cast<unsigned char>(SIGHASH_ALL));

@@ -32,8 +32,7 @@
 #include "key.h"
 #include "main.h"
 #include "kernel.h"
-#include "masternode-payments.h"
-#include "masternodeman.h"
+#include "masternode.h"
 #include "messagesigner.h"
 #include "miner.h"
 #include "netbase.h"
@@ -42,8 +41,6 @@
 #include "rpc/server.h"
 #include "script/standard.h"
 #include "scheduler.h"
-#include "spork.h"
-#include "sporkdb.h"
 #include "txdb.h"
 #include "script/scriptdb.h"
 #include "torcontrol.h"
@@ -233,8 +230,6 @@ void PrepareShutdown()
     GenerateBitcoins(false, NULL, 0);
 #endif
 
-    DumpMasternodes();
-    DumpMasternodePayments();
     UnregisterNodeSignals(GetNodeSignals());
 
     // After everything has been shut down, but before things get flushed, stop the
@@ -269,8 +264,6 @@ void PrepareShutdown()
         delete pblocktree;
         pblocktree = NULL;
         deterministicMNManager.reset();
-        delete pSporkDB;
-        pSporkDB = NULL;
         delete pScriptDB;
         pScriptDB = NULL;
     }
@@ -491,7 +484,6 @@ std::string HelpMessage(HelpMessageMode mode)
         strUsage += HelpMessageOpt("-limitancestorsize=<n>", strprintf(_("Do not accept transactions whose size with all in-mempool ancestors exceeds <n> kilobytes (default: %u)"), DEFAULT_ANCESTOR_SIZE_LIMIT));
         strUsage += HelpMessageOpt("-limitdescendantcount=<n>", strprintf(_("Do not accept transactions if any ancestor would have <n> or more in-mempool descendants (default: %u)"), DEFAULT_DESCENDANT_LIMIT));
         strUsage += HelpMessageOpt("-limitdescendantsize=<n>", strprintf(_("Do not accept transactions if any ancestor would have more than <n> kilobytes of in-mempool descendants (default: %u)."), DEFAULT_DESCENDANT_SIZE_LIMIT));
-        strUsage += HelpMessageOpt("-sporkkey=<privkey>", _("Enable spork administration functionality with the appropriate private key."));
         strUsage += HelpMessageOpt("-nuparams=upgradeName:activationHeight", "Use given activation height for specified network upgrade (regtest-only)");
     }
     strUsage += HelpMessageOpt("-debug=<category>", strprintf(_("Output debugging information (default: %u, supplying <category> is optional)"), 0) + ". " +
@@ -1254,12 +1246,6 @@ bool AppInit2()
             threadGroup.create_thread(&ThreadScriptCheck);
     }
 
-    if (mapArgs.count("-sporkkey") && !GetArg("-sporkkey", "").empty()) // spork priv key
-    {
-        if (!sporkManager.SetPrivKey(GetArg("-sporkkey", "")))
-            LogPrintf("Init: Warning: Unable to set sporkkey for signing spork messages.\n");
-    }
-
     // Start the lightweight task scheduler thread
     CScheduler::Function serviceLoop = boost::bind(&CScheduler::serviceQueue, &scheduler);
     threadGroup.create_thread(boost::bind(&TraceThread<CScheduler::Function>, "scheduler", serviceLoop));
@@ -1351,10 +1337,9 @@ bool AppInit2()
             // Delete the local blockchain folders to force a resync from scratch to get a consitent blockchain-state
             fs::path blocksDir = GetDataDir() / "blocks";
             fs::path chainstateDir = GetDataDir() / "chainstate";
-            fs::path sporksDir = GetDataDir() / "sporks";
 
-            LogPrintf("Deleting blockchain folders blocks, chainstate, and sporks\n");
-            // We delete in 4 individual steps in case one of the folder is missing already
+            LogPrintf("Deleting blockchain folders blocks and chainstate\n");
+            // We delete in 2 individual steps in case one of the folder is missing already
             try {
                 if (fs::exists(blocksDir)){
                     fs::remove_all(blocksDir);
@@ -1364,11 +1349,6 @@ bool AppInit2()
                 if (fs::exists(chainstateDir)){
                     fs::remove_all(chainstateDir);
                     LogPrintf("-resync: folder deleted: %s\n", chainstateDir.string().c_str());
-                }
-
-                if (fs::exists(sporksDir)){
-                    fs::remove_all(sporksDir);
-                    LogPrintf("-resync: folder deleted: %s\n", sporksDir.string().c_str());
                 }
             } catch (const fs::filesystem_error& error) {
                 LogPrintf("Failed to delete blockchain folders %s\n", error.what());
@@ -1581,13 +1561,9 @@ bool AppInit2()
                 delete pblocktree;
                 pblocktree = NULL;
                 deterministicMNManager.reset();
-                delete pSporkDB;
-                pSporkDB = NULL;
                 delete pScriptDB;
                 pScriptDB = NULL;
 
-                //KristaTech specific: spork DB's
-                pSporkDB = new CSporkDB(0, false, false);
                 pScriptDB = new CScriptDB(0, false, fReindex);
                 pblocktree = new CBlockTreeDB(nBlockTreeDBCache, false, fReindex);
                 deterministicMNManager.reset(new dip3::CDeterministicMNManager(4 << 20, false, fReindex));
@@ -1608,10 +1584,6 @@ bool AppInit2()
 
                 // End loop if shutdown was requested
                 if (ShutdownRequested()) break;
-
-                // KristaTech: load previous sessions sporks if we have them.
-                uiInterface.InitMessage(_("Loading sporks..."));
-                sporkManager.LoadSporksFromDB();
 
                 uiInterface.InitMessage(_("Loading block index..."));
                 std::string strBlockIndexError = "";
@@ -1652,7 +1624,7 @@ bool AppInit2()
                         COutPoint key;
                         Coin coin;
                         if (pcursor->GetKey(key) && pcursor->GetValue(coin)) {
-                            if (IsHardeningV3Active((int)coin.nHeight) && coin.out.scriptPubKey.IsUnspendable()) {
+                            if (coin.out.scriptPubKey.IsUnspendable()) {
                                 pcursor->Next();
                                 continue;
                             }
@@ -1689,8 +1661,7 @@ bool AppInit2()
                                              "Only rebuild the block database if you are sure that your computer's date and time are correct");
                             break;
                         }
-                        if (tip && tip->nHeight > 0 && deterministicMNManager &&
-                            Params().GetConsensus().NetworkUpgradeActive(tip->nHeight, Consensus::UPGRADE_DIP3)) {
+                        if (tip && tip->nHeight > 0 && deterministicMNManager) {
                             if (deterministicMNManager->HasListForBlock(tip->GetBlockHash())) {
                                 if (deterministicMNManager->GetTipBlockHash() != tip->GetBlockHash()) {
                                     deterministicMNManager->SetTipBlockHash(tip->GetBlockHash());
@@ -1824,35 +1795,6 @@ bool AppInit2()
     }
 
     // ********************************************************* Step 10: setup layer 2 data
-
-    uiInterface.InitMessage(_("Loading masternode cache..."));
-
-    CMasternodeDB mndb;
-    CMasternodeDB::ReadResult readResult = mndb.Read(mnodeman);
-    if (readResult == CMasternodeDB::FileError)
-        LogPrintf("Missing masternode cache file - mncache.dat, will try to recreate\n");
-    else if (readResult != CMasternodeDB::Ok) {
-        LogPrintf("Error reading mncache.dat: ");
-        if (readResult == CMasternodeDB::IncorrectFormat)
-            LogPrintf("magic is ok but data has invalid format, will try to recreate\n");
-        else
-            LogPrintf("file format is unknown or invalid, please fix it manually\n");
-    }
-
-    uiInterface.InitMessage(_("Loading masternode payment cache..."));
-
-    CMasternodePaymentDB mnpayments;
-    CMasternodePaymentDB::ReadResult readResult3 = mnpayments.Read(masternodePayments);
-
-    if (readResult3 == CMasternodePaymentDB::FileError)
-        LogPrintf("Missing masternode payment cache - mnpayments.dat, will try to recreate\n");
-    else if (readResult3 != CMasternodePaymentDB::Ok) {
-        LogPrintf("Error reading mnpayments.dat: ");
-        if (readResult3 == CMasternodePaymentDB::IncorrectFormat)
-            LogPrintf("magic is ok but data has invalid format, will try to recreate\n");
-        else
-            LogPrintf("file format is unknown or invalid, please fix it manually\n");
-    }
 
 #ifdef ENABLE_WALLET
     if (pwalletMain) {

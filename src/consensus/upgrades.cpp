@@ -21,7 +21,7 @@ const struct NUInfo NetworkUpgradeInfo[Consensus::MAX_NETWORK_UPGRADES] = {
         },
         {
                 /*.strName =*/ "Hardening_v1",
-                /*.strInfo =*/ "Rev 44 consensus, spork, LLMQ, and validator pool hardening",
+                /*.strInfo =*/ "Rev 44 consensus, LLMQ, and validator pool hardening",
         },
         {
                 /*.strName =*/ "Hardening_v2",

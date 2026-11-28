@@ -15,7 +15,6 @@
 #include "chainparams.h"
 #include "evo/deterministicmns.h"
 #include "main.h"
-#include "masternodeman.h"
 #include "rpc/client.h"
 #include "rpc/server.h"
 #include "support/cleanse.h"
@@ -611,16 +610,13 @@ void SettingsConsoleWidget::updateLiveStatusBadge()
 
     int height = clientModel ? clientModel->getNumBlocks() : chainActive.Height();
     int peers = clientModel ? clientModel->getNumConnections() : 0;
-    int mnEnabled = mnodeman.CountEnabled();
-    int mnTotal = mnodeman.size();
+    int mnEnabled = 0;
+    int mnTotal = 0;
     if (deterministicMNManager) {
         const dip3::CDeterministicMNList dip3List = deterministicMNManager->GetListAtChainTip();
-        if (!dip3List.mapMNs.empty()) {
-            mnTotal = static_cast<int>(dip3List.mapMNs.size());
-            mnEnabled = 0;
-            for (const auto& kv : dip3List.mapMNs) {
-                if (kv.second.state.IsValid()) ++mnEnabled;
-            }
+        mnTotal = static_cast<int>(dip3List.mapMNs.size());
+        for (const auto& kv : dip3List.mapMNs) {
+            if (kv.second.state.IsValid()) ++mnEnabled;
         }
     }
 

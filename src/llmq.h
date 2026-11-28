@@ -79,8 +79,8 @@ std::vector<CQuorumMember> ElectQuorumMembers(int nHeight, int nQuorumSize = 0, 
 // DKG session simulation: create a new quorum at height
 CQuorum RunDKG(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);
 
-// Get BFT signature threshold for a quorum of nQuorumSize at block height nHeight (floor(2N/3)+1 under V4, floor(N/2)+1 pre-V4)
-size_t GetQuorumThreshold(size_t nQuorumSize, int nHeight);
+// Get BFT signature threshold for a quorum of nQuorumSize (floor(2N/3)+1)
+size_t GetQuorumThreshold(size_t nQuorumSize);
 
 // Get the active quorum for a given block height
 CQuorum GetActiveQuorum(int nHeight, const CBlockIndex* pindexPrev = nullptr, const CCoinsViewCache* pView = nullptr);

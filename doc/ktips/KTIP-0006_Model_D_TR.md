@@ -11,21 +11,21 @@ Oluşturulma Tarihi: 2026-06-16
 Bu teklif, KRISTA ağının ilk bootstrap (başlangıç) aşamasından olgun, uzun vadeli konsensüs ve ekonomik tasarımına geçişini belirleyen **Model D Ağ Güncellemesini** tanımlar. Model D güncellemesi; Dağıtılmış Anahtar Üretimi (DKG) oturumlarını kullanan Uzun Ömürlü Masternode Kurullarını (LLMQ) aktif hale getirir, hibrit PoBLS kurul imzası doğrulamasını zorunlu kılar, eski/terk edilmiş kayıtları önlemek için aktif madenci kayıt süresini kısaltır ve nihai ekonomik blok ödülü dağılımını devreye sokar.
 
 ## Motivasyon
-Bootstrap aşamasında (Mainnet'te 5.000. bloktan önce), KRISTA ağının henüz kurulmamış veya olgunlaşmamış kurullar nedeniyle kilitlenmesini (deadlock) önlemek için masternode havuzunun birikmesi ve doğrulayıcı teminatlarının güvence altına alınması gerekiyordu.
+Kısa PoW bootstrap aşamasında (Mainnet ve Testnet'te `200`. blok öncesi `1..199` arası), ağ olgunlaşmamış doğrulayıcı havuzları yüzünden kilitlenme (deadlock) yaşamadan coinbase anahtarlarını ve ilk UTXO'ları oluşturur.
 
-Model D, bu durumu aşamalı bir olgunlaşma modeliyle çözer:
-1. **Bootstrap Dönemi**: Yatırımcıların ve madencilerin `4.200 KRISTA` teminatı biriktirmelerini ve masternode sunucularını kurmalarını teşvik etmek amacıyla Model D öncesinde Pasif Masternode (`%5`) ve LLMQ (`%10`) ödemeleri `%0` olarak ayarlanır (Klasik PoW blokları `2..199` arasında `%100` Madenci; Blok `200` itibarıyla `IsAdamValidatorSplitActive` + `UPGRADE_FAIRNESS` ile **`%25` Blok Üreticisi [PoS'ta `%20` Staker + `%5` İmzacı Koordinatör] + `%75` Eşit Aktif ADAM Doğrulayıcıları [11 koltuk]** [`~%6,818`/koltuk] ve çözülmemiş koltuklar için `%50/%50` Yakım/Hazine paylaşımı). Bu aşamada, blok üretiminin kesintisiz devam edebilmesi için kurul imzası doğrulama eşikleri bypass edilir ($T = 0$).
-2. **Olgunlaşma Dönemi (Dengeli Model D)**: Yeterli aktif masternode sayısına ulaşıldığında Model D gelişmiş LLMQ topolojileriyle katı imza doğrulama eşiklerini zorunlu kılar (`8`'e `15` bootstrap sonrası ADAM eşiği — ayrıca `UPGRADE_HARDENING_V4` Yükseklik `1` altında aktif MN `>= 8` olduğu anda bootstrap sırasında da doğrudan `8` zorunlu kılınır — ve `2/3` BFT LLMQ eşiği `floor(2N/3)+1 ∈ {4, 7, 8, 11}`), ADAM komitesini **`15` koltuğa (`8 MN + 2 Coin-Lock + 3 PoW-Lock + 2 Ücretsiz 0 KRISTA`)** ve **`%55` Aktif MN Koordinatör VRF tabanına** günceller, nihai dağıtımı da **`%5` Pasif MN + `%10` 1-Blok Gecikmeli İmzacı-Odaklı LLMQ + `%25` Üretici (`PoS %22 Staker + %3 Koordinatör`) + `%60` Eşit Aktif Doğrulayıcılar (`%60 / 15 = %4,00`/koltuk)** şeklinde uygular.
+Model D, blok `200`'de tek seferde devreye giren birleşik geçiş modeliyle çalışır (`1..199` bootstrap $\rightarrow$ Blok `200` tam Model D + LLMQ + PoMBL):
+1. **Bootstrap Dönemi (`1..199`)**: Model D öncesinde Pasif Masternode (`%5`) ve LLMQ (`%10`) ödemeleri `%0` olarak tutulur (Klasik PoW blokları `2..199` arasında net `%100` Madenci; Blok `200`'de doğrudan Dengeli Model D'ye geçilir). Blok `200` öncesinde kurul imzası doğrulaması henüz etkin değildir ($T = 0$).
+2. **Olgunlaşma Dönemi (Dengeli Model D, Blok `200+`)**: Mainnet, Testnet ve Regtest üzerinde Blok `200` itibarıyla Model D gelişmiş LLMQ topolojilerini ve katı imza doğrulama eşiklerini zorunlu kılar (`UPGRADE_HARDENING_V4` Yükseklik `1` altında `nActiveMasternodes >= 8` olduğunda `8`-of-`15` ADAM eşiği, `< 8` iken `5` koruyucu eşik — ve `2/3` BFT LLMQ eşiği `floor(2N/3)+1 ∈ {4, 7, 8, 11}`), ADAM komitesini **`15` koltuğa (`8 MN + 2 Coin-Lock + 3 PoW-Lock + 2 Ücretsiz 0 KRISTA`)** ve **`%55` Aktif MN Koordinatör VRF tabanına** geçirir, nihai dağıtımı da **`%5` Pasif MN + `%10` 1-Blok Gecikmeli İmzacı-Odaklı LLMQ + `%25` Üretici (`PoS %22 Staker + %3 Koordinatör`) + `%60` Eşit Aktif Doğrulayıcılar (`%60 / 15 = %4,00`/koltuk)** şeklinde uygular.
 
 ## Spesifikasyon
 
 ### 1. Güncelleme Aktivasyon Zamanlaması
-Model D güncellemesi (`Consensus::UPGRADE_MODELD`), ağ türüne bağlı olarak farklı blok yüksekliklerinde aktifleşir:
+Model D güncellemesi (`Consensus::UPGRADE_MODELD`), `UPGRADE_POMBL`, `UPGRADE_ADAM_V2` ve `UPGRADE_STAKE_MIN_DEPTH_V2` ile birlikte Blok `200`'de tek seferde aktifleşir:
 
 | Ağ | Aktivasyon Yüksekliği | Durum |
 | --- | --- | --- |
-| **Mainnet** | Blok 5.000 | Aktif |
-| **Testnet** | Blok 500 | Aktif |
+| **Mainnet** | Blok 200 | Aktif |
+| **Testnet** | Blok 200 | Aktif |
 | **Regtest** | Blok 200 | Aktif |
 
 ---
@@ -35,25 +35,17 @@ Model D altında ağ, aktif ve kayıtlı masternode'ları simüle edilmiş bir D
 
 * **Kurul Boyutu ($N$)**: Dinamik BFT ölçeklendirme (`UPGRADE_HARDENING_V1` / `src/llmq.cpp` içindeki `GetTargetQuorumSize`), doğrulanmış aktif zincir üstü Masternode sayısına göre ölçeklenir (`<25` $\rightarrow$ `5`, `25–49` $\rightarrow$ `9`, `50–99` $\rightarrow$ `11`, `>=100` $\rightarrow$ `15`). Aktif Masternode sayısı $< N$ ise eksik koltuklar kota sınırlı yedeklerle (`en fazla 1 Coin-Lock + en fazla 3 Fonlu PoW-Lock`) tamamlanır.
 * **DKG Rotasyon Aralığı (`GetActiveQuorum`)**:
-  * **Mainnet**: 1.400. bloktan önce aktif kurul rotasyon yüksekliği her **100 blokta** bir (`UPGRADE_POMBL` alt sınırıyla), 1.400. blok ve sonrasında ise **her blokta** yeniden belirlenir:
+  * **Mainnet & Testnet**: Blok `200` (`nHeight >= 200`) itibarıyla aktifleştiği andan başlayarak her blokta (`H_{\text{DKG}} = H`) taze kurul seçilir; arada ikincil bir rotasyon geçişi yoktur.
+  * **Regtest**: 800. bloktan önce aktif kurul rotasyon yüksekliği her **10 blokta** bir (`UPGRADE_POMBL = 300` alt sınırıyla), 800 ve sonrasında ise **her blokta** yeniden belirlenir:
 
     $$
     H_{\text{DKG}} = \begin{cases}
-    \max\left(\lfloor H / 100 \rfloor \times 100,\; H_{\text{PoMBL}}\right) & H < 1400 \text{ ise} \\
-    H & H \ge 1400 \text{ ise}
-    \end{cases}
-    $$
-
-  * **Testnet / Regtest**: 1.000. bloktan (Testnet) / 800. bloktan (Regtest) önce aktif kurul rotasyon yüksekliği her **10 blokta** bir (`UPGRADE_POMBL` alt sınırıyla), sonrasında ise **her blokta** yeniden belirlenir:
-
-    $$
-    H_{\text{DKG}} = \begin{cases}
-    \max\left(\lfloor H / 10 \rfloor \times 10,\; H_{\text{PoMBL}}\right) & H < H_{\text{rot}} \text{ ise} \\
+    \max\left(\lfloor H / 10 \rfloor \times 10,\; H_{\text{PoMBL}}\right) & H < 800 \text{ ise (yalnızca Regtest)} \\
     H & H \ge H_{\text{rot}} \text{ ise}
     \end{cases}
     $$
   
-  Burada $H$ mevcut blok yüksekliğini (`nHeight`), $H_{\text{PoMBL}}$ `UPGRADE_POMBL` yüksekliğini (Mainnet `4800`, Testnet `400`, Regtest `300`), $H_{\text{rot}}$ Testnet'te $1000$ (Regtest'te $800$) değerini ve $H_{\text{DKG}}$ ise aktif kurulun seçildiği rotasyon yüksekliğini temsil eder.
+  Burada $H$ mevcut blok yüksekliğini (`nHeight`), $H_{\text{PoMBL}}$ `UPGRADE_POMBL` yüksekliğini (Mainnet/Testnet `200`, Regtest `300`), $H_{\text{rot}}$ Mainnet/Testnet'te $200$ (Regtest'te $800$) değerini ve $H_{\text{DKG}}$ ise aktif kurulun seçildiği rotasyon yüksekliğini temsil eder.
 
 * **Kurul Seçimi**: Kurul üyeleri, bir önceki bloğun dönen entropi seed (tohum) değeri ve masternode teminat outpoint verisine dayalı bir puanlama sistemi kullanılarak tüm aktif masternode'ların deterministik olarak sıralanmasıyla seçilir. Zincir üzerinde $N$'den az doğrulanmış Aktif Masternode bulunduğunda (`nVerifiedOnChainMNs < N`), mevcut tüm gerçek Aktif Masternode'lar kurula doğrudan dahil edilerek gerçek Masternode operatörlerinin koltukları korunur. $N$ üyeli kurulu tamamlamak için eksik kalan koltuklar, kota izolasyonlu yedek aday havuzlarından (en yüksek puanlı Coin-Lock ve ardından Fonlu PoW-Lock doğrulayıcıları) doldurulur; her bir aday strictly kota limitlidir (en fazla 1 Coin-Lock + en fazla 3 Fonlu PoW-Lock). Böylece Bizans izolasyonu korunur ve tek bir tarafın veya çoklu kilit kümesinin LLMQ imzalama gücünü ele geçirmesi engellenir.
 
@@ -104,7 +96,7 @@ $$\text{nRegPeriod}_{\text{Model D (Testnet / Regtest)}} = 100 \text{ blok}$$
 Madenciler, blokzinciri üzerinde düzenli olarak madenci kayıt işlemi (miner registration transaction) göndererek kayıtlarını yenilemelidir.
 
 ## Geriye Dönük Uyumluluk
-* Model D kuralları, blok yüksekliği `UPGRADE_MODELD` değerine ulaştığında dinamik olarak devreye girer (Sürüm 12 blok başlığı serileştirmesi ise `UPGRADE_POMBL` yüksekliğinde — Mainnet `4800`, Testnet `400`, Regtest `300` — ve `UPGRADE_HARDENING_V4` tüm ağlarda `1`. blok yüksekliğinde etkinleşir; aktif MN `>= 8` olduğu anda Mainnet / Regtest bootstrap aşamasında dahi Model D ADAM eşiği `8` olarak uygulanır, yalnızca `< 8` iken `5`'e veya Testnet'te `3`'e düşer).
+* Model D kuralları, blok `200`'de `UPGRADE_POMBL`, `UPGRADE_ADAM_V2` ve `UPGRADE_STAKE_MIN_DEPTH_V2` ile birlikte tek seferde devreye girer (`UPGRADE_POMBL` Mainnet/Testnet'te `200`, Regtest'te `300`; `UPGRADE_HARDENING_V4` tüm ağlarda `1`. blokta etkinleşir — aktif MN `>= 8` olduğu anda `8`-of-`15` Model D ADAM eşiğini uygular, yalnızca `< 8` iken koruyucu `5` veya Testnet'te `3` eşiğine düşer).
 * `UPGRADE_MODELD` yüksekliğinin altındaki bloklarda dinamik `2/3` BFT (`UPGRADE_HARDENING_V4` altında `floor(2N/3)+1` ile `5'te 4`..`15'te 11`; V4 öncesi `5'te 3`..`15'te 8`) LLMQ `vQuorumSig` doğrulaması ve Model D ödül dağılımları uygulanmaz, böylece bootstrap davranışı korunur.
 
 ## Referans Uygulama

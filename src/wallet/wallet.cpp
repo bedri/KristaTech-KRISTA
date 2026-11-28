@@ -17,13 +17,13 @@
 #include "evo/deterministicmns.h"
 #include "init.h"
 #include "guiinterfaceutil.h"
+#include "masternode.h"
 #include "masternode-payments.h"
 #include "netbase.h"
 #include "policy/policy.h"
 #include "script/mescal.h"
 #include "script/sign.h"
 #include "script/standard.h"
-#include "spork.h"
 #include "util.h"
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
@@ -1792,9 +1792,7 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
         const int nCurHeight = chainActive.Height();
         if (nCurHeight <= 0) return false;
         const int nNextHeight = nCurHeight + 1;
-        const size_t nGateCount = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
-            ? GetFundedAdamMinerPoolCount(nCurHeight)
-            : GetExplicitAdamMinerPoolCount(nCurHeight);
+        const size_t nGateCount = GetFundedAdamMinerPoolCount(nCurHeight);
         if (!Params().GetConsensus().IsAdamOpenEntryActive(nNextHeight) && nGateCount >= (size_t)(Params().GetConsensus().GetAdamMinersCount(nNextHeight) + 2)) {
             return true;
         }
@@ -1802,10 +1800,7 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
         for (const auto& k : activePool) {
             if (k == zPubKey) return true;
         }
-        const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
-        const int nMinZeroPeriod = fHardeningV2
-            ? GetZeroCoinRegPeriod(nNextHeight)
-            : (((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) && IsModelDActive(nNextHeight)) ? 100 : 2880);
+        const int nMinZeroPeriod = GetZeroCoinRegPeriod(nNextHeight);
         if (zLockTime < nNextHeight + nMinZeroPeriod || zLockTime >= LOCKTIME_THRESHOLD || zLockTime > nNextHeight + 5760) {
             return true;
         }
@@ -1813,7 +1808,7 @@ void CWallet::ReacceptWalletTransactions(bool fFirstLoad)
         if (miChallenge == mapBlockIndex.end() || !miChallenge->second) {
             return true;
         }
-        const int nMaxChallengeAge = fHardeningV2 ? (ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2) : 100;
+        const int nMaxChallengeAge = ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2;
         CBlockIndex* pindexChallenge = miChallenge->second;
         if (pindexChallenge->nHeight < 0 || pindexChallenge->nHeight > nCurHeight ||
             !chainActive[pindexChallenge->nHeight] ||
@@ -1960,14 +1955,9 @@ void CWallet::ResendWalletTransactions(CConnman* connman)
                     static const COutPoint zeroCoinSentinel(uint256S("0000000000000000000000000000000000000000000000000000000000000001"), 0);
                     const int nCurHeight = chainActive.Height();
                     const int nNextHeight = nCurHeight + 1;
-                    const bool fHardeningV2 = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
-                    const int nMinZeroPeriod = fHardeningV2
-                        ? GetZeroCoinRegPeriod(nNextHeight)
-                        : (((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) && IsModelDActive(nNextHeight)) ? 100 : 2880);
-                    const int nMaxChallengeAge = fHardeningV2 ? (ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2) : 100;
-                    const size_t nGateCount = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
-                        ? GetFundedAdamMinerPoolCount(nCurHeight)
-                        : GetExplicitAdamMinerPoolCount(nCurHeight);
+                    const int nMinZeroPeriod = GetZeroCoinRegPeriod(nNextHeight);
+                    const int nMaxChallengeAge = ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2;
+                    const size_t nGateCount = GetFundedAdamMinerPoolCount(nCurHeight);
                     const bool fBootstrapFull = !Params().GetConsensus().IsAdamOpenEntryActive(nNextHeight) &&
                                                 (nGateCount >= (size_t)(Params().GetConsensus().GetAdamMinersCount(nNextHeight) + 2));
                     std::vector<uint256> vAbandon;
@@ -1984,7 +1974,7 @@ void CWallet::ResendWalletTransactions(CConnman* connman)
                         CKeyID zPubKeyHash;
                         bool fValid = (wtx.vout.size() == 1 &&
                             MatchPoWLockRegistration(wtx.vout[0].scriptPubKey, zNonce, zChallenge, zPubKey, zLockTime, zPubKeyHash) &&
-                            (!fHardeningV2 || zPubKey.IsCompressed()) &&
+                            zPubKey.IsCompressed() &&
                             zPubKey.GetID() == zPubKeyHash &&
                             !fBootstrapFull &&
                             zLockTime >= nNextHeight + nMinZeroPeriod &&
@@ -2421,7 +2411,6 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
         const int64_t nMedianTimePast = chainActive.Tip() ? chainActive.Tip()->GetMedianTimePast() : GetAdjustedTime();
         const int nMinStakeDepth = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nChainHeight + 1), Consensus::UPGRADE_STAKE_MIN_DEPTH_V2) ?
             Params().GetConsensus().nStakeMinDepthV2 : Params().GetConsensus().nStakeMinDepth;
-        const bool fFairnessNext = Params().GetConsensus().NetworkUpgradeActive(std::max(0, nChainHeight + 1), Consensus::UPGRADE_FAIRNESS);
         const CAmount nCollateralAmount = CMasternode::GetMasternodeNodeCollateral(nChainHeight);
         const CScript devFundScript = (nCoinType == STAKEABLE_COINS)
             ? GetScriptForDestination(DecodeDestination(Params().DeveloperFundAddress()))
@@ -2493,7 +2482,7 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                         std::vector<valtype> vSolutions;
                         if (Solver(pcoin->vout[i].scriptPubKey, whichType, vSolutions)) {
                             stakeKernelCompatible = (whichType == TX_PUBKEY || whichType == TX_PUBKEYHASH ||
-                                (fFairnessNext && whichType == TX_CLTV_TIMELOCK));
+                                whichType == TX_CLTV_TIMELOCK);
                         }
                     }
                     mapScriptCache.emplace(pcoin->vout[i].scriptPubKey, CachedScriptAvailability{mine, solvable, stakeKernelCompatible});
@@ -2530,13 +2519,13 @@ bool CWallet::AvailableCoins(std::vector<COutput>* pCoins,      // --> populates
                     }
                 }
 
-                // Skip active PoL timelocked UTXOs from normal spending; allow lock-preserving PoL staking under UPGRADE_FAIRNESS
+                // Skip active PoL timelocked UTXOs from normal spending; allow lock-preserving PoL staking
                 if (nCoinType != ONLY_10000) {
                     int64_t polLockTime = 0;
                     CKeyID polPubkeyHash;
                     if (MatchPoLTimelockScript(pcoin->vout[i].scriptPubKey, polLockTime, polPubkeyHash)) {
                         if (nCoinType == STAKEABLE_COINS) {
-                            if (!fFairnessNext || polLockTime <= 0 || polLockTime >= 500000000 || polLockTime <= nChainHeight + 1) {
+                            if (polLockTime <= 0 || polLockTime >= 500000000 || polLockTime <= nChainHeight + 1) {
                                 continue;
                             }
                         } else {
@@ -3282,20 +3271,19 @@ bool CWallet::CreateCoinStake(
 
         // Add block reward to the credit
         const int nNextHeight = pindexPrev->nHeight + 1;
-        const bool fFairness = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_FAIRNESS);
         const CAmount nBlockValActual = CMasternode::GetBlockValue(nNextHeight);
         nCredit += nBlockValActual;
         CAmount nMasternodeCredit = CMasternode::GetMasternodePayment(nNextHeight);
         if (IsModelDActive(nNextHeight)) {
             const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
             const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-            const CAmount nCoordPoSShare = fFairness ? (nBlockVal * 3 / 100) : 0;
+            const CAmount nCoordPoSShare = nBlockVal * 3 / 100;
             nMasternodeCredit = nTreasurySplit + (nBlockVal * 5 / 100) + (nBlockVal * 10 / 100) + (nBlockVal * 60 / 100) + nCoordPoSShare;
         } else if (IsAdamValidatorSplitActive(nNextHeight)) {
             const CAmount nTreasurySplit = (nNextHeight > 1) ? (nBlockValActual * 7 / 100) : 0;
             const CAmount nBlockVal = nBlockValActual - nTreasurySplit;
-            const CAmount nPartSplit = fFairness ? (nBlockVal * 75 / 100) : (nBlockVal * 40 / 100);
-            const CAmount nCoordPoSShare = fFairness ? (nBlockVal * 5 / 100) : 0;
+            const CAmount nPartSplit = nBlockVal * 75 / 100;
+            const CAmount nCoordPoSShare = nBlockVal * 5 / 100;
             nMasternodeCredit = nTreasurySplit + nPartSplit + nCoordPoSShare;
         }
 

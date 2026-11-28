@@ -269,21 +269,15 @@ extern void validaterange(const UniValue& params, int& heightStart, int& heightE
 extern UniValue listmasternodes(const JSONRPCRequest& request);
 extern UniValue getmasternodecount(const JSONRPCRequest& request);
 extern UniValue protx(const JSONRPCRequest& request);
-extern UniValue decodemasternodebroadcast(const JSONRPCRequest& request);
-extern UniValue relaymasternodebroadcast(const JSONRPCRequest& request);
-extern UniValue masternodecurrent(const JSONRPCRequest& request);
 extern UniValue createmasternodekey(const JSONRPCRequest& request);
 extern UniValue createblsprivkey(const JSONRPCRequest& request);
 extern UniValue getmasternodeoutputs(const JSONRPCRequest& request);
 extern UniValue getmasternodestatus(const JSONRPCRequest& request);
-extern UniValue getmasternodewinners(const JSONRPCRequest& request);
-extern UniValue getmasternodescores(const JSONRPCRequest& request);
 extern UniValue getactivequorum(const JSONRPCRequest& request);
 
 extern UniValue getinfo(const JSONRPCRequest& request); // in rpc/misc.cpp
 extern UniValue logging(const JSONRPCRequest& request);
 extern UniValue mnsync(const JSONRPCRequest& request);
-extern UniValue spork(const JSONRPCRequest& request);
 extern UniValue validateaddress(const JSONRPCRequest& request);
 extern UniValue createmultisig(const JSONRPCRequest& request);
 extern UniValue verifymessage(const JSONRPCRequest& request);

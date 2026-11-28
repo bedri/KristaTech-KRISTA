@@ -17,7 +17,6 @@
 #include "evo/deterministicmns.h"
 #include "main.h"
 #include "masternode.h"
-#include "masternodeman.h"
 #include "miner.h"
 #include "txmempool.h"
 #include "util.h"
@@ -2452,7 +2451,7 @@ void StatsWidget::refreshStats()
                     if (kv.second.state.IsValid()) ++dip3Valid;
                 }
             }
-            mnEnabled = (dip3Valid > 0) ? dip3Valid : mnodeman.CountEnabled();
+            mnEnabled = dip3Valid;
             hasPoolSnapshot = true;
 
             m_lastGoodPool.valid = true;
@@ -2653,8 +2652,7 @@ void StatsWidget::refreshStats()
         lblSplitLlmqVal->setToolTip(tr("Shared equally among LLMQ quorum members signing the block."));
         lblSplitDevVal->setText(formatAmountPlain(devShare, true));
     } else {
-        const bool fFairnessPre = Params().GetConsensus().NetworkUpgradeActive(evalHeight, Consensus::UPGRADE_FAIRNESS);
-        const int valPct = IsAdamValidatorSplitActive(evalHeight) ? (fFairnessPre ? 75 : 40) : 0;
+        const int valPct = IsAdamValidatorSplitActive(evalHeight) ? 75 : 0;
         const int prodPct = 100 - valPct;
         const CAmount validatorPool = IsAdamValidatorSplitActive(evalHeight) ? ((netPool * valPct) / 100) : 0;
         const CAmount producerPool  = netPool - validatorPool;

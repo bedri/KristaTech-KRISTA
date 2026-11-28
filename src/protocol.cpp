@@ -42,14 +42,6 @@ const char* REJECT = "reject";
 const char* SENDHEADERS = "sendheaders";
 const char* IX = "ix";
 const char* IXLOCKVOTE = "txlvote";
-const char* SPORK = "spork";
-const char* GETSPORKS = "getsporks";
-const char* MNBROADCAST = "mnb";
-const char* MNPING = "mnp";
-const char* MNWINNER = "mnw";
-const char* GETMNWINNERS = "mnget";
-const char* SYNCSTATUSCOUNT = "ssc";
-const char* GETMNLIST = "dseg";
 const char* ADAMSOL = "adamsol";
 const char* PROPOSEBLOCK = "qblockprop";
 const char* QUORUMSIGSHARE = "qsigshare";
@@ -92,14 +84,6 @@ const static std::string allNetMessageTypes[] = {
     NetMsgType::SENDHEADERS,
     NetMsgType::IX,
     NetMsgType::IXLOCKVOTE,
-    NetMsgType::SPORK,
-    NetMsgType::GETSPORKS,
-    NetMsgType::MNBROADCAST,
-    NetMsgType::MNPING,
-    NetMsgType::MNWINNER,
-    NetMsgType::GETMNWINNERS,
-    NetMsgType::GETMNLIST,
-    NetMsgType::SYNCSTATUSCOUNT,
     NetMsgType::ADAMSOL,
     NetMsgType::PROPOSEBLOCK,
     NetMsgType::QUORUMSIGSHARE,
@@ -199,12 +183,6 @@ CInv::CInv(const std::string& strType, const uint256& hashIn)
     else if (strType == NetMsgType::CMPCTBLOCK) type = MSG_CMPCT_BLOCK;
     else if (strType == NetMsgType::IX) type = 4;
     else if (strType == NetMsgType::IXLOCKVOTE) type = 5;
-    else if (strType == NetMsgType::SPORK) type = MSG_SPORK;
-    else if (strType == NetMsgType::MNWINNER) type = MSG_MASTERNODE_WINNER;
-    else if (strType == "mnse") type = MSG_MASTERNODE_SCANNING_ERROR;
-    else if (strType == "mnq") type = MSG_MASTERNODE_QUORUM;
-    else if (strType == NetMsgType::MNBROADCAST) type = MSG_MASTERNODE_ANNOUNCE;
-    else if (strType == NetMsgType::MNPING) type = MSG_MASTERNODE_PING;
     else if (strType == "dstx") type = MSG_DSTX;
     else {
         type = 0;
@@ -226,12 +204,6 @@ bool CInv::IsKnownType() const
     case MSG_FILTERED_BLOCK:
     case 4:
     case 5:
-    case MSG_SPORK:
-    case MSG_MASTERNODE_WINNER:
-    case MSG_MASTERNODE_SCANNING_ERROR:
-    case MSG_MASTERNODE_QUORUM:
-    case MSG_MASTERNODE_ANNOUNCE:
-    case MSG_MASTERNODE_PING:
     case MSG_DSTX:
     case MSG_CMPCT_BLOCK:
         return true;
@@ -243,12 +215,6 @@ bool CInv::IsKnownType() const
 bool CInv::IsMasterNodeType() const
 {
     switch (type) {
-    case MSG_SPORK:
-    case MSG_MASTERNODE_WINNER:
-    case MSG_MASTERNODE_SCANNING_ERROR:
-    case MSG_MASTERNODE_QUORUM:
-    case MSG_MASTERNODE_ANNOUNCE:
-    case MSG_MASTERNODE_PING:
     case MSG_DSTX:
         return true;
     default:
@@ -264,12 +230,6 @@ const char* CInv::GetCommand() const
     case MSG_FILTERED_BLOCK:             return "filtered block";
     case 4:                              return NetMsgType::IX;
     case 5:                              return NetMsgType::IXLOCKVOTE;
-    case MSG_SPORK:                      return NetMsgType::SPORK;
-    case MSG_MASTERNODE_WINNER:          return NetMsgType::MNWINNER;
-    case MSG_MASTERNODE_SCANNING_ERROR:  return "mnse";
-    case MSG_MASTERNODE_QUORUM:          return "mnq";
-    case MSG_MASTERNODE_ANNOUNCE:        return NetMsgType::MNBROADCAST;
-    case MSG_MASTERNODE_PING:            return NetMsgType::MNPING;
     case MSG_DSTX:                       return "dstx";
     case MSG_CMPCT_BLOCK:                return NetMsgType::CMPCTBLOCK;
     default:

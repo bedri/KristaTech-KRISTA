@@ -24,7 +24,6 @@
 
 #include "compat/endian.h"
 #include "prevector.h"
-#include "sporkid.h"
 
 
 static const unsigned int MAX_SIZE = 0x02000000;
@@ -216,21 +215,6 @@ template<typename Stream> inline void Unserialize(Stream& s, double& a  ) { a = 
 
 template<typename Stream> inline void Serialize(Stream& s, bool a)    { char f=a; ser_writedata8(s, f); }
 template<typename Stream> inline void Unserialize(Stream& s, bool& a) { char f=ser_readdata8(s); a=f; }
-
-// Serialization for SporkId
-template <typename Stream>
-inline void Serialize(Stream& s, SporkId sporkID)
-{
-    int32_t f = static_cast<int32_t>(sporkID);
-    ser_writedata32(s, f);
-}
-
-template <typename Stream>
-inline void Unserialize(Stream& s, SporkId& sporkID)
-{
-    int32_t f = ser_readdata32(s);
-    sporkID = (SporkId) f;
-}
 
 
 /**

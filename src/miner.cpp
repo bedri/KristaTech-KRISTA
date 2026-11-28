@@ -23,8 +23,9 @@
 #include "evo/deterministicmns.h"
 #include "hash.h"
 #include "main.h"
+#include "activemasternodeman.h"
+#include "masternode.h"
 #include "masternode-sync.h"
-#include "masternodeman.h"
 #include "net.h"
 #include "pow.h"
 #include "primitives/block.h"
@@ -41,7 +42,6 @@
 #include "validationinterface.h"
 #include "masternode-payments.h"
 #include "blocksignature.h"
-#include "spork.h"
 #include "init.h"
 #include "script/script.h"
 #include "script/sign.h"
@@ -784,7 +784,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             memcpy(inputBuf + 33, minerKey.begin(), keyLen);
                         }
                         const size_t inputLen = 37 + keyLen;
-                        int algoIndex = (pblock->nVersion == 11) ? GetAdamPuzzleAlgo(adamSeed, minerKey, true) : 12;
+                        int algoIndex = (pblock->nVersion == 11) ? GetAdamPuzzleAlgo(adamSeed, minerKey) : 12;
                         int algo1 = -1, algo2 = -1, algo3 = -1;
                         if (pblock->nVersion >= 12) {
                             GetAdam3PermutationAlgos(pblock->hashPrevBlock, minerKey, algo1, algo2, algo3);
@@ -810,7 +810,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             }
                             
                              if (puzzleHash <= scaledTarget) {
-                                 const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(nHeight));
+                                 const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL);
                                  CKey regKey;
                                  CBLSSecretKey regBlsKey;
                                  bool fOpOnly = false;
@@ -881,8 +881,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             return nullptr;
         }
 
-        if (consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS) &&
-            !Params().IsRegTestNet() &&
+        if (!Params().IsRegTestNet() &&
             availableSolutions < (int)vPrimaryExpectedMiners.size() &&
             nTemplateTimeDiff < ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS - 5) {
             bool fShouldWaitGrace = true;
@@ -961,7 +960,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         bool fOpTest = false;
         bool ownsCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev);
         if (fAllowCoordinatorRotation && !ownsCoordinator && !vExpectedMiners.empty()) {
-            const std::vector<CPubKey>& vFbPool = (IsHardeningV3Active(nHeight) && !vPrimaryExpectedMiners.empty())
+            const std::vector<CPubKey>& vFbPool = !vPrimaryExpectedMiners.empty()
                 ? vPrimaryExpectedMiners : vExpectedMiners;
             CPubKey activeFallback, prevFallback;
             int rotationIndex = 0;
@@ -1024,8 +1023,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     if (pblock->nVersion >= 11 && !fProofOfStake && expectedCoordinator.IsValid() &&
         (effectiveScriptPubKey.empty() || effectiveScriptPubKey == (CScript() << OP_TRUE))) {
         bool resolvedMnCollateralScript = false;
-        if (deterministicMNManager &&
-            Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3)) {
+        if (deterministicMNManager) {
             const dip3::CDeterministicMNList mnList = deterministicMNManager->GetListForBlock(pindexPrev);
             const dip3::CDeterministicMN* dmn = mnList.GetMNByOwner(expectedCoordinator);
             if (dmn && !dmn->state.scriptPayout.empty()) {
@@ -1033,7 +1031,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 resolvedMnCollateralScript = true;
             }
         }
-        if (!resolvedMnCollateralScript) {
+        if (!resolvedMnCollateralScript && !deterministicMNManager) {
             LOCK(cs_main);
             if (pcoinsTip) {
                 auto itCol = mapMasternodeCollateralOutpoints.find(expectedCoordinator);
@@ -1048,12 +1046,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
         }
         if (!resolvedMnCollateralScript) {
-            CMasternode mn;
-            if (mnodeman.Get(expectedCoordinator, mn) && mn.pubKeyCollateralAddress.IsValid()) {
-                effectiveScriptPubKey = GetScriptForDestination(mn.pubKeyCollateralAddress.GetID());
-            } else {
-                effectiveScriptPubKey = GetScriptForDestination(expectedCoordinator.GetID());
-            }
+            effectiveScriptPubKey = GetScriptForDestination(expectedCoordinator.GetID());
         }
     }
 
@@ -1078,23 +1071,9 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
     pblocktemplate->vTxFees.push_back(-1);   // updated at end
     pblocktemplate->vTxSigOps.push_back(-1); // updated at end
 
-    // Largest block you're willing to create (M-7: SPORK_105_MAX_BLOCK_SIZE ignored after UPGRADE_HARDENING_V3):
+    // Largest block you're willing to create
     unsigned int nBlockMaxSize = std::min((unsigned int)GetArg("-blockmaxsize", DEFAULT_BLOCK_MAX_SIZE), MAX_BLOCK_SIZE_CURRENT);
-    if (IsHardeningV3Active(nHeight)) {
-        nBlockMaxSize = std::max((unsigned int)1000, nBlockMaxSize);
-    } else {
-        const int64_t rawSporkMaxSize = sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
-        if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)) {
-            if (rawSporkMaxSize > 0 && (uint64_t)rawSporkMaxSize < (uint64_t)MAX_BLOCK_SIZE_CURRENT) {
-                const unsigned int nSporkClamped = std::max(262144U, static_cast<unsigned int>(rawSporkMaxSize));
-                nBlockMaxSize = std::max(262144U, std::min(nSporkClamped, nBlockMaxSize));
-            }
-        } else {
-            // Legacy limit between 1K and MAX_BLOCK_SIZE
-            unsigned int nBlockMaxSizeSpork = rawSporkMaxSize > 0 ? (unsigned int)std::min<int64_t>(rawSporkMaxSize, MAX_BLOCK_SIZE_CURRENT) : MAX_BLOCK_SIZE_CURRENT;
-            nBlockMaxSize = std::max((unsigned int)1000, std::min(nBlockMaxSizeSpork, nBlockMaxSize));
-        }
-    }
+    nBlockMaxSize = std::max((unsigned int)1000, nBlockMaxSize);
 
     // How much of the block should be dedicated to high-priority transactions,
     // included regardless of the fees they pay
@@ -1129,7 +1108,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         dip3::CDeterministicMNList blockMNList;
-        const bool fTrackBlockMNList = deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
+        const bool fTrackBlockMNList = (deterministicMNManager != nullptr);
         if (fTrackBlockMNList) {
             blockMNList = deterministicMNManager->GetListForBlock(pindexPrev);
         }
@@ -1229,16 +1208,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
         int nZeroCoinTxInBlock = 0;
         const bool fDualTrackBlock = IsAdamDualTrackActive(nHeight);
-        const bool fHardeningV2Block = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V2);
-        const bool fFairnessBlock = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS);
-        const bool fHardeningV4Block = IsHardeningV4Active(nHeight);
-        const uint256 minerPowTarget = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Block);
-        const uint256 zeroCoinPowTarget = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Block, fFairnessBlock);
+        const uint256 minerPowTarget = GetMinerPoWLimit(Params().NetworkIDString());
+        const uint256 zeroCoinPowTarget = GetZeroCoinPoWLimit(Params().NetworkIDString());
         std::map<CBLSPubKey, CPubKey> seenBlockRegBls;
         int nCoinLockTxInBlock = 0;
         int nPoWLockTxInBlock = 0;
-        if (fDualTrackBlock || fHardeningV4Block) {
-            for (const CTransaction& existingTx : pblock->vtx) {
+        for (const CTransaction& existingTx : pblock->vtx) {
                 const bool fExistingZeroCoin = IsZeroCoinPoWTransaction(existingTx);
                 bool fCountedCoinLock = false;
                 bool fCountedPoWLock = false;
@@ -1264,7 +1239,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                         }
                     }
                 }
-            }
         }
         bool fSortedByFee = (nBlockPrioritySize <= 0);
 
@@ -1298,7 +1272,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             bool fHasCoinLockOutput = false;
             bool fHasPoWLockOutput = false;
             std::vector<std::pair<CBLSPubKey, CPubKey>> vTxRegBlsKeys;
-            if (fZeroCoinPoW || fDualTrackBlock || fHardeningV4Block) {
+            {
                 int nCoinLockOutputsInTx = 0;
                 int nPoWLockOutputsInTx = 0;
                 bool fInvalidRegLockTx = false;
@@ -1339,24 +1313,21 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                             fInvalidRegLockTx = true;
                             break;
                         }
-                        if (fHardeningV4Block || fZeroCoinPoW) {
-                            if (vchNonce.size() != 4) {
+                        if (vchNonce.size() != 4) {
+                            fInvalidRegLockTx = true;
+                            break;
+                        }
+                        const uint32_t nRegNonce = (uint32_t)vchNonce[0] | ((uint32_t)vchNonce[1] << 8) |
+                                                   ((uint32_t)vchNonce[2] << 16) | ((uint32_t)vchNonce[3] << 24);
+                        if (fZeroCoinPoW) {
+                            if (ComputeZeroCoinRegistrationHash(nRegNonce, hashChallenge, regPubKey, regBlsPk) > zeroCoinPowTarget) {
                                 fInvalidRegLockTx = true;
                                 break;
                             }
-                            const uint32_t nRegNonce = (uint32_t)vchNonce[0] | ((uint32_t)vchNonce[1] << 8) |
-                                                       ((uint32_t)vchNonce[2] << 16) | ((uint32_t)vchNonce[3] << 24);
-                            const CBLSPubKey* pBoundBls = (fHardeningV4Block || regBlsPk.IsValid()) ? &regBlsPk : nullptr;
-                            if (fZeroCoinPoW) {
-                                if (ComputeZeroCoinRegistrationHash(nRegNonce, hashChallenge, regPubKey, fHardeningV2Block, pBoundBls) > zeroCoinPowTarget) {
-                                    fInvalidRegLockTx = true;
-                                    break;
-                                }
-                            } else if (fHardeningV4Block || regBlsPk.IsValid()) {
-                                if (ComputeMinerPoWRegistrationHash(nRegNonce, hashChallenge, regPubKey, fHardeningV2Block, pBoundBls) > minerPowTarget) {
-                                    fInvalidRegLockTx = true;
-                                    break;
-                                }
+                        } else {
+                            if (ComputeMinerPoWRegistrationHash(nRegNonce, hashChallenge, regPubKey, regBlsPk) > minerPowTarget) {
+                                fInvalidRegLockTx = true;
+                                break;
                             }
                         }
                         if (regBlsPk.IsValid()) {
@@ -1439,9 +1410,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
             CValidationState state;
             PrecomputedTransactionData precomTxData(tx);
-            unsigned int blockScriptFlags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
-            if (IsHardeningV3Active(nHeight))
-                blockScriptFlags |= SCRIPT_VERIFY_TAPROOT_BIP341;
+            unsigned int blockScriptFlags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT | SCRIPT_VERIFY_TAPROOT_BIP341;
             if (Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_BIP65))
                 blockScriptFlags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
             if (!CheckInputs(tx, state, view, true, blockScriptFlags, true, precomTxData))
@@ -1579,7 +1548,6 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
 
 #ifdef ENABLE_WALLET
     if (fProofOfStake && nFees > 0 && pwallet &&
-        consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS) &&
         pblock->vtx.size() >= 2 && pblock->vtx[1].vout.size() >= 2) {
         CMutableTransaction txCoinStake(pblock->vtx[1]);
         txCoinStake.vout[1].nValue += nFees;
@@ -1606,13 +1574,12 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             bool fOpOnly = false;
             bool gotKey = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, coordKey, blsKey, fOpOnly, pindexPrev);
             if (gotKey && blsKey.IsValid()) {
-                const bool fHardeningV3 = IsHardeningV3Active(nHeight);
-                if (SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3))) {
+                if (SignAdamOrDip3(adamSeed, coordKey, blsKey, fOpOnly, pblock->vAdamVRFProof, GetBLSDomainTag(BLSDomain::ADAM_VRF))) {
                     LogPrintf("CreateNewBlock: Signed block VRF proof for TestBlockValidity, seed: %s, size=%d\n", adamSeed.ToString(), pblock->vAdamVRFProof.size());
                 } else {
                     LogPrintf("CreateNewBlock ERROR: Failed to sign block VRF proof!\n");
                 }
-                if (SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3))) {
+                if (SignAdamOrDip3(pblock->GetHash(), coordKey, blsKey, fOpOnly, pblock->vAdamCoordinatorSig, GetBLSDomainTag(BLSDomain::ADAM_COORD))) {
                     LogPrintf("CreateNewBlock: Signed block header for TestBlockValidity, hash: %s, size=%d\n", pblock->GetHash().ToString(), pblock->vAdamCoordinatorSig.size());
                     fSignedLocally = !pblock->vAdamVRFProof.empty();
                 } else {
@@ -1809,7 +1776,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
                     if (!fLocalSignAllowed) break;
                     std::vector<unsigned char> sig;
-                    const std::string& quorumDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK, IsHardeningV3Active(nHeight));
+                    const std::string& quorumDst = GetBLSDomainTag(BLSDomain::LLMQ_BLOCK);
                     if (quorumBlsKey.IsValid() && SignAdamOrDip3(qsig.blockHash, key, quorumBlsKey, fOpOnly, sig, quorumDst) &&
                         tryAddShare(member.collateralOutpoint, member.pubKeyMasternode, sig)) {
                         LOCK(cs_quorum_sigs);
@@ -1827,7 +1794,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                 }
             }
 
-            const size_t nThreshold = llmq::GetQuorumThreshold(quorum.members.size(), nHeight);
+            const size_t nThreshold = llmq::GetQuorumThreshold(quorum.members.size());
 
             // 2. If local signatures are insufficient, request via P2P
             if (qsig.signatures.size() < nThreshold) {
@@ -1893,8 +1860,7 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
                     }
 
                     if (qsig.signatures.size() >= nThreshold) {
-                        const bool fUseLlmqGrace = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_FAIRNESS) &&
-                            !Params().IsRegTestNet();
+                        const bool fUseLlmqGrace = !Params().IsRegTestNet();
                         if (!fUseLlmqGrace || qsig.signatures.size() >= quorum.members.size()) {
                             LogPrintf("CreateNewBlock: Quorum threshold met! Collected %u/%u signatures after waiting %d ms\n",
                                       qsig.signatures.size(), (unsigned)quorum.members.size(), nWaitCount * 25);
@@ -2031,11 +1997,19 @@ CBlockTemplate* CreateNewBlockWithKey(CReserveKey& reservekey, CWallet* pwallet)
     }
 
     if (!gotKey && (fMasterNode || !amnodeman.GetActiveMasternodesCopy().empty())) {
+        const dip3::CDeterministicMNList mnList = deterministicMNManager
+            ? deterministicMNManager->GetListAtChainTip()
+            : dip3::CDeterministicMNList();
         for (const auto& activeMasternode : amnodeman.GetActiveMasternodesCopy()) {
             if (activeMasternode.pubKeyMasternode.IsValid()) {
-                CMasternode mn;
-                if (mnodeman.Get(activeMasternode.pubKeyMasternode, mn) && mn.pubKeyCollateralAddress.IsValid()) {
-                    pubkey = mn.pubKeyCollateralAddress;
+                const dip3::CDeterministicMN* dmn = activeMasternode.blsKeyMasternode.IsValid()
+                    ? mnList.GetMNByOperator(CBLSPubKey(activeMasternode.blsKeyMasternode))
+                    : nullptr;
+                if (!dmn && activeMasternode.vin != nullopt) {
+                    dmn = mnList.GetMNByCollateral(activeMasternode.vin->prevout);
+                }
+                if (dmn && dmn->state.pubKeyOwner.IsValid()) {
+                    pubkey = dmn->state.pubKeyOwner;
                 } else {
                     pubkey = activeMasternode.pubKeyMasternode;
                 }
@@ -2404,27 +2378,20 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
         if (IsModelDActive(nCurrentHeight) && fShouldAutoSelectCoinLock && pubkey.IsCompressed() && nMatureCoinLockBal >= MINER_REGISTRATION_LOCK_AMOUNT + 1 * CENT) {
             // Renew our existing Coin-Lock seat or fill a vacant Coin-Lock quota slot once Funded PoW-Locks are populated!
             int64_t locktime = nCurrentHeight + 2900;
-            const bool fUseV4Bls = IsHardeningV4Active(nCurrentHeight + 1);
-            if (fUseV4Bls) {
-                if (!minerBlsKey.IsValid()) {
-                    LogPrintf("AutoRegisterMiner: Hardening v4 requires valid BLS key to build Coin-Lock registration.\n");
-                    return;
-                }
-                CBLSPubKey minerBlsPubKey(minerBlsKey);
-                CBLSSignature minerBlsPoP;
-                if (!minerBlsPubKey.IsValid() || !minerBlsPoP.SignPoP(minerBlsKey) || !minerBlsPoP.IsValid()) {
-                    LogPrintf("AutoRegisterMiner: Failed to sign BLS PoP for Coin-Lock registration.\n");
-                    return;
-                }
-                scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(minerBlsPoP) << OP_2DROP
-                                         << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
-                                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                         << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-            } else {
-                scriptPubKey = CScript() << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
-                                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                         << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
+            if (!minerBlsKey.IsValid()) {
+                LogPrintf("AutoRegisterMiner: Valid BLS key required to build Coin-Lock registration.\n");
+                return;
             }
+            CBLSPubKey minerBlsPubKey(minerBlsKey);
+            CBLSSignature minerBlsPoP;
+            if (!minerBlsPubKey.IsValid() || !minerBlsPoP.SignPoP(minerBlsKey) || !minerBlsPoP.IsValid()) {
+                LogPrintf("AutoRegisterMiner: Failed to sign BLS PoP for Coin-Lock registration.\n");
+                return;
+            }
+            scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(minerBlsPoP) << OP_2DROP
+                                     << std::vector<unsigned char>(pubkey.begin(), pubkey.end()) << OP_DROP
+                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
             nAmount = MINER_REGISTRATION_LOCK_AMOUNT;
             LogPrintf("AutoRegisterMiner: Selecting Coin-Lock (PoL) registration (lock amount: %d KRISTA, locktime: %d blocks)\n", MINER_REGISTRATION_LOCK_AMOUNT / COIN, locktime);
             break;
@@ -2443,11 +2410,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                     return;
                 }
                 currentHeight = chainActive.Height();
-                const bool fHardeningNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V1);
-                const bool fHardeningV2Next = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
-                const size_t nBootstrapGateCount = fHardeningNext
-                    ? GetFundedAdamMinerPoolCount(currentHeight)
-                    : GetExplicitAdamMinerPoolCount(currentHeight);
+                const size_t nBootstrapGateCount = GetFundedAdamMinerPoolCount(currentHeight);
                 const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(currentHeight + 1) + 2);
                 const bool fDualTrackNext = IsAdamDualTrackActive(currentHeight + 1);
 
@@ -2463,21 +2426,20 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 }
 
                 if (nMatureSelected >= POW_LOCK_REGISTRATION_AMOUNT + (COIN / 100)) {
-                    if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                    if (!pubkey.IsCompressed()) {
                         LogPrintf("AutoRegisterMiner: Funded PoW-Lock requires a compressed public key.\n");
                         return;
                     }
                     nAmount = POW_LOCK_REGISTRATION_AMOUNT;
-                    target = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
+                    target = GetMinerPoWLimit(Params().NetworkIDString());
                 } else if (!fKeyUnfundedInPool && !fWalletHasActiveZeroCoinSeat &&
                            (Params().GetConsensus().IsAdamOpenEntryActive(currentHeight + 1) || nBootstrapGateCount < maxBootstrapPoolSize)) {
-                    if (fHardeningV2Next && !pubkey.IsCompressed()) {
+                    if (!pubkey.IsCompressed()) {
                         LogPrintf("AutoRegisterMiner: Zero-Coin PoW requires a compressed public key.\n");
                         return;
                     }
                     nAmount = 0;
-                    const bool fFairnessNext = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_FAIRNESS);
-                    target = GetZeroCoinPoWLimit(Params().NetworkIDString(), fHardeningV2Next, fFairnessNext);
+                    target = GetZeroCoinPoWLimit(Params().NetworkIDString());
                     LOCK(mempool.cs);
                     if (mempool.mapNextTx.count(zeroCoinSentinel) > 0) {
                         LogPrintf("AutoRegisterMiner: Another Zero-Coin PoW registration is already pending in mempool; deferring until next block.\n");
@@ -2497,55 +2459,34 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
                 }
             }
 
-            const bool fUseX11KVS = Params().GetConsensus().NetworkUpgradeActive(currentHeight + 1, Consensus::UPGRADE_HARDENING_V2);
-            const bool fZeroCoinV2 = (nAmount == 0) && fUseX11KVS;
-            bool fUseV4Bls = IsHardeningV4Active(currentHeight + 1);
-            CBLSPubKey minerBlsPubKey;
+            if (!minerBlsKey.IsValid()) {
+                LogPrintf("AutoRegisterMiner: Valid BLS key required to build PoW registration.\n");
+                return;
+            }
+            CBLSPubKey minerBlsPubKey(minerBlsKey);
             CBLSSignature minerBlsPoP;
-            if (fUseV4Bls) {
-                if (!minerBlsKey.IsValid()) {
-                    LogPrintf("AutoRegisterMiner: Hardening v4 requires valid BLS key to build PoW registration.\n");
-                    return;
-                }
-                minerBlsPubKey = CBLSPubKey(minerBlsKey);
-                if (!minerBlsPubKey.IsValid() || !minerBlsPoP.SignPoP(minerBlsKey) || !minerBlsPoP.IsValid()) {
-                    LogPrintf("AutoRegisterMiner: Failed to sign BLS PoP for PoW registration.\n");
-                    return;
-                }
+            if (!minerBlsPubKey.IsValid() || !minerBlsPoP.SignPoP(minerBlsKey) || !minerBlsPoP.IsValid()) {
+                LogPrintf("AutoRegisterMiner: Failed to sign BLS PoP for PoW registration.\n");
+                return;
             }
             unsigned char powHeaderBuf[80];
-            if (fUseX11KVS) {
-                const CBLSPubKey* pBoundBls = fUseV4Bls ? &minerBlsPubKey : nullptr;
-                if (nAmount == 0) {
-                    BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, pBoundBls);
-                } else {
-                    BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, pBoundBls);
-                }
+            if (nAmount == 0) {
+                BuildZeroCoinRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, minerBlsPubKey);
+            } else {
+                BuildMinerPoWRegistrationHeaderPrefix(challengeHash, pubkey, powHeaderBuf, minerBlsPubKey);
             }
             uint32_t nonce = 0;
             uint256 puzzleHash;
             LogPrintf("AutoRegisterMiner: Starting PoW search (%s) for challenge %s...\n",
-                      nAmount == 0 ? (fUseX11KVS ? "Zero-Coin HashX11KVS" : "Zero-Coin 24-bit")
-                                   : (fUseX11KVS ? "Funded HashX11KVS" : "Funded 28-bit"),
+                      nAmount == 0 ? "Zero-Coin HashX11KVS" : "Funded HashX11KVS",
                       challengeHash.ToString());
             bool fOutdated = false;
-            const uint32_t cancelMask = fUseX11KVS ? 0xFFU : 0xFFFU;
-            const uint32_t stateCheckMask = fUseX11KVS ? 0x7FFU : 0x1FFFFU;
-            const int nMaxSearchBlockDrift = fZeroCoinV2 ? 6 : 50;
+            const uint32_t cancelMask = 0xFFU;
+            const uint32_t stateCheckMask = 0x7FFU;
+            const int nMaxSearchBlockDrift = (nAmount == 0) ? 6 : 50;
             while (true) {
-                if (fUseX11KVS) {
-                    WriteLE32(powHeaderBuf + 76, nonce);
-                    puzzleHash = HashX11KVS(powHeaderBuf, powHeaderBuf + 80);
-                } else {
-                    CHashWriter ss(SER_GETHASH, 0);
-                    ss << nonce;
-                    ss << challengeHash;
-                    ss << pubkey;
-                    if (fUseV4Bls) {
-                        ss << minerBlsPubKey;
-                    }
-                    puzzleHash = ss.GetHash();
-                }
+                WriteLE32(powHeaderBuf + 76, nonce);
+                puzzleHash = HashX11KVS(powHeaderBuf, powHeaderBuf + 80);
                 if (puzzleHash <= target) {
                     break;
                 }
@@ -2622,27 +2563,18 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
             
             LogPrintf("AutoRegisterMiner: Found PoW solution! nonce=%u, hash=%s\n", nonce, puzzleHash.ToString());
 
-            int64_t locktime = (nAmount == 0 && fZeroCoinV2)
+            int64_t locktime = (nAmount == 0)
                 ? (currentHeight + GetZeroCoinRegPeriod(currentHeight + 1) + 20)
                 : (currentHeight + 2900);
             CDataStream ssNonce(SER_NETWORK, PROTOCOL_VERSION);
             ssNonce << nonce;
-            if (fUseV4Bls) {
-                scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(minerBlsPoP) << OP_2DROP
-                                         << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
-                                         << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
-                                         << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
-                                         << OP_DROP << OP_DROP << OP_DROP
-                                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                         << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-            } else {
-                scriptPubKey = CScript() << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
-                                         << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
-                                         << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
-                                         << OP_DROP << OP_DROP << OP_DROP
-                                         << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
-                                         << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
-            }
+            scriptPubKey = CScript() << ToByteVector(minerBlsPubKey) << ToByteVector(minerBlsPoP) << OP_2DROP
+                                     << std::vector<unsigned char>(ssNonce.begin(), ssNonce.end())
+                                     << std::vector<unsigned char>(challengeHash.begin(), challengeHash.end())
+                                     << std::vector<unsigned char>(pubkey.begin(), pubkey.end())
+                                     << OP_DROP << OP_DROP << OP_DROP
+                                     << CScriptNum(locktime) << OP_CHECKLOCKTIMEVERIFY << OP_DROP
+                                     << OP_DUP << OP_HASH160 << ToByteVector(pubkey.GetID()) << OP_EQUALVERIFY << OP_CHECKSIG;
             LogPrintf("AutoRegisterMiner: Selecting PoW-Lock registration (amount: %lld, locktime: %d blocks)\n", (long long)nAmount, locktime);
             break;
         }
@@ -2663,9 +2595,7 @@ void AutoRegisterMiner(CWallet* pwallet, const CPubKey& pubkey)
             LOCK2(cs_main, mempool.cs);
             const int nTipNow = chainActive.Height();
             const size_t maxBootstrapPoolSize = (size_t)(Params().GetConsensus().GetAdamMinersCount(nTipNow + 1) + 2);
-            const size_t nGateNow = Params().GetConsensus().NetworkUpgradeActive(nTipNow + 1, Consensus::UPGRADE_HARDENING_V1)
-                ? GetFundedAdamMinerPoolCount(nTipNow)
-                : GetExplicitAdamMinerPoolCount(nTipNow);
+            const size_t nGateNow = GetFundedAdamMinerPoolCount(nTipNow);
             if (!Params().GetConsensus().IsAdamOpenEntryActive(nTipNow + 1) && nGateNow >= maxBootstrapPoolSize) {
                 LogPrintf("AutoRegisterMiner: Funded validator pool reached %u/%u while solving Zero-Coin PoW; aborting.\n",
                           (unsigned int)nGateNow, (unsigned int)maxBootstrapPoolSize);
@@ -2998,7 +2928,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         int algoIndex = 12;
                         int algo1 = -1, algo2 = -1, algo3 = -1;
                         if (!fV12) {
-                            algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey, true);
+                            algoIndex = GetAdamPuzzleAlgo(adamSeed, myMinerKey);
                         } else {
                             GetAdam3PermutationAlgos(pindexPrev->GetBlockHash(), myMinerKey, algo1, algo2, algo3);
                         }
@@ -3120,7 +3050,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                                     if (puzzleHash <= task.scaledTarget) {
                                         if (!pTaskSolved->exchange(true)) {
                                             if (task.blsKey.IsValid()) {
-                                                const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL, IsHardeningV3Active(task.nHeight));
+                                                const std::string& solDst = GetBLSDomainTag(BLSDomain::ADAM_SOL);
                                                 if (SignAdamOrDip3(puzzleHash, task.privKey, task.blsKey, task.fOperatorBlsOnly, vchSig, solDst)) {
                                                     solved = true;
                                                 }
@@ -3289,7 +3219,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                         }
                         CPubKey fallbackCoordinator, prevFallback;
                         int rotationIndex = 0;
-                        const std::vector<CPubKey>& vFbPool = (IsHardeningV3Active(nNextHeight) && !vExpectedMiners.empty())
+                        const std::vector<CPubKey>& vFbPool = !vExpectedMiners.empty()
                             ? vExpectedMiners : vResolvedMiners;
                         if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
                             CKey fallbackKey;
@@ -3420,7 +3350,7 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                     }
                     CPubKey fallbackCoordinator, prevFallback;
                     int rotationIndex = 0;
-                    const std::vector<CPubKey>& vFbPool = (IsHardeningV3Active(nHeight) && !vExpectedMiners.empty())
+                    const std::vector<CPubKey>& vFbPool = !vExpectedMiners.empty()
                         ? vExpectedMiners : vResolvedMiners;
                     if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
                         expectedCoordinator = fallbackCoordinator;
@@ -3757,7 +3687,7 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
                 }
                 CPubKey fallbackCoordinator, prevFallback;
                 int rotationIndex = 0;
-                const std::vector<CPubKey>& vFbPool = (IsHardeningV3Active(nNextHeight) && !vExpectedMiners.empty())
+                const std::vector<CPubKey>& vFbPool = !vExpectedMiners.empty()
                     ? vExpectedMiners : vResolvedMiners;
                 if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
                     CKey fallbackKey;

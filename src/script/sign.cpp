@@ -34,7 +34,7 @@ bool TransactionSignatureCreator::CreateSig(std::vector<unsigned char>& vchSig, 
             return false;
         }
         uint256 hash;
-        if (!ComputeTaprootSighash(*txTo, nIn, nHashType, SIGVERSION_TAPROOT, *precom, hash, true)) {
+        if (!ComputeTaprootSighash(*txTo, nIn, nHashType, SIGVERSION_TAPROOT, *precom, hash)) {
             return false;
         }
         if (!key.SignSchnorr(hash, vchSig)) {

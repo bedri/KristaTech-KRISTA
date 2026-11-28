@@ -34,7 +34,7 @@
 #include "llmq.h"
 #include "llmq_messages.h"
 #include "masternode-payments.h"
-#include "masternodeman.h"
+#include "masternode.h"
 #include "merkleblock.h"
 #include "miner.h"
 #include "blockencodings.h"
@@ -44,8 +44,6 @@
 #include "netbase.h"
 #include "policy/policy.h"
 #include "pow.h"
-#include "spork.h"
-#include "sporkdb.h"
 #include "txdb.h"
 #include "txmempool.h"
 #include "guiinterface.h"
@@ -53,6 +51,9 @@
 #include "utilmoneystr.h"
 #include "utilstrencodings.h"
 #include "validationinterface.h"
+#ifdef ENABLE_WALLET
+#include "wallet/wallet.h"
+#endif
 
 #include "masternode-sync.h"
 #include <sstream>
@@ -138,9 +139,7 @@ CTxMemPool mempool(::minRelayTxFee);
 
 static bool CheckSequenceLocksImpl(const CTransaction& tx, const CCoinsViewCache& view, const CBlockIndex* pindexPrev)
 {
-    const int nNextHeight = pindexPrev ? (pindexPrev->nHeight + 1) : 0;
-    const bool fEnforceCoinStakeBip68 = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
-    if (tx.nVersion < 2 || tx.IsCoinBase() || (tx.IsCoinStake() && !fEnforceCoinStakeBip68) || !pindexPrev) {
+    if (tx.nVersion < 2 || tx.IsCoinBase() || !pindexPrev) {
         return true;
     }
     int nMinHeight = -1;
@@ -279,7 +278,6 @@ CBlockIndex* GetChainTip()
 
 CCoinsViewCache* pcoinsTip = NULL;
 CBlockTreeDB* pblocktree = NULL;
-CSporkDB* pSporkDB = NULL;
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -572,8 +570,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 return state.DoS(100, false, REJECT_INVALID, "bad-zerocoin-pow-format");
             }
             const int nNextHeight = chainActive.Height() + 1;
-            const bool fHardeningV2 = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
-            if (fHardeningV2 && !zPubKey.IsCompressed()) {
+            if (!zPubKey.IsCompressed()) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-zerocoin-pow-uncompressed-pubkey");
             }
             std::string strBlsErr;
@@ -581,27 +578,23 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 return state.DoS(100, false, REJECT_INVALID, strBlsErr);
             }
             const size_t maxBootstrapPoolSize = (size_t)(consensus.GetAdamMinersCount(nNextHeight) + 2);
-            const size_t nActiveGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
-                ? GetFundedAdamMinerPoolCount(chainHeight)
-                : GetExplicitAdamMinerPoolCount(chainHeight);
+            const size_t nActiveGateCount = GetFundedAdamMinerPoolCount(chainHeight);
             if (!consensus.IsAdamOpenEntryActive(nNextHeight) && nActiveGateCount >= maxBootstrapPoolSize) {
                 return state.Invalid(false, REJECT_NONSTANDARD, "bad-zerocoin-pow-pool-full",
                     strprintf("Zero-Coin bootstrap pool is closed because %u+ funded validators are active", (unsigned int)maxBootstrapPoolSize));
             }
-            if (fHardeningV2) {
+            {
                 const std::vector<CPubKey> activePool = GetAdamMinerPool(chainHeight);
                 if (std::find(activePool.begin(), activePool.end(), zPubKey) != activePool.end()) {
                     return state.Invalid(false, REJECT_NONSTANDARD, "bad-zerocoin-pow-already-active",
                         "Public key is already active in the ADAM validator pool");
                 }
             }
-            const int nMinZeroPeriod = fHardeningV2
-                ? GetZeroCoinRegPeriod(nNextHeight)
-                : (((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) && IsModelDActive(nNextHeight)) ? 100 : 2880);
+            const int nMinZeroPeriod = GetZeroCoinRegPeriod(nNextHeight);
             if (zLockTime >= LOCKTIME_THRESHOLD || zLockTime < nNextHeight + nMinZeroPeriod || zLockTime > nNextHeight + 5760) {
                 return state.DoS(20, false, REJECT_INVALID, "bad-zerocoin-pow-locktime");
             }
-            const int nMempoolChallengeWindow = fHardeningV2 ? (ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2) : 100;
+            const int nMempoolChallengeWindow = ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 - 2;
             bool challengeValid = false;
             auto miChallenge = mapBlockIndex.find(zChallenge);
             if (miChallenge != mapBlockIndex.end() && miChallenge->second) {
@@ -661,9 +654,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         if (!fZeroCoinPoW && chainActive.Tip() != nullptr) {
             const int nNextHeight = chainActive.Height() + 1;
             const bool fDualTrackNext = IsAdamDualTrackActive(nNextHeight);
-            const bool fHardeningV2Next = Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
-            const bool fHardeningV4Next = IsHardeningV4Active(nNextHeight);
-            const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Next);
+            const uint256 powLimitTarget = GetMinerPoWLimit(Params().NetworkIDString());
             int nRegPeriod = 2880;
             if ((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) &&
                 IsModelDActive(nNextHeight)) {
@@ -699,28 +690,25 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                         }
                         seenTxRegBls.emplace(regBlsPk, regPubKey);
                     }
-                    if (fHardeningV2Next) {
-                        if (!regPubKey.IsValid() || !regPubKey.IsCompressed() || regPubKey.GetID() != regKeyId || vchNonce.size() != 4) {
-                            return state.DoS(20, false, REJECT_INVALID, "bad-txns-powlock-invalid-key");
-                        }
-                        bool fChallengeFresh = false;
-                        auto miChal = mapBlockIndex.find(hashChallenge);
-                        if (miChal != mapBlockIndex.end() && miChal->second &&
-                            miChal->second->nHeight >= 0 && miChal->second->nHeight <= chainActive.Height() &&
-                            chainActive[miChal->second->nHeight] == miChal->second &&
-                            miChal->second->nHeight >= nNextHeight - 100 && miChal->second->nHeight < nNextHeight) {
-                            fChallengeFresh = true;
-                        }
-                        if (!fChallengeFresh) {
-                            return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-stale-challenge",
-                                "Funded PoW-Lock challenge block must be on active chain within the last 100 blocks");
-                        }
-                        const uint32_t nRegNonce = (uint32_t)vchNonce[0] | ((uint32_t)vchNonce[1] << 8) |
-                                                   ((uint32_t)vchNonce[2] << 16) | ((uint32_t)vchNonce[3] << 24);
-                        const CBLSPubKey* pBoundBls = (fHardeningV4Next || regBlsPk.IsValid()) ? &regBlsPk : nullptr;
-                        if (ComputeMinerPoWRegistrationHash(nRegNonce, hashChallenge, regPubKey, true, pBoundBls) > powLimitTarget) {
-                            return state.DoS(20, false, REJECT_INVALID, "bad-txns-powlock-invalid");
-                        }
+                    if (!regPubKey.IsValid() || !regPubKey.IsCompressed() || regPubKey.GetID() != regKeyId || vchNonce.size() != 4) {
+                        return state.DoS(20, false, REJECT_INVALID, "bad-txns-powlock-invalid-key");
+                    }
+                    bool fChallengeFresh = false;
+                    auto miChal = mapBlockIndex.find(hashChallenge);
+                    if (miChal != mapBlockIndex.end() && miChal->second &&
+                        miChal->second->nHeight >= 0 && miChal->second->nHeight <= chainActive.Height() &&
+                        chainActive[miChal->second->nHeight] == miChal->second &&
+                        miChal->second->nHeight >= nNextHeight - 100 && miChal->second->nHeight < nNextHeight) {
+                        fChallengeFresh = true;
+                    }
+                    if (!fChallengeFresh) {
+                        return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-powlock-stale-challenge",
+                            "Funded PoW-Lock challenge block must be on active chain within the last 100 blocks");
+                    }
+                    const uint32_t nRegNonce = (uint32_t)vchNonce[0] | ((uint32_t)vchNonce[1] << 8) |
+                                               ((uint32_t)vchNonce[2] << 16) | ((uint32_t)vchNonce[3] << 24);
+                    if (ComputeMinerPoWRegistrationHash(nRegNonce, hashChallenge, regPubKey, regBlsPk) > powLimitTarget) {
+                        return state.DoS(20, false, REJECT_INVALID, "bad-txns-powlock-invalid");
                     }
                     nPoWLockOutputs++;
                 } else if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
@@ -731,7 +719,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                         return state.Invalid(false, REJECT_NONSTANDARD, "bad-txns-coinlock-amount-too-small",
                             strprintf("Coin-Lock registration requires at least %d KRISTA", MINER_REGISTRATION_LOCK_AMOUNT / COIN));
                     }
-                    if (fHardeningV2Next && (!regPubKey.IsValid() || !regPubKey.IsCompressed() || regPubKey.GetID() != regKeyId)) {
+                    if (!regPubKey.IsValid() || !regPubKey.IsCompressed() || regPubKey.GetID() != regKeyId) {
                         return state.DoS(20, false, REJECT_INVALID, "bad-txns-coinlock-invalid-key");
                     }
                     std::string strBlsErr;
@@ -775,7 +763,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
                 }
             }
 
-        if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_DIP3)) {
+        if (deterministicMNManager) {
             if (!deterministicMNManager->CheckSpecialTx(tx, chainActive.Tip(), state, view)) {
                 return false;
             }
@@ -1024,9 +1012,7 @@ bool AcceptToMemoryPoolWorker(CTxMemPool& pool, CValidationState &state, const C
         // There is a similar check in CreateNewBlock() to prevent creating
         // invalid blocks, however allowing such transactions into the mempool
         // can be exploited as a DoS attack.
-        flags = MANDATORY_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
-        if (IsHardeningV3Active(chainHeight))
-            flags |= SCRIPT_VERIFY_TAPROOT_BIP341;
+        flags = MANDATORY_SCRIPT_VERIFY_FLAGS | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY;
         if (fCLTVIsActivated)
             flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
         if (!CheckInputs(tx, state, view, true, flags, true, precomTxData)) {
@@ -1719,11 +1705,8 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
         if (tx.vin.size() != 1 || tx.vout.size() != 1 || tx.GetValueOut() != 0 || tx.vout[0].nValue != 0) {
             return state.DoS(100, false, REJECT_INVALID, "bad-txns-zerocoin-nonzero-out");
         }
-        const bool fHardeningV2 = ::Params().GetConsensus().NetworkUpgradeActive(std::max(0, nSpendHeight), Consensus::UPGRADE_HARDENING_V2);
-        const bool fFairness = ::Params().GetConsensus().NetworkUpgradeActive(std::max(0, nSpendHeight), Consensus::UPGRADE_FAIRNESS);
-        const bool fHardeningV4 = IsHardeningV4Active(std::max(0, nSpendHeight));
         bool puzzleValid = false;
-        uint256 zeroCoinTarget = GetZeroCoinPoWLimit(::Params().NetworkIDString(), fHardeningV2, fFairness);
+        const uint256 zeroCoinTarget = GetZeroCoinPoWLimit(::Params().NetworkIDString());
         std::vector<unsigned char> nonce;
         uint256 challenge;
         CPubKey pubkey;
@@ -1744,10 +1727,9 @@ bool CheckTxInputs(const CTransaction& tx, CValidationState& state, const CCoins
             if (!CheckRegistrationBlsBinding(pubkey, blsPk, blsPoP, std::max(0, nSpendHeight), pindexInputsTip, &inputs, false, strBlsErr)) {
                 return state.DoS(100, false, REJECT_INVALID, strBlsErr);
             }
-            if (pubkey.IsValid() && (!fHardeningV2 || pubkey.IsCompressed()) && pubkey.GetID() == pubkeyHash && nonce.size() == 4) {
+            if (pubkey.IsValid() && pubkey.IsCompressed() && pubkey.GetID() == pubkeyHash && nonce.size() == 4) {
                 uint32_t nNonce = nonce[0] | (nonce[1] << 8) | (nonce[2] << 16) | (nonce[3] << 24);
-                const CBLSPubKey* pBoundBls = (fHardeningV4 || blsPk.IsValid()) ? &blsPk : nullptr;
-                uint256 puzzleHash = ComputeZeroCoinRegistrationHash(nNonce, challenge, pubkey, fHardeningV2, pBoundBls);
+                uint256 puzzleHash = ComputeZeroCoinRegistrationHash(nNonce, challenge, pubkey, blsPk);
                 if (puzzleHash <= zeroCoinTarget) {
                     puzzleValid = true;
                 }
@@ -1935,20 +1917,18 @@ static bool VerifyDeveloperFundInput(const CTransaction& tx,
             REJECT_INVALID, "bad-txns-invalid-quorum-sig");
     }
 
-    if (IsHardeningV3Active(nSpendHeight)) {
-        if (!CheckSignatureEncoding(vPushes[0], SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC, nullptr)) {
-            return state.DoS(100, error("VerifyDeveloperFundInput() : non-canonical spork ECDSA signature for developer fund spend"),
-                REJECT_INVALID, "bad-txns-invalid-spork-sig");
-        }
+    if (!CheckSignatureEncoding(vPushes[0], SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_LOW_S | SCRIPT_VERIFY_STRICTENC, nullptr)) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : non-canonical treasury ECDSA signature for developer fund spend"),
+            REJECT_INVALID, "bad-txns-invalid-treasury-sig");
     }
 
-    CPubKey sporkKey(ParseHex(Params().GetConsensus().strSporkPubKey));
-    if (!sporkKey.IsValid()) {
-        return state.DoS(100, error("VerifyDeveloperFundInput() : invalid spork public key"),
-            REJECT_INVALID, "bad-txns-invalid-spork-key");
+    CPubKey treasuryKey(ParseHex(Params().GetConsensus().strTreasuryPubKey));
+    if (!treasuryKey.IsValid()) {
+        return state.DoS(100, error("VerifyDeveloperFundInput() : invalid treasury public key"),
+            REJECT_INVALID, "bad-txns-invalid-treasury-key");
     }
     if (pScriptPubKeyOverride) {
-        *pScriptPubKeyOverride = GetScriptForDestination(sporkKey.GetID());
+        *pScriptPubKeyOverride = GetScriptForDestination(treasuryKey.GetID());
     }
     if (pScriptSigOverride) {
         *pScriptSigOverride = (CScript() << vPushes[0] << vPushes[1]);
@@ -2170,7 +2150,6 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     bool fClean = true;
 
     CBlockUndo blockUndo;
-    __int128 nValueOut128 = 0;
     __int128 nValueIn128 = 0;
     __int128 nBurnedInBlock128 = 0;
     CDiskBlockPos pos = pindex->GetUndoPos();
@@ -2191,12 +2170,10 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     // undo transactions in reverse order
     bool fNeedBurnFlush = false;
     const uint256 hashBlockDisconnect = pindex->GetBlockHash();
-    const bool fHardeningV3Disconnect = IsHardeningV3Active(pindex->nHeight);
     __int128 nSpendableValueOut128 = 0;
     for (int i = block.vtx.size() - 1; i >= 0; i--) {
         const CTransaction& tx = block.vtx[i];
 
-        nValueOut128 += tx.GetValueOut();
         for (const auto& out : tx.vout) {
             if (!out.scriptPubKey.IsUnspendable()) {
                 nSpendableValueOut128 += out.nValue;
@@ -2275,24 +2252,14 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
                     }
                 }
                 if (!prevScript.empty()) {
-                    if (fHardeningV3Disconnect) {
-                        COutPoint targetOut;
-                        if (ResolveVoluntaryBurnTargetOutpoint(tx, pindex->nHeight, prevScript, &view, targetOut)) {
-                            RemoveOutpointBurnFromCache(targetOut, nBurnAmount, pindex->nHeight);
-                            fNeedBurnFlush = true;
-                        }
-                    } else {
-                        txnouttype type;
-                        std::vector<CTxDestination> addresses;
-                        int nRequired;
-                        if (ExtractDestinations(prevScript, type, addresses, nRequired) && !addresses.empty()) {
-                            RemoveBurnFromCache(addresses[0], nBurnAmount, pindex->nHeight);
-                            fNeedBurnFlush = true;
-                        }
+                    COutPoint targetOut;
+                    if (ResolveVoluntaryBurnTargetOutpoint(tx, pindex->nHeight, prevScript, &view, targetOut)) {
+                        RemoveOutpointBurnFromCache(targetOut, nBurnAmount, pindex->nHeight);
+                        fNeedBurnFlush = true;
                     }
                 }
             }
-            if (fHardeningV3Disconnect && block.IsProofOfStake() && i == 1 && !tx.vin.empty()) {
+            if (block.IsProofOfStake() && i == 1 && !tx.vin.empty()) {
                 CScript prevStakeScript;
                 CAmount nPrevStakeAmount = 0;
                 const Coin& restoredStakeCoin = view.AccessCoin(tx.vin[0].prevout);
@@ -2323,8 +2290,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
         }
 
         // track money
-        const __int128 nDisconnectedOut128 = fHardeningV3Disconnect ? nSpendableValueOut128 : nValueOut128;
-        const __int128 nSupplyDelta128 = nDisconnectedOut128 - nValueIn128 - nBurnedInBlock128;
+        const __int128 nSupplyDelta128 = nSpendableValueOut128 - nValueIn128 - nBurnedInBlock128;
         nMoneySupply = (CAmount)((__int128)nMoneySupply - nSupplyDelta128);
     }
 
@@ -2332,7 +2298,7 @@ DisconnectResult DisconnectBlock(CBlock& block, CBlockIndex* pindex, CCoinsViewC
     view.SetBestBlock(pindex->pprev->GetBlockHash());
     if (fClean && !fVerifyingBlocks) {
         UnpinBLSPubKeysAtHeight(pindex->nHeight, pindex->GetBlockHash());
-        if (deterministicMNManager && Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
+        if (deterministicMNManager && pindex->nHeight > 0) {
             if (!deterministicMNManager->UndoBlock(block, pindex)) {
                 error("%s: evodb UndoBlock failed for %s", __func__, pindex->GetBlockHash().ToString());
                 fClean = false;
@@ -2486,7 +2452,7 @@ static bool CanComputeV2StakeModifier(const CBlockIndex* pindex)
     if (!pindex || !pindex->pprev) {
         return true;
     }
-    if (!IsHardeningV3Active(pindex->pprev->nHeight)) {
+    if (pindex->pprev->nHeight == 0) {
         return true;
     }
     return pindex->pprev->GeneratedStakeModifier() && !pindex->pprev->GetStakeModifierV2().IsNull();
@@ -2554,20 +2520,18 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     __int128 nSpendableValueOut128 = 0;
     __int128 nValueIn128 = 0;
     __int128 nBurnedInBlock128 = 0;
-    std::vector<std::pair<CTxDestination, CAmount>> vPendingBurns;
     std::vector<std::pair<COutPoint, CAmount>> vPendingOutpointBurns;
     std::pair<COutPoint, COutPoint> pendingCoinstakeTransfer;
     bool fHasPendingCoinstakeTransfer = false;
-    const bool fHardeningV3 = IsHardeningV3Active(pindex->nHeight);
     unsigned int nMaxBlockSigOps = MAX_BLOCK_SIGOPS_CURRENT;
     std::vector<uint256> vSpendsInBlock;
     uint256 hashBlock = block.GetHash();
 
-    if (!fJustCheck && fHardeningV3 && !block.vtx.empty() && CanComputeV2StakeModifier(pindex)) {
+    if (!fJustCheck && pindex->nHeight > 0 && !block.vtx.empty() && CanComputeV2StakeModifier(pindex)) {
         const uint256 expectedPrevoutId = GetV2StakeModifierPrevoutId(block);
         uint256 prevMod = UINT256_ZERO;
         if (pindex->pprev) {
-            if (IsHardeningV3Active(pindex->pprev->nHeight)) {
+            if (pindex->pprev->nHeight > 0) {
                 prevMod = pindex->pprev->GetStakeModifierV2();
             } else {
                 CHashWriter ssSeed(SER_GETHASH, 0);
@@ -2593,7 +2557,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
     dip3::CDeterministicMNList preparedDip3List;
     bool fHasPreparedDip3List = false;
-    if (deterministicMNManager && consensus.NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_DIP3)) {
+    if (deterministicMNManager && pindex->nHeight > 0) {
         const bool fParentInEvodb = !pindex->pprev || pindex->pprev->nHeight == 0 ||
             !pindex->pprev->phashBlock || deterministicMNManager->HasListForBlock(pindex->pprev->GetBlockHash());
         if (!fVerifyingBlocks || fParentInEvodb) {
@@ -2607,9 +2571,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     std::vector<PrecomputedTransactionData> precomTxData;
     precomTxData.reserve(block.vtx.size()); // Required so that pointers to individual precomTxData don't get invalidated
     const bool fDualTrackBlock = IsAdamDualTrackActive(pindex->nHeight);
-    const bool fHardeningV4Block = IsHardeningV4Active(pindex->nHeight);
-    const bool fHardeningV2Block = consensus.NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_HARDENING_V2);
-    const uint256 minerPowLimit = GetMinerPoWLimit(Params().NetworkIDString(), fHardeningV2Block);
+    const uint256 minerPowLimit = GetMinerPoWLimit(Params().NetworkIDString());
     std::map<CBLSPubKey, CPubKey> seenBlockRegBls;
     auto checkBlockRegBls = [&](const CPubKey& regPubKey, const CBLSPubKey& regBlsPk, const CBLSSignature& regBlsPoP) -> bool {
         std::string strBlsErr;
@@ -2637,7 +2599,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
         if (nSigOps > nMaxBlockSigOps)
             return state.DoS(100, error("ConnectBlock() : too many sigops"), REJECT_INVALID, "bad-blk-sigops");
 
-        if (fZeroCoinPoW && (fHardeningV4Block || fDualTrackBlock) && !tx.vout.empty()) {
+        if (fZeroCoinPoW && !tx.vout.empty()) {
             std::vector<unsigned char> zNonce;
             uint256 zChallenge;
             CPubKey zPubKey;
@@ -2677,7 +2639,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
 
             // Enforce Coin-Lock & PoW-Lock registration output limits, BLS binding, and input UTXO maturity
-            if (fHardeningV4Block || fDualTrackBlock) {
+            {
                 int nCoinLockOutputs = 0;
                 int nPoWLockOutputs = 0;
                 for (const CTxOut& txout : tx.vout) {
@@ -2697,29 +2659,27 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                         if (!checkBlockRegBls(regPubKey, regBlsPk, regBlsPoP)) {
                             return false;
                         }
-                        if (fHardeningV4Block) {
-                            if (!regPubKey.IsValid() || !regPubKey.IsCompressed() || regPubKey.GetID() != regKeyId || vchNonce.size() != 4) {
-                                return state.DoS(100, error("ConnectBlock() : funded PoW-Lock registration invalid key or nonce"),
-                                    REJECT_INVALID, "bad-txns-powlock-invalid-key");
-                            }
-                            bool fChallengeFresh = false;
-                            auto miChal = mapBlockIndex.find(hashChallenge);
-                            if (miChal != mapBlockIndex.end() && miChal->second && pindex->pprev &&
-                                miChal->second->nHeight >= 0 && miChal->second->nHeight <= pindex->pprev->nHeight &&
-                                pindex->pprev->GetAncestor(miChal->second->nHeight) == miChal->second &&
-                                miChal->second->nHeight >= pindex->nHeight - 100 && miChal->second->nHeight < pindex->nHeight) {
-                                fChallengeFresh = true;
-                            }
-                            if (!fChallengeFresh) {
-                                return state.DoS(100, error("ConnectBlock() : funded PoW-Lock challenge block stale or not in ancestor chain"),
-                                    REJECT_INVALID, "bad-txns-powlock-stale-challenge");
-                            }
-                            const uint32_t nRegNonce = (uint32_t)vchNonce[0] | ((uint32_t)vchNonce[1] << 8) |
-                                                       ((uint32_t)vchNonce[2] << 16) | ((uint32_t)vchNonce[3] << 24);
-                            if (ComputeMinerPoWRegistrationHash(nRegNonce, hashChallenge, regPubKey, fHardeningV2Block, &regBlsPk) > minerPowLimit) {
-                                return state.DoS(100, error("ConnectBlock() : funded PoW-Lock registration puzzle hash failed"),
-                                    REJECT_INVALID, "bad-txns-powlock-invalid");
-                            }
+                        if (!regPubKey.IsValid() || !regPubKey.IsCompressed() || regPubKey.GetID() != regKeyId || vchNonce.size() != 4) {
+                            return state.DoS(100, error("ConnectBlock() : funded PoW-Lock registration invalid key or nonce"),
+                                REJECT_INVALID, "bad-txns-powlock-invalid-key");
+                        }
+                        bool fChallengeFresh = false;
+                        auto miChal = mapBlockIndex.find(hashChallenge);
+                        if (miChal != mapBlockIndex.end() && miChal->second && pindex->pprev &&
+                            miChal->second->nHeight >= 0 && miChal->second->nHeight <= pindex->pprev->nHeight &&
+                            pindex->pprev->GetAncestor(miChal->second->nHeight) == miChal->second &&
+                            miChal->second->nHeight >= pindex->nHeight - 100 && miChal->second->nHeight < pindex->nHeight) {
+                            fChallengeFresh = true;
+                        }
+                        if (!fChallengeFresh) {
+                            return state.DoS(100, error("ConnectBlock() : funded PoW-Lock challenge block stale or not in ancestor chain"),
+                                REJECT_INVALID, "bad-txns-powlock-stale-challenge");
+                        }
+                        const uint32_t nRegNonce = (uint32_t)vchNonce[0] | ((uint32_t)vchNonce[1] << 8) |
+                                                   ((uint32_t)vchNonce[2] << 16) | ((uint32_t)vchNonce[3] << 24);
+                        if (ComputeMinerPoWRegistrationHash(nRegNonce, hashChallenge, regPubKey, regBlsPk) > minerPowLimit) {
+                            return state.DoS(100, error("ConnectBlock() : funded PoW-Lock registration puzzle hash failed"),
+                                REJECT_INVALID, "bad-txns-powlock-invalid");
                         }
                         nPoWLockOutputs++;
                     }
@@ -2791,9 +2751,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
             }
 
             std::vector<CScriptCheck> vChecks;
-            unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT;
-            if (fHardeningV3)
-                flags |= SCRIPT_VERIFY_TAPROOT_BIP341;
+            unsigned int flags = SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_DERSIG | SCRIPT_VERIFY_CHECKSEQUENCEVERIFY | SCRIPT_VERIFY_TAPROOT | SCRIPT_VERIFY_TAPROOT_BIP341;
             if (fCLTVIsActivated)
                 flags |= SCRIPT_VERIFY_CHECKLOCKTIMEVERIFY;
 
@@ -2812,7 +2770,7 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
 
         // Extract burn information & coinstake PoB lineage before UpdateCoins is called
         if (!fJustCheck && !fZeroCoinPoW) {
-            if (fHardeningV3 && block.IsProofOfStake() && i == 1 && !tx.vin.empty() && tx.vout.size() >= 2) {
+            if (block.IsProofOfStake() && i == 1 && !tx.vin.empty() && tx.vout.size() >= 2) {
                 const COutPoint& fromOut = tx.vin[0].prevout;
                 const Coin& stakeCoin = view.AccessCoin(fromOut);
                 if (!stakeCoin.IsSpent() &&
@@ -2835,18 +2793,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
                 const CTxIn& txin = tx.vin[0];
                 const Coin& coin = view.AccessCoin(txin.prevout);
                 if (!coin.IsSpent()) {
-                    if (fHardeningV3) {
-                        COutPoint targetOut;
-                        if (ResolveVoluntaryBurnTargetOutpoint(tx, pindex->nHeight, coin.out.scriptPubKey, &view, targetOut)) {
-                            vPendingOutpointBurns.emplace_back(targetOut, nBurnAmount);
-                        }
-                    } else {
-                        txnouttype type;
-                        std::vector<CTxDestination> addresses;
-                        int nRequired;
-                        if (ExtractDestinations(coin.out.scriptPubKey, type, addresses, nRequired) && addresses.size() > 0) {
-                            vPendingBurns.emplace_back(addresses[0], nBurnAmount);
-                        }
+                    COutPoint targetOut;
+                    if (ResolveVoluntaryBurnTargetOutpoint(tx, pindex->nHeight, coin.out.scriptPubKey, &view, targetOut)) {
+                        vPendingOutpointBurns.emplace_back(targetOut, nBurnAmount);
                     }
                 }
             }
@@ -2874,10 +2823,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     nTimeConnect += nTime1 - nTimeStart;
     LogPrint(BCLog::BENCH, "      - Connect %u transactions: %.2fms (%.3fms/tx, %.3fms/txin) [%.2fs]\n", (unsigned)block.vtx.size(), 0.001 * (nTime1 - nTimeStart), 0.001 * (nTime1 - nTimeStart) / block.vtx.size(), nInputs <= 1 ? 0 : 0.001 * (nTime1 - nTimeStart) / (nInputs - 1), nTimeConnect * 0.000001);
 
-    //PoW phase redistributed fees to miner. Under UPGRADE_FAIRNESS, PoS also redistributes fees symmetrically to the staker.
+    // Fee redistribution applies symmetrically to PoW and PoS producers.
     CAmount nExpectedMint = CMasternode::GetBlockValue(pindex->pprev->nHeight + 1);
-    if (block.IsProofOfWork() || Params().GetConsensus().NetworkUpgradeActive(pindex->nHeight, Consensus::UPGRADE_FAIRNESS))
-        nExpectedMint += nFees;
+    nExpectedMint += nFees;
 
     //Check that the block does not overmint
     const bool fMintFitsCAmount = (nMint128 >= std::numeric_limits<CAmount>::min() && nMint128 <= std::numeric_limits<CAmount>::max());
@@ -2930,9 +2878,8 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     // add this block to the view's block chain
     view.SetBestBlock(pindex->GetBlockHash());
 
-    // Update KRISTA money supply (L-1: exclude IsUnspendable outputs under V3)
-    const __int128 nConnectedOut128 = fHardeningV3 ? nSpendableValueOut128 : nValueOut128;
-    nMoneySupply = (CAmount)((__int128)nMoneySupply + (nConnectedOut128 - nValueIn128 - nBurnedInBlock128));
+    // Update KRISTA money supply (L-1: exclude IsUnspendable outputs)
+    nMoneySupply = (CAmount)((__int128)nMoneySupply + (nSpendableValueOut128 - nValueIn128 - nBurnedInBlock128));
 
     int64_t nTime3 = GetTimeMicros();
     nTimeIndex += nTime3 - nTime2;
@@ -2957,12 +2904,9 @@ bool ConnectBlock(const CBlock& block, CValidationState& state, CBlockIndex* pin
     }
 
     if (!fJustCheck &&
-        (fHasPendingCoinstakeTransfer || !vPendingBurns.empty() || !vPendingOutpointBurns.empty())) {
+        (fHasPendingCoinstakeTransfer || !vPendingOutpointBurns.empty())) {
         if (fHasPendingCoinstakeTransfer) {
             TransferOutpointBurnOnCoinstake(pendingCoinstakeTransfer.first, pendingCoinstakeTransfer.second, pindex->nHeight, hashBlock);
-        }
-        for (const auto& burn : vPendingBurns) {
-            AddBurnToCache(burn.first, burn.second, pindex->nHeight);
         }
         for (const auto& oburn : vPendingOutpointBurns) {
             AddOutpointBurnToCache(oburn.first, oburn.second, pindex->nHeight);
@@ -3276,11 +3220,8 @@ bool static ConnectTip(CValidationState& state, CBlockIndex* pindexNew, const CB
         if (fHasZeroTx) {
             const Consensus::Params& consensus = Params().GetConsensus();
             const int nNextHeight = pindexNew->nHeight + 1;
-            const bool fHardeningV2 = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V2);
             const size_t maxBootstrapPoolSize = (size_t)(consensus.GetAdamMinersCount(nNextHeight) + 2);
-            const size_t nGateCount = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_HARDENING_V1)
-                ? GetFundedAdamMinerPoolCount(pindexNew->nHeight)
-                : GetExplicitAdamMinerPoolCount(pindexNew->nHeight);
+            const size_t nGateCount = GetFundedAdamMinerPoolCount(pindexNew->nHeight);
             bool fShouldEvict = (!consensus.IsAdamOpenEntryActive(nNextHeight) && nGateCount >= maxBootstrapPoolSize);
             if (!fShouldEvict) {
                 std::vector<unsigned char> zNonce;
@@ -3290,10 +3231,8 @@ bool static ConnectTip(CValidationState& state, CBlockIndex* pindexNew, const CB
                 CKeyID zPubKeyHash;
                 CBLSPubKey zBlsPk;
                 CBLSSignature zBlsPoP;
-                const int nMinZeroPeriod = fHardeningV2
-                    ? GetZeroCoinRegPeriod(nNextHeight)
-                    : (((Params().NetworkID() == CBaseChainParams::TESTNET || Params().NetworkID() == CBaseChainParams::REGTEST) && IsModelDActive(nNextHeight)) ? 100 : 2880);
-                const int nMaxChallengeAge = fHardeningV2 ? ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2 : 100;
+                const int nMinZeroPeriod = GetZeroCoinRegPeriod(nNextHeight);
+                const int nMaxChallengeAge = ADAM_ZEROCOIN_CHALLENGE_WINDOW_V2;
                 std::string strBlsErr;
                 if (staleZeroTx.vout.size() != 1 ||
                     !MatchPoWLockRegistration(staleZeroTx.vout[0].scriptPubKey, zNonce, zChallenge, zPubKey, zLockTime, zPubKeyHash, &zBlsPk, &zBlsPoP) ||
@@ -3307,7 +3246,7 @@ bool static ConnectTip(CValidationState& state, CBlockIndex* pindexNew, const CB
                         miChallenge->second->nHeight < nNextHeight - nMaxChallengeAge ||
                         miChallenge->second->nHeight >= nNextHeight) {
                         fShouldEvict = true;
-                    } else if (fHardeningV2) {
+                    } else {
                         const std::vector<CPubKey> activePool = GetAdamMinerPool(pindexNew->nHeight);
                         if (std::find(activePool.begin(), activePool.end(), zPubKey) != activePool.end()) {
                             fShouldEvict = true;
@@ -3816,16 +3755,12 @@ CBlockIndex* AddToBlockIndex(const CBlock& block)
         pindexNew->nHeight = pindexNew->pprev->nHeight + 1;
         pindexNew->BuildSkip();
 
-        // Compute and set stake modifier (V2 when UPGRADE_HARDENING_V3 is active and parent modifier is ready).
-        if (IsHardeningV3Active(pindexNew->nHeight)) {
-            if (!block.vtx.empty()) {
-                pindexNew->hashStakeModifierPrevout = GetV2StakeModifierPrevoutId(block);
-                if (CanComputeV2StakeModifier(pindexNew)) {
-                    pindexNew->SetNewStakeModifier(pindexNew->hashStakeModifierPrevout);
-                }
+        // Compute and set V2 stake modifier when parent modifier is ready.
+        if (pindexNew->nHeight > 0 && !block.vtx.empty()) {
+            pindexNew->hashStakeModifierPrevout = GetV2StakeModifierPrevoutId(block);
+            if (CanComputeV2StakeModifier(pindexNew)) {
+                pindexNew->SetNewStakeModifier(pindexNew->hashStakeModifierPrevout);
             }
-        } else {
-            pindexNew->SetNewStakeModifier();
         }
     }
     pindexNew->nChainWork = (pindexNew->pprev ? pindexNew->pprev->nChainWork : 0) + GetBlockProof(*pindexNew);
@@ -3851,7 +3786,7 @@ bool ReceivedBlockTransactions(const CBlock& block, CValidationState& state, CBl
     pindexNew->nDataPos = pos.nPos;
     pindexNew->nUndoPos = 0;
     pindexNew->nStatus |= BLOCK_HAVE_DATA;
-    if (IsHardeningV3Active(pindexNew->nHeight) && !block.vtx.empty()) {
+    if (pindexNew->nHeight > 0 && !block.vtx.empty()) {
         pindexNew->hashStakeModifierPrevout = GetV2StakeModifierPrevoutId(block);
         if (CanComputeV2StakeModifier(pindexNew)) {
             pindexNew->SetNewStakeModifier(pindexNew->hashStakeModifierPrevout);
@@ -3870,7 +3805,7 @@ bool ReceivedBlockTransactions(const CBlock& block, CValidationState& state, CBl
         while (!queue.empty()) {
             CBlockIndex* pindex = queue.front();
             queue.pop_front();
-            if (IsHardeningV3Active(pindex->nHeight) && CanComputeV2StakeModifier(pindex) &&
+            if (pindex->nHeight > 0 && CanComputeV2StakeModifier(pindex) &&
                 (!pindex->GeneratedStakeModifier() || pindex->GetStakeModifierV2().IsNull())) {
                 uint256 prevoutId = pindex->hashStakeModifierPrevout;
                 if (prevoutId.IsNull()) {
@@ -4089,8 +4024,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         }
         if (pindexPrev != NULL) {
             fBlockOfflineSync = fOfflineSync || fVerifyingBlocks || fReindex || (pindexBestHeader && chainActive.Height() + 6 < pindexBestHeader->nHeight);
-            const bool fDip3Active = Params().GetConsensus().NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
-            fHasDip3List = deterministicMNManager && fDip3Active &&
+            fHasDip3List = deterministicMNManager &&
                            (pindexPrev->nHeight == 0 || deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash()));
             if (fHasDip3List && !fVerifyingBlocks && !fReindex) {
                 fBlockOfflineSync = false;
@@ -4103,25 +4037,11 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                 if (!fParentIsActiveTip && !fHasDip3List) {
                     fBlockOfflineSync = true;
                 }
-                if (deterministicMNManager && fDip3Active &&
+                if (deterministicMNManager &&
                     pindexPrev->nHeight > 0 && !deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) {
                     fBlockOfflineSync = true;
                 }
             }
-        }
-    }
-
-    int nPoWCheckHeight = nHeight;
-    if (nPoWCheckHeight == 0 && !block.vtx.empty() && !block.vtx[0].vin.empty()) {
-        const CScript& scriptSig = block.vtx[0].vin[0].scriptSig;
-        CScript::const_iterator pc = scriptSig.begin();
-        opcodetype opcode;
-        std::vector<unsigned char> vch;
-        if (scriptSig.GetOp(pc, opcode, vch) && !vch.empty()) {
-            try {
-                CScriptNum nHeightNum(vch, false);
-                nPoWCheckHeight = nHeightNum.getint();
-            } catch (...) {}
         }
     }
 
@@ -4136,7 +4056,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
         for (unsigned int i = 2; i < block.vtx.size(); i++)
             if (block.vtx[i].IsCoinStake())
                 return state.DoS(100, false, REJECT_INVALID, "bad-cs-multiple", false, "more than one coinstake");
-    } else if (IsHardeningV4Active(nPoWCheckHeight)) {
+    } else {
         for (unsigned int i = 1; i < block.vtx.size(); i++) {
             if (block.vtx[i].IsCoinStake()) {
                 return state.DoS(100, false, REJECT_INVALID, "bad-cs-in-pow", false, "coinstake transaction in proof-of-work block");
@@ -4266,7 +4186,6 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
     int nCoinLockTxCount = 0;
     int nPoWLockTxCount = 0;
     const bool fDualTrackRules = (nHeight >= 0 && IsAdamDualTrackActive(nHeight));
-    const bool fHardeningV4 = (nHeight >= 0 && IsHardeningV4Active(nHeight));
     std::map<CBLSPubKey, CPubKey> seenBlockRegBls;
     auto checkRegBlsInBlock = [&](const CPubKey& regPubKey, const CBLSPubKey& regBlsPk, const CBLSSignature& regBlsPoP) -> bool {
         std::string strBlsErr;
@@ -4297,54 +4216,52 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             }
         }
 
-        if (fDualTrackRules || fHardeningV4) {
-            int nCoinLockOutputsInTx = 0;
-            int nPoWLockOutputsInTx = 0;
-            const bool fZeroCoinTx = IsZeroCoinPoWTransaction(tx);
-            for (const CTxOut& txout : tx.vout) {
-                std::vector<unsigned char> vchNonce;
-                uint256 hashChallenge;
-                CPubKey regPubKey;
-                int64_t nRegLockTime = 0;
-                CKeyID regKeyId;
-                CBLSPubKey regBlsPk;
-                CBLSSignature regBlsPoP;
-                if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
-                    if (fDualTrackRules && txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
-                        return state.DoS(100, false, REJECT_INVALID, "bad-txns-coinlock-amount-too-small", false, "Coin-Lock registration output below minimum amount");
-                    }
-                    if (!checkRegBlsInBlock(regPubKey, regBlsPk, regBlsPoP)) {
-                        return false;
-                    }
-                    nCoinLockOutputsInTx++;
-                } else if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
-                    if (fDualTrackRules && !fZeroCoinTx && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
-                        return state.DoS(100, false, REJECT_INVALID, "bad-txns-powlock-amount-too-small", false, "funded PoW-Lock registration output below minimum amount");
-                    }
-                    if (!checkRegBlsInBlock(regPubKey, regBlsPk, regBlsPoP)) {
-                        return false;
-                    }
-                    nPoWLockOutputsInTx++;
+        int nCoinLockOutputsInTx = 0;
+        int nPoWLockOutputsInTx = 0;
+        const bool fZeroCoinTx = IsZeroCoinPoWTransaction(tx);
+        for (const CTxOut& txout : tx.vout) {
+            std::vector<unsigned char> vchNonce;
+            uint256 hashChallenge;
+            CPubKey regPubKey;
+            int64_t nRegLockTime = 0;
+            CKeyID regKeyId;
+            CBLSPubKey regBlsPk;
+            CBLSSignature regBlsPoP;
+            if (MatchCoinLockRegistration(txout.scriptPubKey, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
+                if (fDualTrackRules && txout.nValue < MINER_REGISTRATION_LOCK_AMOUNT) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-txns-coinlock-amount-too-small", false, "Coin-Lock registration output below minimum amount");
+                }
+                if (!checkRegBlsInBlock(regPubKey, regBlsPk, regBlsPoP)) {
+                    return false;
+                }
+                nCoinLockOutputsInTx++;
+            } else if (MatchPoWLockRegistration(txout.scriptPubKey, vchNonce, hashChallenge, regPubKey, nRegLockTime, regKeyId, &regBlsPk, &regBlsPoP)) {
+                if (fDualTrackRules && !fZeroCoinTx && txout.nValue < POW_LOCK_REGISTRATION_AMOUNT) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-txns-powlock-amount-too-small", false, "funded PoW-Lock registration output below minimum amount");
+                }
+                if (!checkRegBlsInBlock(regPubKey, regBlsPk, regBlsPoP)) {
+                    return false;
+                }
+                nPoWLockOutputsInTx++;
+            }
+        }
+        if (fDualTrackRules) {
+            if (nCoinLockOutputsInTx > 1) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-coinlock", false, "more than one Coin-Lock registration output in a transaction");
+            }
+            if (nCoinLockOutputsInTx > 0) {
+                nCoinLockTxCount++;
+                if (nCoinLockTxCount > ADAM_MAX_COIN_LOCK_TX_PER_BLOCK) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-coinlock", false, "too many Coin-Lock registrations in a single block");
                 }
             }
-            if (fDualTrackRules) {
-                if (nCoinLockOutputsInTx > 1) {
-                    return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-coinlock", false, "more than one Coin-Lock registration output in a transaction");
-                }
-                if (nCoinLockOutputsInTx > 0) {
-                    nCoinLockTxCount++;
-                    if (nCoinLockTxCount > ADAM_MAX_COIN_LOCK_TX_PER_BLOCK) {
-                        return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-coinlock", false, "too many Coin-Lock registrations in a single block");
-                    }
-                }
-                if (nPoWLockOutputsInTx > 1) {
-                    return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-powlock", false, "more than one PoW-Lock registration output in a transaction");
-                }
-                if (!fZeroCoinTx && nPoWLockOutputsInTx > 0) {
-                    nPoWLockTxCount++;
-                    if (nPoWLockTxCount > ADAM_MAX_POW_LOCK_TX_PER_BLOCK) {
-                        return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-powlock", false, "too many PoW-Lock registrations in a single block");
-                    }
+            if (nPoWLockOutputsInTx > 1) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-too-many-powlock", false, "more than one PoW-Lock registration output in a transaction");
+            }
+            if (!fZeroCoinTx && nPoWLockOutputsInTx > 0) {
+                nPoWLockTxCount++;
+                if (nPoWLockTxCount > ADAM_MAX_POW_LOCK_TX_PER_BLOCK) {
+                    return state.DoS(100, false, REJECT_INVALID, "bad-blk-too-many-powlock", false, "too many PoW-Lock registrations in a single block");
                 }
             }
         }
@@ -4520,21 +4437,12 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
                     fCoordSigValid = true;
                 } else if (fAllowCoordinatorRotation && !block.vAdamMiners.empty()) {
                     if (!fFallbackMode && nBlockTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                        const bool fHardeningV3 = IsHardeningV3Active(nAdamActualHeight);
-                        std::map<CPubKey, std::vector<unsigned char>> mapBlockSolutions;
-                        if (!fHardeningV3) {
-                            for (size_t i = 0; i < minersToVerify && i < block.vAdamSolutions.size(); ++i) {
-                                if (!block.vAdamSolutions[i].empty() &&
-                                    VerifyAdamSolution(block.hashPrevBlock, adamSeed, block.vAdamMiners[i], block.vAdamSolutions[i], block.nBits, block.nVersion, pindexPrev->nHeight + 1, (int)i, pView)) {
-                                    mapBlockSolutions[block.vAdamMiners[i]] = block.vAdamSolutions[i];
-                                }
-                            }
-                        }
-                        const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedMiners.empty())
+                        const std::map<CPubKey, std::vector<unsigned char>> emptySolutions;
+                        const std::vector<CPubKey>& vFbMiners = !vExpectedMiners.empty()
                             ? vExpectedMiners : block.vAdamMiners;
                         CPubKey activeFallback, prevFallback;
                         int rotationIndex = 0;
-                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nAdamActualHeight, nBlockTimeDiff, vFbMiners, mapBlockSolutions, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
+                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nAdamActualHeight, nBlockTimeDiff, vFbMiners, emptySolutions, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
                             if (VerifyAdamCoordinatorSig(block, activeFallback, &hashBlock, nAdamActualHeight, pindexPrev)) {
                                 signingCoordinator = activeFallback;
                                 fCoordSigValid = true;
@@ -4646,10 +4554,9 @@ bool CheckBlock(const CBlock& block, CValidationState& state, bool fCheckPOW, bo
             } else {
                 // Historical / in-flight IBD block where primary coordinator is not yet in local GetAdamMinerPool:
                 // verify full cryptographic self-consistency of the BLS12-381 VRF proof and coordinator signature
-                const bool fHardeningV3 = IsHardeningV3Active(nAdamActualHeight);
                 CBLSPubKey vrfBlsPk, coordBlsPk;
-                if (!VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3), false) ||
-                    !VerifySelfContainedBLSSignedData(hashBlock, block.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3), false) ||
+                if (!VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF), false) ||
+                    !VerifySelfContainedBLSSignedData(hashBlock, block.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD), false) ||
                     vrfBlsPk != coordBlsPk) {
                     return state.DoS(100, error("CheckBlock() : invalid coordinator signature or VRF proof during sync"),
                         REJECT_INVALID, "bad-adam-coord-sig");
@@ -4718,12 +4625,6 @@ bool CheckBlockTime(const CBlockHeader& block, CValidationState& state, CBlockIn
     if (!Params().GetConsensus().IsValidBlockTimeStamp(blockTime, blockHeight))
         return state.DoS(100, error("%s : block timestamp mask not valid", __func__), REJECT_INVALID, "invalid-time-mask");
 
-    // Check block time limit (deprecated once UPGRADE_HARDENING_V1 is active to eliminate single-key halt risk)
-    if (!Params().GetConsensus().NetworkUpgradeActive(blockHeight, Consensus::UPGRADE_HARDENING_V1) &&
-        blockTime > sporkManager.GetSporkValue(SPORK_104_MAX_BLOCK_TIME)) {
-        return state.Invalid(error("%s : block reached time limit", __func__), REJECT_INVALID, "time-limit");
-    }
-
     // All good
     return true;
 }
@@ -4777,10 +4678,9 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
 
     if (block.nVersion >= 11 && IsAdamActive(nHeight, consensus) && !Params().IsRegTestNet()) {
         uint256 adamSeed = GetAdamSeed(pindexPrev);
-        const bool fHardeningV3 = IsHardeningV3Active(nHeight);
         const bool fOfflineHeaderSync = IsInitialBlockDownload() || fReindex || fVerifyingBlocks ||
                                         (pindexBestHeader && chainActive.Height() + 6 < pindexBestHeader->nHeight);
-        const bool fDip3Header = deterministicMNManager && consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_DIP3);
+        const bool fDip3Header = (deterministicMNManager != nullptr);
         const bool fHasDip3HeaderList = fDip3Header &&
                                         (pindexPrev->nHeight == 0 || deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash()));
         int nHeaderActiveMns = 0;
@@ -4801,10 +4701,10 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
         }
         CBLSPubKey vrfBlsPk, coordBlsPk;
         const bool fVrfOk = !adamSeed.IsNull()
-            ? VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3), false)
+            ? VerifySelfContainedBLSSignedData(adamSeed, block.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF), false)
             : ExtractBLSPubKeyFromSignedData(block.vAdamVRFProof, vrfBlsPk);
         if (!fVrfOk ||
-            !VerifySelfContainedBLSSignedData(hash, block.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3), false) ||
+            !VerifySelfContainedBLSSignedData(hash, block.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD), false) ||
             vrfBlsPk != coordBlsPk) {
             return state.DoS(100, error("%s : invalid ADAM header coordinator BLS proof at height %d", __func__, nHeight), REJECT_INVALID, "bad-adam-header-sig");
         }
@@ -4818,7 +4718,7 @@ bool ContextualCheckBlockHeader(const CBlockHeader& block, CValidationState& sta
                     verifiedHdrCoord = expectedHdrCoord;
                     fDetCoordValid = true;
                 } else if (block.nVersion >= 12 && nHeaderTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
-                    const std::vector<CPubKey>& vFbMiners = (fHardeningV3 && !vExpectedHdrMiners.empty())
+                    const std::vector<CPubKey>& vFbMiners = !vExpectedHdrMiners.empty()
                         ? vExpectedHdrMiners : block.vAdamMiners;
                     std::map<CPubKey, std::vector<unsigned char>> emptySols;
                     CPubKey activeFb, prevFb;
@@ -4978,21 +4878,9 @@ bool ContextualCheckBlock(const CBlock& block, CValidationState& state, CBlockIn
     //     }
     // }
 
-    // Size limits (M-7: SPORK_105_MAX_BLOCK_SIZE deprecated after UPGRADE_HARDENING_V3)
+    // Size limits
     if (nHeight != 0 && !IsInitialBlockDownload()) {
-        unsigned int nMaxBlockSize = MAX_BLOCK_SIZE_CURRENT;
-        if (!IsHardeningV3Active(nHeight)) {
-            const int64_t rawSporkMaxSize = sporkManager.GetSporkValue(SPORK_105_MAX_BLOCK_SIZE);
-            const unsigned int nEffectiveSporkMax = (rawSporkMaxSize <= 0 || rawSporkMaxSize >= (int64_t)MAX_BLOCK_SIZE_CURRENT)
-                ? MAX_BLOCK_SIZE_CURRENT
-                : (unsigned int)rawSporkMaxSize;
-            const unsigned int nMinFloor = consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_HARDENING_V1)
-                ? 262144U
-                : 1000U;
-            nMaxBlockSize = std::max(nMinFloor, std::min(nEffectiveSporkMax, MAX_BLOCK_SIZE_CURRENT));
-        }
-
-        if (::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION) > nMaxBlockSize) {
+        if (::GetSerializeSize(block, SER_NETWORK, PROTOCOL_VERSION) > MAX_BLOCK_SIZE_CURRENT) {
             return state.Invalid(error("%s : size limits failed", __func__), REJECT_INVALID, "bad-blk-length");
         }
     }
@@ -5466,10 +5354,9 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
             vPool = GetAdamMinerPool(nCandidateHeight - 1, fAtChainTip ? pcoinsTip : nullptr);
         }
 
-        const bool fHardeningV3 = IsHardeningV3Active(nCandidateHeight);
         CBLSPubKey vrfBlsPk, coordBlsPk;
-        if (!VerifySelfContainedBLSSignedData(adamSeed, header.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF, fHardeningV3), false) ||
-            !VerifySelfContainedBLSSignedData(hashBlock, header.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD, fHardeningV3), false) ||
+        if (!VerifySelfContainedBLSSignedData(adamSeed, header.vAdamVRFProof, vrfBlsPk, GetBLSDomainTag(BLSDomain::ADAM_VRF), false) ||
+            !VerifySelfContainedBLSSignedData(hashBlock, header.vAdamCoordinatorSig, coordBlsPk, GetBLSDomainTag(BLSDomain::ADAM_COORD), false) ||
             vrfBlsPk != coordBlsPk) {
             return false;
         }
@@ -5489,14 +5376,10 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
                     continue;
                 }
                 CBLSPubKey dip3CheckPk;
-                const bool fIsDip3 = ResolveDip3OperatorBlsPubKey(candKey, nCandidateHeight, dip3CheckPk, pindexPrev);
-                if (fHardeningV3 && fIsDip3) {
+                if (ResolveDip3OperatorBlsPubKey(candKey, nCandidateHeight, dip3CheckPk, pindexPrev)) {
                     continue;
                 }
-                const bool fKeyAuthorized = fHardeningV3
-                    ? candKey.VerifyStrictDER(hashCoordBlsPk, coordSignedData.ecdsaSig)
-                    : candKey.Verify(hashCoordBlsPk, coordSignedData.ecdsaSig);
-                if (fKeyAuthorized) {
+                if (candKey.VerifyStrictDER(hashCoordBlsPk, coordSignedData.ecdsaSig)) {
                     matchedCandKey = candKey;
                     break;
                 }
@@ -5537,7 +5420,6 @@ bool IsFutureBlockPreVerified(const CBlockHeader& header, const CBlockIndex* pin
             {
                 LOCK(cs_main);
                 if (!Params().IsRegTestNet() && deterministicMNManager &&
-                    consensus.NetworkUpgradeActive(nCandidateHeight, Consensus::UPGRADE_DIP3) &&
                     pindexPrev->nHeight > 0 &&
                     !deterministicMNManager->HasListForBlock(pindexPrev->GetBlockHash())) {
                     return false;
