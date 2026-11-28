@@ -3309,4 +3309,101 @@ BOOST_AUTO_TEST_CASE(hardening_v4_quorum_threshold_equivocation_and_standby_pose
     }
 }
 
+BOOST_AUTO_TEST_CASE(llmq_livelock_recovery_and_slot_sync_test)
+{
+    const int64_t parentTime = 1795864605;
+
+    // 1. Verify deterministic PoBLS proposal slot mapping across boundaries
+    BOOST_CHECK_EQUAL(llmq::ComputeQuorumProposalSlot(parentTime, parentTime - 5), 0);
+    BOOST_CHECK_EQUAL(llmq::ComputeQuorumProposalSlot(parentTime, parentTime), 0);
+    BOOST_CHECK_EQUAL(llmq::ComputeQuorumProposalSlot(parentTime, parentTime + 44), 0);
+    BOOST_CHECK_EQUAL(llmq::ComputeQuorumProposalSlot(parentTime, parentTime + 45), 1);
+    BOOST_CHECK_EQUAL(llmq::ComputeQuorumProposalSlot(parentTime, parentTime + 74), 1);
+    BOOST_CHECK_EQUAL(llmq::ComputeQuorumProposalSlot(parentTime, parentTime + 75), 2);
+    BOOST_CHECK_EQUAL(llmq::ComputeQuorumProposalSlot(parentTime, parentTime + 495), 16);
+
+    CKey k0, k1, k2;
+    k0.MakeNewKey(true);
+    k1.MakeNewKey(true);
+    k2.MakeNewKey(true);
+
+    // 2. Same-slot equivocation is refused even if >= 15s elapsed inside the same slot
+    {
+        const uint256 parent1 = GetRandHash();
+        const uint256 blk0 = GetRandHash();
+        const uint256 blk0Alt = GetRandHash();
+        const uint256 blk1SameSlot = GetRandHash();
+        const int64_t t0 = parentTime + 15;
+
+        BOOST_CHECK(llmq::AllowQuorumSignature(parent1, k0.GetPubKey(), blk0, 0, t0));
+        BOOST_CHECK(llmq::AllowQuorumSignature(parent1, k0.GetPubKey(), blk0, 0, t0 + 20)); // idempotent rebroadcast
+        BOOST_CHECK(!llmq::AllowQuorumSignature(parent1, k0.GetPubKey(), blk0Alt, 0, t0 + 15));
+        BOOST_CHECK(!llmq::AllowQuorumSignature(parent1, k1.GetPubKey(), blk1SameSlot, 0, t0 + 20));
+    }
+
+    // 3. Sub-settle slot transition (< 15s) is guarded, and recovery converges cleanly at the next settled slot
+    {
+        const uint256 parentDesync = GetRandHash();
+        const uint256 blkLateSlot0 = GetRandHash();
+        const uint256 blkSlot1 = GetRandHash();
+        const uint256 blkSlot2 = GetRandHash();
+
+        BOOST_CHECK(llmq::AllowQuorumSignature(parentDesync, k0.GetPubKey(), blkLateSlot0, 0, parentTime + 42));
+        // Only 3s later at slot 1 boundary -> refused (< QUORUM_MIN_SLOT_SETTLE_SECS)
+        BOOST_CHECK(!llmq::AllowQuorumSignature(parentDesync, k1.GetPubKey(), blkSlot1, 1, parentTime + 45));
+        // Next rotation at t = +75s (33s >= 15s) cleanly advances to slot 2
+        BOOST_CHECK(llmq::AllowQuorumSignature(parentDesync, k2.GetPubKey(), blkSlot2, 2, parentTime + 75));
+        // Displaced prior block hash remains permanently rejected even in later slots
+        BOOST_CHECK(!llmq::AllowQuorumSignature(parentDesync, k0.GetPubKey(), blkLateSlot0, 3, parentTime + 105));
+    }
+
+    // 4. Hard lock immutability: once >= quorum threshold shares exist, slot advance is forbidden
+    {
+        const uint256 parentLocked = GetRandHash();
+        const uint256 blkLocked = GetRandHash();
+        const uint256 blkNext = GetRandHash();
+
+        BOOST_CHECK(llmq::AllowQuorumSignature(parentLocked, k0.GetPubKey(), blkLocked, 1, parentTime + 45));
+        {
+            LOCK(cs_quorum_sigs);
+            auto& sigMap = mapQuorumBlockSigs[blkLocked];
+            for (uint32_t idx = 0; idx < 4; ++idx) {
+                sigMap.emplace(COutPoint(GetRandHash(), idx), std::vector<unsigned char>(64, 0x01));
+            }
+        }
+        BOOST_CHECK(!llmq::AllowQuorumSignature(parentLocked, k1.GetPubKey(), blkNext, 2, parentTime + 90));
+        {
+            LOCK(cs_quorum_sigs);
+            mapQuorumBlockSigs.erase(blkLocked);
+        }
+    }
+
+    // 5. Full 15-committee rotation wrap-around recovery without permanent coordinator self-ban
+    {
+        const uint256 parentWrap = GetRandHash();
+        std::vector<CPubKey> vCoords;
+        std::vector<uint256> vBlks;
+        for (int i = 0; i < 15; ++i) {
+            CKey ck;
+            ck.MakeNewKey(true);
+            vCoords.push_back(ck.GetPubKey());
+            vBlks.push_back(GetRandHash());
+        }
+
+        for (int i = 0; i < 15; ++i) {
+            const int64_t slot = i + 1;
+            const int64_t now = parentTime + 45 + static_cast<int64_t>(i) * 30;
+            BOOST_CHECK(llmq::AllowQuorumSignature(parentWrap, vCoords[i], vBlks[i], slot, now));
+        }
+
+        // Rotation wraps back to vCoords[0] at slot 16 with a new block hash
+        const uint256 blkWrap = GetRandHash();
+        const int64_t tWrap = parentTime + 45 + 15 * 30;
+        BOOST_CHECK(llmq::AllowQuorumSignature(parentWrap, vCoords[0], blkWrap, 16, tWrap));
+        // Old displaced hashes from earlier slots remain permanently rejected
+        BOOST_CHECK(!llmq::AllowQuorumSignature(parentWrap, vCoords[0], vBlks[0], 17, tWrap + 30));
+        BOOST_CHECK(!llmq::AllowQuorumSignature(parentWrap, vCoords[14], vBlks[14], 17, tWrap + 30));
+    }
+}
+
 BOOST_AUTO_TEST_SUITE_END()

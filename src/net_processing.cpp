@@ -2903,8 +2903,10 @@ bool static ProcessMessage(CNode* pfrom, std::string strCommand, CDataStream& vR
             }
         }
 
-        // Anti-equivocation: never let our quorum keys sign two competing equal-height blocks from different coordinators
-        if (!llmq::AllowQuorumSignature(msg.block.hashPrevBlock, signingCoordinator, blockHash)) {
+        // Anti-equivocation & slot-aligned view-change: never let our quorum keys sign competing blocks within a slot
+        const int64_t nProposalSlot = llmq::ComputeQuorumProposalSlot(
+            pindexPrev ? pindexPrev->GetBlockTime() : 0, msg.block.GetBlockTime());
+        if (!llmq::AllowQuorumSignature(msg.block.hashPrevBlock, signingCoordinator, blockHash, nProposalSlot)) {
             return true;
         }
 

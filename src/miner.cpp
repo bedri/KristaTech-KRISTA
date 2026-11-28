@@ -382,6 +382,43 @@ static bool IsParentBlockProducedOrInFlight(const uint256& parentHash, const CPu
     return false;
 }
 
+static std::map<CPubKey, std::vector<unsigned char>> BuildVerifiedSolutionsMap(
+    const std::vector<CPubKey>& vResolvedMiners,
+    const std::vector<std::vector<unsigned char>>& vResolvedSols)
+{
+    std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
+    for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
+        if (!vResolvedSols[i].empty()) {
+            verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
+        }
+    }
+    return verifiedSols;
+}
+
+static bool TrySelectFallbackSlotCoordinator(
+    const uint256& adamSeed,
+    int nHeight,
+    int64_t timeElapsed,
+    const std::vector<CPubKey>& vFbPool,
+    const std::map<CPubKey, std::vector<unsigned char>>& verifiedSols,
+    const CBlockIndex* pindexPrev,
+    CWallet* pwallet,
+    CPubKey& coordinatorOut,
+    bool& ownsOut,
+    int& rotationIndexOut)
+{
+    CPubKey fallbackCoordinator, prevFallback;
+    if (!GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndexOut, pindexPrev)) {
+        return false;
+    }
+    coordinatorOut = fallbackCoordinator;
+    CKey fallbackKey;
+    CBLSSecretKey fallbackBlsKey;
+    bool fFbOpOnly = false;
+    ownsOut = ResolveLocalSigningKey(fallbackCoordinator, pwallet, nHeight, fallbackKey, fallbackBlsKey, fFbOpOnly, pindexPrev);
+    return true;
+}
+
 // Alternating PoW / PoS cooperative slot-opening priority window (1500ms within each 15s TimeProtocolV2 slot).
 // After a PoS block, PoW coordinators act immediately (0ms) while PoS stakers wait 1500ms;
 // after a PoW block, PoS stakers act immediately (0ms) while PoW coordinators wait 1500ms.
@@ -616,6 +653,15 @@ struct ActiveProposalGuard {
             const int64_t now = GetTime();
             PruneParentCoordMap(mapProducedParentCoord, parentHash, now, PROPOSAL_SLOT_LEASE_SECS);
             mapProducedParentCoord[std::make_pair(parentHash, coordKey)] = now;
+        }
+    }
+
+    void MarkBroadcastAttempted()
+    {
+        MarkSucceeded();
+        if (fEngaged && fAcquired && !Params().IsRegTestNet()) {
+            std::lock_guard<std::mutex> lock(cs_active_proposal);
+            mapInFlightParentCoord.erase(std::make_pair(parentHash, coordKey));
         }
     }
 
@@ -954,19 +1000,20 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
         }
 
         // Verify coordinator ownership (or cooperative remote PoS coordinator target) and acquire proposalGuard BEFORE scanning wallet UTXOs in SolveProofOfStake
+        const bool fFallbackWindow = !Params().IsRegTestNet() && (nTemplateTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         bool fAllowCoordinatorRotation = (pblock->nVersion == 11) || (nTemplateTimeDiff >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
         CKey kTest;
         CBLSSecretKey blsTest;
         bool fOpTest = false;
         bool ownsCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev);
-        if (fAllowCoordinatorRotation && !ownsCoordinator && !vExpectedMiners.empty()) {
+        if (fAllowCoordinatorRotation && (fFallbackWindow || !ownsCoordinator) && !vExpectedMiners.empty()) {
             const std::vector<CPubKey>& vFbPool = !vPrimaryExpectedMiners.empty()
                 ? vPrimaryExpectedMiners : vExpectedMiners;
-            CPubKey activeFallback, prevFallback;
+            CPubKey activeFallback;
+            bool ownsFallback = false;
             int rotationIndex = 0;
-            if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, nTemplateTimeDiff, vFbPool, verifiedSolutionsForBlock, activeFallback, prevFallback, rotationIndex, pindexPrev)) {
+            if (TrySelectFallbackSlotCoordinator(adamSeed, nHeight, nTemplateTimeDiff, vFbPool, verifiedSolutionsForBlock, pindexPrev, pwallet, activeFallback, ownsFallback, rotationIndex)) {
                 expectedCoordinator = activeFallback;
-                bool ownsFallback = ResolveLocalSigningKey(activeFallback, pwallet, nHeight, kTest, blsTest, fOpTest, pindexPrev);
                 if (!ownsFallback && Params().IsRegTestNet()) {
                     std::vector<CPubKey> vRankedValidators = RankValidatorsByPoBLSDistance(adamSeed, nHeight, vFbPool, verifiedSolutionsForBlock, pindexPrev);
                     for (const auto& mKey : vRankedValidators) {
@@ -1766,12 +1813,14 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             // 1. Try to sign locally first if we hold any member private keys (using KTDIP3 operator BLS or deterministic BLS12-381 + secp256k1 authorization)
             //    The anti-equivocation guard is shared with PROPOSEBLOCK so a hot masternode never signs two competing blocks.
             bool fLocalSignAllowed = true;
+            const int64_t nProposalSlot = llmq::ComputeQuorumProposalSlot(
+                pindexPrev ? pindexPrev->GetBlockTime() : 0, pblock->GetBlockTime());
             for (const auto& member : quorum.members) {
                 CKey key;
                 CBLSSecretKey quorumBlsKey;
                 bool fOpOnly = false;
                 if (ResolveLocalSigningKey(member.pubKeyMasternode, pwallet, nHeight, key, quorumBlsKey, fOpOnly, pindexPrev)) {
-                    if (fLocalSignAllowed && !llmq::AllowQuorumSignature(pblock->hashPrevBlock, expectedCoordinator, qsig.blockHash)) {
+                    if (fLocalSignAllowed && !llmq::AllowQuorumSignature(pblock->hashPrevBlock, expectedCoordinator, qsig.blockHash, nProposalSlot)) {
                         fLocalSignAllowed = false;
                     }
                     if (!fLocalSignAllowed) break;
@@ -1889,12 +1938,14 @@ CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyIn, CWallet* pwallet, 
             }
 
             if (qsig.signatures.size() < nThreshold) {
+                proposalGuard.MarkBroadcastAttempted();
                 LogPrintf("CreateNewBlock ERROR: Failed to collect enough quorum signatures (%u/%u) for block %s\n",
                            qsig.signatures.size(), nThreshold, qsig.blockHash.ToString());
                 return nullptr;
             }
 
             if (!qsig.Verify(quorum, pindexPrev, BLSDomain::LLMQ_BLOCK, nHeight)) {
+                proposalGuard.MarkBroadcastAttempted();
                 LogPrintf("CreateNewBlock ERROR: Assembled quorum signature failed Verify() (%u/%u shares) for block %s\n",
                           static_cast<unsigned int>(qsig.signatures.size()), static_cast<unsigned int>(nThreshold), qsig.blockHash.ToString());
                 return nullptr;
@@ -3186,14 +3237,16 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 CBLSSecretKey coordBlsKey;
                 bool fCoordOpOnly = false;
                 isCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwallet, pindexPrev->nHeight + 1, coordKey, coordBlsKey, fCoordOpOnly, pindexPrev);
+                const bool fWasPrimaryCoordinator = isCoordinator;
                 // Fallback coordinator election over time using PoBLS Ticket XOR Distance ranking
-                if (!isCoordinator && !vExpectedMiners.empty()) {
+                if (!vExpectedMiners.empty()) {
                     CBlockHeader dummyHeader;
                     int nNextHeight = pindexPrev->nHeight + 1;
                     dummyHeader.nVersion = consensus.NetworkUpgradeActive(nNextHeight, Consensus::UPGRADE_POMBL) ? 12 : 11;
                     UpdateTime(&dummyHeader, pindexPrev);
                     int64_t timeElapsed = dummyHeader.GetBlockTime() - pindexPrev->GetBlockTime();
-                    if (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+                    const bool fFallbackWindow = !Params().IsRegTestNet() && (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
+                    if ((fFallbackWindow || !isCoordinator) && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
                         std::map<CPubKey, std::vector<unsigned char>> currentSols;
                         {
                             LOCK(cs_adam_solutions);
@@ -3211,25 +3264,16 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                             nBits, dummyHeader.nVersion, vExpectedMiners, vStandbyMiners,
                             currentSols, vResolvedMiners, vResolvedSols, nAvailSols,
                             nullptr, nullptr, nullptr);
-                        std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
-                        for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
-                            if (!vResolvedSols[i].empty()) {
-                                verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
-                            }
-                        }
-                        CPubKey fallbackCoordinator, prevFallback;
+                        const auto verifiedSols = BuildVerifiedSolutionsMap(vResolvedMiners, vResolvedSols);
+                        CPubKey fallbackCoordinator;
+                        bool ownsFallback = false;
                         int rotationIndex = 0;
                         const std::vector<CPubKey>& vFbPool = !vExpectedMiners.empty()
                             ? vExpectedMiners : vResolvedMiners;
-                        if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
-                            CKey fallbackKey;
-                            CBLSSecretKey fallbackBlsKey;
-                            bool fFbOpOnly = false;
-                            if (ResolveLocalSigningKey(fallbackCoordinator, pwallet, nNextHeight, fallbackKey, fallbackBlsKey, fFbOpOnly, pindexPrev)) {
-                                isCoordinator = true;
-                                expectedCoordinator = fallbackCoordinator;
-                            }
-                            if (isCoordinator) {
+                        if (TrySelectFallbackSlotCoordinator(adamSeed, nNextHeight, timeElapsed, vFbPool, verifiedSols, pindexPrev, pwallet, fallbackCoordinator, ownsFallback, rotationIndex)) {
+                            expectedCoordinator = fallbackCoordinator;
+                            isCoordinator = ownsFallback;
+                            if (isCoordinator && !fWasPrimaryCoordinator) {
                                 static uint256 lastLoggedPoWTip;
                                 static int lastLoggedPoWRot = -1;
                                 if (lastLoggedPoWTip != pindexPrev->GetBlockHash() || lastLoggedPoWRot != rotationIndex) {
@@ -3336,29 +3380,24 @@ void BitcoinMiner(CWallet* pwallet, bool fProofOfStake)
                 }
 
                 bool fFallbackMode = !consensus.NetworkUpgradeActive(nHeight, Consensus::UPGRADE_POMBL) && IsAdamActive(nHeight, consensus);
-                bool fAllowCoordinatorRotation = fFallbackMode || (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
+                const bool fFallbackWindow = !Params().IsRegTestNet() && (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
+                bool fAllowCoordinatorRotation = fFallbackMode || fFallbackWindow || (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
                 CKey coordKey;
                 CBLSSecretKey coordBlsKey;
                 bool fCoordOpOnly = false;
                 bool isCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwallet, nHeight, coordKey, coordBlsKey, fCoordOpOnly, pindexPrev);
-                if (!isCoordinator && fAllowCoordinatorRotation && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS && !vResolvedMiners.empty()) {
-                    std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
-                    for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
-                        if (!vResolvedSols[i].empty()) {
-                            verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
-                        }
-                    }
-                    CPubKey fallbackCoordinator, prevFallback;
+                const bool fWasPrimaryCoordinator = isCoordinator;
+                if ((fFallbackWindow || !isCoordinator) && fAllowCoordinatorRotation && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS && !vResolvedMiners.empty()) {
+                    const auto verifiedSols = BuildVerifiedSolutionsMap(vResolvedMiners, vResolvedSols);
+                    CPubKey fallbackCoordinator;
+                    bool ownsFallback = false;
                     int rotationIndex = 0;
                     const std::vector<CPubKey>& vFbPool = !vExpectedMiners.empty()
                         ? vExpectedMiners : vResolvedMiners;
-                    if (GetAdamFallbackCoordinatorForSlot(adamSeed, nHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
+                    if (TrySelectFallbackSlotCoordinator(adamSeed, nHeight, timeElapsed, vFbPool, verifiedSols, pindexPrev, pwallet, fallbackCoordinator, ownsFallback, rotationIndex)) {
                         expectedCoordinator = fallbackCoordinator;
-                        CKey fallbackKey;
-                        CBLSSecretKey fallbackBlsKey;
-                        bool fFbOpOnly = false;
-                        if (ResolveLocalSigningKey(fallbackCoordinator, pwallet, nHeight, fallbackKey, fallbackBlsKey, fFbOpOnly, pindexPrev)) {
-                            isCoordinator = true;
+                        isCoordinator = ownsFallback;
+                        if (isCoordinator && !fWasPrimaryCoordinator) {
                             static uint256 lastLoggedPoSTip;
                             static int lastLoggedPoSRot = -1;
                             if (lastLoggedPoSTip != pindexPrev->GetBlockHash() || lastLoggedPoSRot != rotationIndex) {
@@ -3674,29 +3713,21 @@ void TryAssembleCoordinatorBlockAsync(const uint256& tipHash)
                 return;
             }
 
+            const bool fFallbackWindow = !Params().IsRegTestNet() && (timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS);
             CKey coordKey;
             CBLSSecretKey coordBlsKey;
             bool fCoordOpOnly = false;
             bool isCoordinator = ResolveLocalSigningKey(expectedCoordinator, pwalletMain, nNextHeight, coordKey, coordBlsKey, fCoordOpOnly, pindexPrev);
-            if (!isCoordinator && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS && !vResolvedMiners.empty()) {
-                std::map<CPubKey, std::vector<unsigned char>> verifiedSols;
-                for (size_t i = 0; i < vResolvedMiners.size() && i < vResolvedSols.size(); ++i) {
-                    if (!vResolvedSols[i].empty()) {
-                        verifiedSols[vResolvedMiners[i]] = vResolvedSols[i];
-                    }
-                }
-                CPubKey fallbackCoordinator, prevFallback;
+            if ((fFallbackWindow || !isCoordinator) && timeElapsed >= ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS && !vResolvedMiners.empty()) {
+                const auto verifiedSols = BuildVerifiedSolutionsMap(vResolvedMiners, vResolvedSols);
+                CPubKey fallbackCoordinator;
+                bool ownsFallback = false;
                 int rotationIndex = 0;
                 const std::vector<CPubKey>& vFbPool = !vExpectedMiners.empty()
                     ? vExpectedMiners : vResolvedMiners;
-                if (GetAdamFallbackCoordinatorForSlot(adamSeed, nNextHeight, timeElapsed, vFbPool, verifiedSols, fallbackCoordinator, prevFallback, rotationIndex, pindexPrev)) {
-                    CKey fallbackKey;
-                    CBLSSecretKey fallbackBlsKey;
-                    bool fFbOpOnly = false;
-                    if (ResolveLocalSigningKey(fallbackCoordinator, pwalletMain, nNextHeight, fallbackKey, fallbackBlsKey, fFbOpOnly, pindexPrev)) {
-                        isCoordinator = true;
-                        expectedCoordinator = fallbackCoordinator;
-                    }
+                if (TrySelectFallbackSlotCoordinator(adamSeed, nNextHeight, timeElapsed, vFbPool, verifiedSols, pindexPrev, pwalletMain, fallbackCoordinator, ownsFallback, rotationIndex)) {
+                    expectedCoordinator = fallbackCoordinator;
+                    isCoordinator = ownsFallback;
                 }
             }
 

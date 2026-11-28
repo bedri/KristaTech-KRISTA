@@ -89,14 +89,23 @@ void ClearQuorumCache();
 // Retrieve private key for a masternode (local or deterministic regtest)
 bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key);
 
-/** A quorum member signs at most one block per parent from competing coordinators within this window
- *  (one PoBLS fallback rotation slice), preventing two equal-height blocks from both reaching threshold. */
-static const int64_t QUORUM_EQUIVOCATION_GUARD_SECS = 45;
+/** A quorum member signs at most one block per parent within the active proposal slot window,
+ *  using a local guard strictly shorter than the 30s PoBLS fallback slice so modest clock skew
+ *  never spills across fallback rotations. */
+static const int64_t QUORUM_EQUIVOCATION_GUARD_SECS = 25;
 
-/** Anti-equivocation guard for local quorum signing. Returns true (and records the decision) if this node may
- *  sign blockHash proposed by coordinator on top of prevHash; returns false if a different block from a
- *  different coordinator on the same parent was already signed less than QUORUM_EQUIVOCATION_GUARD_SECS ago. */
-bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, const uint256& blockHash);
+/** Minimum local dwell time before a quorum member switches to a strictly higher proposal slot. */
+static const int64_t QUORUM_MIN_SLOT_SETTLE_SECS = 15;
+
+/** Compute the deterministic PoBLS proposal slot index for a candidate block timestamp on top of prevTime.
+ *  Returns 0 during the primary coordinator window (< ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS),
+ *  and 1 + (elapsed - 45) / 30 for subsequent PoBLS fallback rotation slices. */
+int64_t ComputeQuorumProposalSlot(int64_t nParentBlockTime, int64_t nProposalBlockTime);
+
+/** Anti-equivocation and slot-aligned view-change guard for local quorum signing. Returns true (and records
+ *  the decision) if this node may sign blockHash proposed by coordinator on top of prevHash; refuses same-slot
+ *  equivocation, displaced hashes, locked proposals, and rapid sub-settle slot switches. */
+bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, const uint256& blockHash, int64_t nProposalSlot = -1, int64_t nNowOverride = -1);
 
 } // namespace llmq
 

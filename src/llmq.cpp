@@ -589,23 +589,131 @@ bool GetMasternodePrivKey(const CPubKey& pubKey, CKey& key)
 }
 
 namespace {
+static const int64_t QUORUM_FALLBACK_ROTATION_SLICE_SECS = 30;
+
+struct CoordProposalRecord {
+    uint256 blockHash;
+    int64_t nSlot{-1};
+    int64_t nTime{0};
+    CoordProposalRecord() = default;
+    CoordProposalRecord(const uint256& hashIn, int64_t slotIn, int64_t timeIn)
+        : blockHash(hashIn), nSlot(slotIn), nTime(timeIn) {}
+};
+
 struct SignedProposal {
     uint256 blockHash;
     CPubKey coordinator;
     int64_t nTime{0};
-    std::map<CPubKey, uint256> mapCoordBlockHash;
+    int64_t nSlot{-1};
+    std::map<CPubKey, CoordProposalRecord> mapCoordProposals;
     std::set<uint256> rejectedBlocks;
 };
 RecursiveMutex cs_signed_proposals;
 std::map<uint256, SignedProposal> mapSignedProposalByPrev;
+
+bool IsAnyProposalLocked(const uint256& prevHash, const std::vector<uint256>& vCandidates)
+{
+    if (vCandidates.empty()) {
+        return false;
+    }
+    CBlockIndex* pPrevIdx = nullptr;
+    {
+        LOCK(cs_main);
+        for (const uint256& candHash : vCandidates) {
+            if (!candHash.IsNull() && mapBlockIndex.count(candHash) > 0) {
+                return true;
+            }
+        }
+        auto miPrev = mapBlockIndex.find(prevHash);
+        if (miPrev != mapBlockIndex.end()) {
+            pPrevIdx = miPrev->second;
+        }
+    }
+
+    size_t nMaxShares = 0;
+    {
+        LOCK(cs_quorum_sigs);
+        for (const uint256& candHash : vCandidates) {
+            if (candHash.IsNull()) {
+                continue;
+            }
+            auto itSigs = mapQuorumBlockSigs.find(candHash);
+            if (itSigs != mapQuorumBlockSigs.end()) {
+                nMaxShares = std::max(nMaxShares, itSigs->second.size());
+            }
+        }
+    }
+    if (nMaxShares == 0) {
+        return false;
+    }
+
+    int nEvalHeight = pPrevIdx ? (pPrevIdx->nHeight + 1) : 1;
+    size_t nQuorumSize = 5;
+    if (pPrevIdx) {
+        const CQuorum q = GetActiveQuorum(nEvalHeight, pPrevIdx);
+        if (!q.members.empty()) {
+            nQuorumSize = q.members.size();
+        }
+    }
+    return nMaxShares >= GetQuorumThreshold(nQuorumSize);
+}
+
+bool CanCoordAdvanceSlot(const SignedProposal& prev, const CPubKey& coordinator, int64_t nProposalSlot, int64_t now, std::string* pReasonOut = nullptr, CoordProposalRecord* pPriorRecOut = nullptr)
+{
+    auto itCoord = prev.mapCoordProposals.find(coordinator);
+    if (itCoord == prev.mapCoordProposals.end()) {
+        return true;
+    }
+    const CoordProposalRecord& rec = itCoord->second;
+    if (pPriorRecOut) {
+        *pPriorRecOut = rec;
+    }
+    if (nProposalSlot >= 0 && rec.nSlot >= 0 && nProposalSlot > rec.nSlot &&
+        (now - rec.nTime) >= QUORUM_MIN_SLOT_SETTLE_SECS) {
+        return true;
+    }
+    if (pReasonOut) {
+        *pReasonOut = strprintf("coordinator already signed different block %s (slot %lld vs %lld, %llds ago)",
+            rec.blockHash.ToString(), (long long)rec.nSlot, (long long)nProposalSlot, (long long)(now - rec.nTime));
+    }
+    return false;
+}
+
+bool CanViewChangePrev(const SignedProposal& prev, const CPubKey& coordinator, int64_t nProposalSlot, int64_t now)
+{
+    if (nProposalSlot >= 0 && prev.nSlot >= 0) {
+        return nProposalSlot > prev.nSlot && (now - prev.nTime) >= QUORUM_MIN_SLOT_SETTLE_SECS;
+    }
+    return coordinator != prev.coordinator && (now - prev.nTime) >= QUORUM_EQUIVOCATION_GUARD_SECS;
+}
+
+void RecordAcceptedProposal(SignedProposal& prev, const uint256& blockHash, const CPubKey& coordinator, int64_t nProposalSlot, int64_t now, bool fDisplacePrev)
+{
+    if (fDisplacePrev && prev.blockHash != blockHash) {
+        prev.rejectedBlocks.insert(prev.blockHash);
+    }
+    prev.blockHash = blockHash;
+    prev.coordinator = coordinator;
+    prev.nTime = now;
+    prev.nSlot = nProposalSlot;
+    prev.mapCoordProposals[coordinator] = CoordProposalRecord{blockHash, nProposalSlot, now};
+}
 } // namespace
 
-bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, const uint256& blockHash)
+int64_t ComputeQuorumProposalSlot(int64_t nParentBlockTime, int64_t nProposalBlockTime)
 {
-    const int64_t now = GetTime();
+    const int64_t elapsed = std::max<int64_t>(0, nProposalBlockTime - nParentBlockTime);
+    if (elapsed < ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) {
+        return 0;
+    }
+    return 1 + (elapsed - ADAM_FALLBACK_COORDINATOR_TIMEOUT_SECS) / QUORUM_FALLBACK_ROTATION_SLICE_SECS;
+}
+
+bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, const uint256& blockHash, int64_t nProposalSlot, int64_t nNowOverride)
+{
+    const int64_t now = (nNowOverride >= 0) ? nNowOverride : GetTime();
     uint256 prevHashCandidate;
-    CPubKey prevCoordinator;
-    int64_t prevTime = 0;
+    uint256 coordPriorHashCandidate;
 
     {
         LOCK(cs_signed_proposals);
@@ -629,86 +737,49 @@ bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, c
         auto it = mapSignedProposalByPrev.find(prevHash);
         if (it == mapSignedProposalByPrev.end()) {
             SignedProposal sp;
-            sp.blockHash = blockHash;
-            sp.coordinator = coordinator;
-            sp.nTime = now;
-            sp.mapCoordBlockHash.emplace(coordinator, blockHash);
+            RecordAcceptedProposal(sp, blockHash, coordinator, nProposalSlot, now, false);
             mapSignedProposalByPrev.emplace(prevHash, std::move(sp));
             return true;
         }
         SignedProposal& prev = it->second;
-        auto itCoord = prev.mapCoordBlockHash.find(coordinator);
-        if (itCoord != prev.mapCoordBlockHash.end() && itCoord->second != blockHash) {
-            LogPrintf("%s: Refusing equivocating block %s from coordinator %s on parent %s: coordinator already signed different block %s\n",
-                __func__, blockHash.ToString(), coordinator.GetID().ToString(), prevHash.ToString(), itCoord->second.ToString());
-            return false;
-        }
         if (prev.rejectedBlocks.count(blockHash) > 0) {
             LogPrintf("%s: Refusing displaced block %s from coordinator %s on parent %s\n",
                 __func__, blockHash.ToString(), coordinator.GetID().ToString(), prevHash.ToString());
             return false;
         }
         if (prev.blockHash == blockHash) {
-            prev.mapCoordBlockHash.emplace(coordinator, blockHash);
+            prev.mapCoordProposals.emplace(coordinator, CoordProposalRecord{blockHash, nProposalSlot, now});
             return true; // re-broadcast / duplicate of the current signed block
         }
-        if (coordinator == prev.coordinator || now - prev.nTime < QUORUM_EQUIVOCATION_GUARD_SECS) {
-            LogPrintf("%s: Refusing to sign block %s from coordinator %s on parent %s: already signed block %s from coordinator %s %ds ago\n",
-                __func__, blockHash.ToString(), coordinator.GetID().ToString(), prevHash.ToString(),
-                prev.blockHash.ToString(), prev.coordinator.GetID().ToString(), (int)(now - prev.nTime));
+        std::string strCoordReason;
+        CoordProposalRecord priorRec;
+        if (!CanCoordAdvanceSlot(prev, coordinator, nProposalSlot, now, &strCoordReason, &priorRec)) {
+            LogPrintf("%s: Refusing equivocating block %s from coordinator %s on parent %s: %s\n",
+                __func__, blockHash.ToString(), coordinator.GetID().ToString(), prevHash.ToString(), strCoordReason);
+            return false;
+        }
+        if (!CanViewChangePrev(prev, coordinator, nProposalSlot, now)) {
+            LogPrintf("%s: Refusing to sign block %s from coordinator %s (slot %lld) on parent %s: already signed block %s from coordinator %s (slot %lld) %llds ago\n",
+                __func__, blockHash.ToString(), coordinator.GetID().ToString(), (long long)nProposalSlot, prevHash.ToString(),
+                prev.blockHash.ToString(), prev.coordinator.GetID().ToString(), (long long)prev.nSlot, (long long)(now - prev.nTime));
             return false;
         }
         prevHashCandidate = prev.blockHash;
-        prevCoordinator = prev.coordinator;
-        prevTime = prev.nTime;
+        coordPriorHashCandidate = priorRec.blockHash;
     }
 
-    // Outside cs_signed_proposals: check whether the prior proposal already received threshold shares or entered mapBlockIndex.
-    bool fPrevLocked = false;
-    CBlockIndex* pPrevIdx = nullptr;
-    {
-        LOCK(cs_main);
-        if (mapBlockIndex.count(prevHashCandidate) > 0) {
-            fPrevLocked = true;
-        } else {
-            auto miPrev = mapBlockIndex.find(prevHash);
-            if (miPrev != mapBlockIndex.end()) {
-                pPrevIdx = miPrev->second;
-            }
-        }
+    // Outside cs_signed_proposals: check whether the prior proposal(s) already reached quorum lock or entered mapBlockIndex.
+    std::vector<uint256> vCandidates{prevHashCandidate};
+    if (!coordPriorHashCandidate.IsNull() && coordPriorHashCandidate != prevHashCandidate) {
+        vCandidates.push_back(coordPriorHashCandidate);
     }
-    if (!fPrevLocked) {
-        size_t nShares = 0;
-        {
-            LOCK(cs_quorum_sigs);
-            auto itSigs = mapQuorumBlockSigs.find(prevHashCandidate);
-            if (itSigs != mapQuorumBlockSigs.end()) {
-                nShares = itSigs->second.size();
-            }
-        }
-        if (nShares > 0) {
-            int nEvalHeight = pPrevIdx ? (pPrevIdx->nHeight + 1) : 1;
-            size_t nQuorumSize = 5;
-            if (pPrevIdx) {
-                const CQuorum q = GetActiveQuorum(nEvalHeight, pPrevIdx);
-                if (!q.members.empty()) {
-                    nQuorumSize = q.members.size();
-                }
-            }
-            if (nShares >= GetQuorumThreshold(nQuorumSize)) {
-                fPrevLocked = true;
-            }
-        }
-    }
+    const bool fPrevLocked = IsAnyProposalLocked(prevHash, vCandidates);
 
     LOCK(cs_signed_proposals);
     auto it = mapSignedProposalByPrev.find(prevHash);
     if (it == mapSignedProposalByPrev.end()) {
         SignedProposal sp;
-        sp.blockHash = blockHash;
-        sp.coordinator = coordinator;
-        sp.nTime = now;
-        sp.mapCoordBlockHash.emplace(coordinator, blockHash);
+        RecordAcceptedProposal(sp, blockHash, coordinator, nProposalSlot, now, false);
         mapSignedProposalByPrev.emplace(prevHash, std::move(sp));
         return true;
     }
@@ -724,12 +795,9 @@ bool AllowQuorumSignature(const uint256& prevHash, const CPubKey& coordinator, c
     if (prev.rejectedBlocks.count(blockHash) > 0) {
         return false;
     }
-    if (coordinator != prev.coordinator && now - prev.nTime >= QUORUM_EQUIVOCATION_GUARD_SECS) {
-        prev.rejectedBlocks.insert(prev.blockHash);
-        prev.blockHash = blockHash;
-        prev.coordinator = coordinator;
-        prev.nTime = now;
-        prev.mapCoordBlockHash[coordinator] = blockHash;
+    if (CanCoordAdvanceSlot(prev, coordinator, nProposalSlot, now) &&
+        CanViewChangePrev(prev, coordinator, nProposalSlot, now)) {
+        RecordAcceptedProposal(prev, blockHash, coordinator, nProposalSlot, now, true);
         return true;
     }
     return false;
